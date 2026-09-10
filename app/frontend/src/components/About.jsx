@@ -43,11 +43,11 @@ const teamMembers = [
   },
   {
     id: "member-5",
-    name: "Team Member 5",
+    name: "Om Pandya",
     role: "Team Lead, AI Master",
     image: "",
     bio: "Coordinates the team's roadmap and deliverables while contributing to the machine learning side of the project.",
-    github: "",
+    github: "https://github.com/Atom3798",
   },
   {
     id: "member-6",
