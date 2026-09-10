@@ -59,11 +59,11 @@ const teamMembers = [
   },
   {
     id: "member-7",
-    name: "Team Member 7",
+    name: "Marco Garcia",
     role: "Back-End Lead",
     image: "",
-    bio: "Models the database schema, writes queries, and keeps our server-side data consistent as the app grows.",
-    github: "",
+    bio: "Sets up the FastAPI backend and Supabase database integration, and keeps our data layer and API endpoints working end to end.",
+    github: "https://github.com/MarcoGarcia650",
   },
 ];
 
