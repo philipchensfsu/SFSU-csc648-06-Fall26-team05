@@ -51,7 +51,25 @@ SFSU-csc648-06-Fall26-team05/
 ```
 
 ## Initial Setup
-[To be added once tech stack is finalized — e.g. dependency installation, environment variables, local server setup]
+
+### Backend (FastAPI)
+```
+cd app/backend
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env   # fill in your Supabase project URL + service_role key
+uvicorn main:app --reload
+```
+
+### Frontend (Next.js)
+```
+cd app/frontend
+cp .env.local.example .env.local   # fill in your Supabase project URL + anon key
+npm install
+npm run dev
+```
+
+Supabase credentials come from your project's **Settings > API** page. Never commit `.env` / `.env.local` files — they're covered by `.gitignore`.
 
 ## Cloning the Repository
 ```
@@ -74,6 +92,6 @@ cd SFSU-csc648-06-Fall26-team05
 5. Delete the feature branch after merging
 
 ## Tech Stack
-- Frontend: [TBD]
-- Backend: [TBD]
-- Database: [TBD]
+- Frontend: Next.js / React, hosted on Vercel
+- Backend: Python + FastAPI, deployed as Vercel serverless functions
+- Database / Auth: Supabase
