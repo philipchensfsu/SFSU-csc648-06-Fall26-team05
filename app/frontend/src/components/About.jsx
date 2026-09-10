@@ -35,11 +35,11 @@ const teamMembers = [
   },
   {
     id: "member-4",
-    name: "Team Member 4",
+    name: "Vineela Vandanapu",
     role: "Back-End Lead",
     image: "",
     bio: "Designs the server-side architecture and API endpoints that connect the interface to our data layer.",
-    github: "",
+    github: "https://github.com/whichcat",
   },
   {
     id: "member-5",
