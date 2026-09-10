@@ -27,11 +27,11 @@ const teamMembers = [
   },
   {
     id: "member-3",
-    name: "Team Member 3",
+    name: "Leman Yuksel",
     role: "Scrum Master",
     image: "",
     bio: "Runs our standups and sprint planning, tracks the backlog, and keeps every milestone moving on schedule.",
-    github: "",
+    github: "https://github.com/LemanYuksel",
   },
   {
     id: "member-4",
