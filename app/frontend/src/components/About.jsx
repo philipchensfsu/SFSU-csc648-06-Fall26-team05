@@ -19,7 +19,7 @@ const teamMembers = [
   },
   {
     id: "member-2",
-    name: "Team Member 2",
+    name: "Giovannie Silva",
     role: "AI Master",
     image: "",
     bio: "Researches and integrates the machine learning features that power the smarter parts of our application.",
