@@ -68,8 +68,8 @@ const teamMembers = [
 ];
 
 const meetings = [
-  { day: "Tuesdays", time: "6:00 PM - 7:00 PM", location: "Zoom" },
-  { day: "Saturdays", time: "11:00 AM - 12:00 PM", location: "Zoom" },
+  { day: "Tuesdays", time: "2:30 PM - 3:45 PM", location: "In-Class" },
+  { day: "Thursdays", time: "1:30 PM - 3:30 PM", location: "In-Person, Peninsula" },
 ];
 
 function handleImageError(event) {
