@@ -9,6 +9,8 @@ San Francisco State University
 - [Communication](#communication)
 - [Repository Structure](#repository-structure)
 - [Initial Setup](#initial-setup)
+- [Database](#database)
+- [Deployment](#deployment)
 - [Cloning the Repository](#cloning-the-repository)
 - [Branching Strategy](#branching-strategy)
 - [Pull Request & Merge Process](#pull-request--merge-process)
@@ -52,6 +54,11 @@ SFSU-csc648-06-Fall26-team05/
 
 ## Initial Setup
 
+### Required Software
+- [Node.js](https://nodejs.org/) 18 or newer (with npm)
+- [Python](https://www.python.org/) 3.11 or newer (with pip)
+- Git
+
 ### Backend (FastAPI)
 ```
 cd app/backend
@@ -87,6 +94,21 @@ To set up the schema on a fresh Supabase project: open **SQL Editor** in the Sup
 the contents of `app/backend/schema.sql`, and run it.
 
 TA/instructor database access is granted directly in the Supabase project (Project Settings > Team).
+
+## Deployment
+
+The app is deployed on **Vercel** as a single project (`csc-648/csc648-team05`) combining the frontend
+and backend:
+
+- **Live site:** https://csc648-team05.vercel.app
+- The Vite frontend builds as a static site; the FastAPI backend deploys as a Python serverless function
+- Routing is defined in [`vercel.json`](vercel.json) at the repo root: requests to `/api/*` go to the
+  backend, everything else is served by the frontend build
+- Environment variables (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `VITE_SUPABASE_URL`,
+  `VITE_SUPABASE_ANON_KEY`) are set directly in the Vercel project settings, not committed to the repo
+- Deploys are currently manual via the [Vercel CLI](https://vercel.com/docs/cli) (`vercel deploy --prod`)
+  run from the repo root; auto-deploy on push requires connecting the GitHub repo in the Vercel
+  dashboard (Project > Settings > Git)
 
 ## Cloning the Repository
 ```
