@@ -12,7 +12,6 @@ def health():
 
 @app.get("/api/health/db")
 def health_db():
-    # Simple query to confirm the Supabase connection works.
-    # Replace "healthcheck" once real tables exist.
-    response = supabase.table("healthcheck").select("*").limit(1).execute()
+    # Confirms the Supabase connection works by querying the real schema.
+    response = supabase.table("prds").select("*").limit(1).execute()
     return {"status": "ok", "sample": response.data}

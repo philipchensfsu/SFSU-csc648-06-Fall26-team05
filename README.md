@@ -71,6 +71,23 @@ npm run dev
 
 Supabase credentials come from your project's **Settings > API** page. Never commit `.env` / `.env.local` files — they're covered by `.gitignore`.
 
+## Database
+
+We use **Supabase (PostgreSQL)** for auth and data storage. The schema is defined in
+[`app/backend/schema.sql`](app/backend/schema.sql) and covers the core product flow for M0: a PM signs
+in, submits product/feature context, and the app generates a PRD from it.
+
+- **`profiles`** — one row per authenticated user (extends Supabase's built-in `auth.users`)
+- **`prds`** — one row per generated Product Requirements Document, linked to the user who created it
+
+Both tables have Row Level Security enabled so a user can only read/write their own rows. Multi-project
+support, PRD versioning, and org/team features are intentionally out of scope for now.
+
+To set up the schema on a fresh Supabase project: open **SQL Editor** in the Supabase dashboard, paste
+the contents of `app/backend/schema.sql`, and run it.
+
+TA/instructor database access is granted directly in the Supabase project (Project Settings > Team).
+
 ## Cloning the Repository
 ```
 git clone https://github.com/philipchensfsu/SFSU-csc648-06-Fall26-team05.git
