@@ -51,11 +51,11 @@ const teamMembers = [
   },
   {
     id: "member-6",
-    name: "Team Member 6",
+    name: "Philip Chen",
     role: "GitHub Master",
     image: "",
     bio: "Maintains the repository, enforces our branching strategy, and reviews pull requests before they reach main.",
-    github: "",
+    github: "https://github.com/philipchensfsu",
   },
   {
     id: "member-7",
