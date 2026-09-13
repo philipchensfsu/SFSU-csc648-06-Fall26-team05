@@ -68,7 +68,7 @@ cp .env.example .env   # fill in your Supabase project URL + service_role key
 uvicorn main:app --reload
 ```
 
-### Frontend (Next.js)
+### Frontend (React + Vite)
 ```
 cd app/frontend
 cp .env.local.example .env.local   # fill in your Supabase project URL + anon key
@@ -131,6 +131,6 @@ cd SFSU-csc648-06-Fall26-team05
 5. Delete the feature branch after merging
 
 ## Tech Stack
-- Frontend: Next.js / React, hosted on Vercel
+- Frontend: React + Vite, hosted on Vercel
 - Backend: Python + FastAPI, deployed as Vercel serverless functions
 - Database / Auth: Supabase
