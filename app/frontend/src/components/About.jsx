@@ -23,7 +23,7 @@ const teamMembers = [
     role: "AI Master",
     image: "",
     bio: "Researches and integrates the machine learning features that power the smarter parts of our application.",
-    github: "",
+    github: "https://github.com/Gsilva-code",
   },
   {
     id: "member-3",
