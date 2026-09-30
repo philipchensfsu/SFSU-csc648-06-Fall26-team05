@@ -5,6 +5,7 @@ San Francisco State University
 
 ## Table of Contents
 - [Project Overview](#project-overview)
+- [Milestones](#milestones)
 - [Team Members](#team-members)
 - [Communication](#communication)
 - [Repository Structure](#repository-structure)
@@ -17,7 +18,20 @@ San Francisco State University
 - [Tech Stack](#tech-stack)
 
 ## Project Overview
-[In Progress]
+**Specced** is an AI-assisted web app that helps product managers, founders, and students write
+Product Requirements Documents (PRDs). Users answer a short guided interview about their product idea,
+and the app generates a structured PRD draft they can review, edit, and save.
+
+## Milestones
+
+| Milestone | Description | Status | Document |
+|-----------|-------------|--------|----------|
+| M0 | Team Formation & Tool Selection | ✅ Completed | [M0 Report](milestones/m0/CSC%20648-848%20M0%20section%206%20Team%205.docx) |
+| M1 | User Stories & High-Level Requirements | ✅ Completed (submitted 9/29/2026) | [M1 Report](milestones/m1/CSC_648-848_M1_section_6_Team_5.pdf) |
+| M2 | TBD | ⏳ Upcoming | |
+| M3 | TBD | ⏳ Upcoming | |
+| M4 | TBD | ⏳ Upcoming | |
+| M5 | TBD | ⏳ Upcoming | |
 
 ## Team Members
 
@@ -27,12 +41,12 @@ San Francisco State University
 | Giovannie Silva    | Gsilva-code       | AI Master                        |
 | Leman Yuksel       | LemanYuksel       | Scrum Master                     |
 | Marco Garcia       | MarcoGarcia650    | Back-End Lead                    |
-| Om Pandya          | Atom3798          | Team Lead, AI Master              |
+| Om Pandya          | Atom3798          | Team Lead, AI Master             |
 | Philip Chen        | philipchensfsu    | GitHub Master                    |
 | Vineela Vandanapu  | whichcat          | Back-End Lead                    |
 
 ## Communication
-Our team primarily communicates via **Slack**. All project-related discussions, updates, and questions are posted there.
+Our team primarily communicates via **Discord**. All project-related discussions, updates, and questions are posted there.
 
 ## Repository Structure
 
