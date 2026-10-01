@@ -27,7 +27,7 @@ and the app generates a structured PRD draft they can review, edit, and save.
 | Milestone | Description | Status | Document |
 |-----------|-------------|--------|----------|
 | M0 | Team Formation & Tool Selection | ✅ Completed | [M0 Report](milestones/m0/CSC%20648-848%20M0%20section%206%20Team%205.docx) |
-| M1 | User Stories & High-Level Requirements | ✅ Completed (submitted 9/29/2026) | [M1 Report](milestones/m1/CSC_648-848_M1_section_6_Team_5.pdf) |
+| M1 | User Stories & High-Level Requirements | ✅ Completed (submitted 9/29/2026) | [M1 Report](milestones/m1/CSC%20648-848%20M1%20section%206%20Team%205.pdf) |
 | M2 | TBD | ⏳ Upcoming | |
 | M3 | TBD | ⏳ Upcoming | |
 | M4 | TBD | ⏳ Upcoming | |
