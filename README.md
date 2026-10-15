@@ -95,17 +95,30 @@ Supabase credentials come from your project's **Settings > API** page. Never com
 ## Database
 
 We use **Supabase (PostgreSQL)** for auth and data storage. The schema is defined in
-[`app/backend/schema.sql`](app/backend/schema.sql) and covers the core product flow for M0: a PM signs
-in, submits product/feature context, and the app generates a PRD from it.
+[`app/backend/schema.sql`](app/backend/schema.sql) and implements Data Definitions V2 (see the M2
+report) for the full PRD-authoring flow: guided intake, AI generation, editing, versioning, and uploads.
 
-- **`profiles`** — one row per authenticated user (extends Supabase's built-in `auth.users`)
-- **`prds`** — one row per generated Product Requirements Document, linked to the user who created it
+- **`profile`** — one row per authenticated user (extends Supabase's built-in `auth.users`); carries the
+  `pm` / `engineer` / `admin` role that drives access control
+- **`project`** — an optional folder grouping PRDs
+- **`prd`** — the primary document: content, editor state, status, and the currently active version
+- **`intake_answer`** — one row per guided-wizard question answered for a PRD
+- **`attachment`** — metadata for files uploaded to a PRD (the files themselves live in Supabase Storage)
+- **`prd_context`** — the AI's durable per-PRD memory (decisions, constraints, running summary)
+- **`source`** — citations/URLs attached to a PRD
+- **`prd_version`** — snapshots for undo/version history, taken before every AI edit
+- **`generation_record`** — an audit log of AI generation attempts (not chat memory)
 
-Both tables have Row Level Security enabled so a user can only read/write their own rows. Multi-project
-support, PRD versioning, and org/team features are intentionally out of scope for now.
+All tables have Row Level Security enabled. Access follows the role table in the M2 report: PMs and
+admins create/edit/delete their own projects and PRDs, engineers can view PRDs with status `final` or
+`assigned`, and admins can see and manage everything. `project`/`prd` deletes cascade to their child
+rows at the database level; Storage files do not cascade and must be cleaned up by the backend
+separately.
 
 To set up the schema on a fresh Supabase project: open **SQL Editor** in the Supabase dashboard, paste
-the contents of `app/backend/schema.sql`, and run it.
+the contents of `app/backend/schema.sql`, and run it. It's a single idempotent-ish script — safe to
+re-run if no real data exists yet, since it drops the old M0 placeholder tables (`profiles`/`prds`)
+before creating the real ones.
 
 TA/instructor database access is granted directly in the Supabase project (Project Settings > Team).
 
