@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import "./prototype.css";
 import {
   INITIAL_PRDS,
@@ -7,6 +7,7 @@ import {
   draftSectionsFromAnswers,
   today,
 } from "./data";
+import { api } from "../../lib/api";
 import SignIn from "../components/SignIn";
 import Dashboard from "./screens/Dashboard";
 import CreatePrd from "./screens/CreatePrd";
@@ -26,8 +27,20 @@ function Prototype({ initialUser = null, onLogOut }) {
   const [projects, setProjects] = useState(INITIAL_PROJECTS);
   const [activePrdId, setActivePrdId] = useState(null);
   const [failGeneration, setFailGeneration] = useState(false);
+  const [projectsError, setProjectsError] = useState(null);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
+
+  // Projects have no shape mismatch with the real schema (id/name map
+  // directly), so they're wired to the backend for real. PRDs stay on mock
+  // data for now -- see the note on createPrd below for why.
+  useEffect(() => {
+    if (!user) return;
+    api
+      .listProjects()
+      .then((real) => setProjects(real))
+      .catch((error) => setProjectsError(error.message));
+  }, [user]);
 
   function go(nextScreen, prdId = activePrdId) {
     setActivePrdId(prdId);
@@ -185,11 +198,19 @@ function Prototype({ initialUser = null, onLogOut }) {
         onDelete={(id) =>
           setPrds((current) => current.filter((prd) => prd.id !== id))
         }
+        projectsError={projectsError}
         onCreateProject={(project) =>
-          setProjects((current) => [
-            ...current,
-            { id: `p${Date.now()}`, ...project },
-          ])
+          // `description` isn't in the project table yet (see Section 1.3 of
+          // the M2 report), so it's only kept in local UI state for now.
+          api
+            .createProject(project.name)
+            .then((created) =>
+              setProjects((current) => [
+                ...current,
+                { ...created, description: project.description },
+              ]),
+            )
+            .catch((error) => setProjectsError(error.message))
         }
       />
     );
