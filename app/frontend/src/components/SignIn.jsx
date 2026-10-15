@@ -1,10 +1,12 @@
 import { useState } from "react";
+import { supabase } from "../../lib/supabaseClient";
 import "./SignIn.css";
 
 function SignIn({ onSignIn }) {
   // "signin" shows the login form, "signup" shows the create-account form.
   const [mode, setMode] = useState("signin");
   const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const isSignUp = mode === "signup";
 
@@ -14,11 +16,13 @@ function SignIn({ onSignIn }) {
     setError("");
   }
 
-  // Stop the form from refreshing the page.
-  function handleSubmit(event) {
+  // Stop the form from refreshing the page, then sign in through Supabase.
+  async function handleSubmit(event) {
     event.preventDefault();
 
+    // Read the fields before awaiting -- the event is recycled after that.
     const form = event.currentTarget;
+    const email = form.email.value;
     const password = form.password.value;
 
     if (isSignUp && password !== form["confirm-password"].value) {
@@ -27,8 +31,24 @@ function SignIn({ onSignIn }) {
     }
 
     setError("");
-    // TODO: connect to Supabase auth once the project keys are configured.
-    onSignIn?.(form.email.value);
+
+    if (!supabase) {
+      setError("Sign-in is unavailable: Supabase keys are not configured.");
+      return;
+    }
+
+    setBusy(true);
+    const { error: authError } = isSignUp
+      ? await supabase.auth.signUp({ email, password })
+      : await supabase.auth.signInWithPassword({ email, password });
+    setBusy(false);
+
+    if (authError) {
+      setError(authError.message);
+      return;
+    }
+
+    onSignIn?.(email);
   }
 
   return (
@@ -82,8 +102,12 @@ function SignIn({ onSignIn }) {
             </p>
           )}
 
-          <button type="submit">
-            {isSignUp ? "Create account" : "Sign in"}
+          <button type="submit" disabled={busy}>
+            {busy
+              ? "Please wait…"
+              : isSignUp
+                ? "Create account"
+                : "Sign in"}
           </button>
         </form>
 

@@ -17,9 +17,11 @@ import Editor from "./screens/Editor";
 import ExportPrd from "./screens/ExportPrd";
 import ScreenJumper from "./ScreenJumper";
 
-function Prototype() {
-  const [user, setUser] = useState(null);
-  const [screen, setScreen] = useState("signin");
+// `initialUser` skips the sign-in screen when someone is already logged in;
+// `onLogOut` lets the app sign them out for real instead of just resetting.
+function Prototype({ initialUser = null, onLogOut }) {
+  const [user, setUser] = useState(initialUser);
+  const [screen, setScreen] = useState(initialUser ? "dashboard" : "signin");
   const [prds, setPrds] = useState(INITIAL_PRDS);
   const [projects, setProjects] = useState(INITIAL_PROJECTS);
   const [activePrdId, setActivePrdId] = useState(null);
@@ -47,6 +49,10 @@ function Prototype() {
   }
 
   function signOut() {
+    if (onLogOut) {
+      onLogOut();
+      return;
+    }
     setUser(null);
     go("signin", null);
   }
@@ -209,11 +215,14 @@ function Prototype() {
         </header>
       ) : null}
       {content}
-      <ScreenJumper
-        failGeneration={failGeneration}
-        onToggleFail={setFailGeneration}
-        onJump={jumpTo}
-      />
+      {/* Development-only shortcut panel; stripped from production builds. */}
+      {import.meta.env.DEV ? (
+        <ScreenJumper
+          failGeneration={failGeneration}
+          onToggleFail={setFailGeneration}
+          onJump={jumpTo}
+        />
+      ) : null}
     </div>
   );
 }
