@@ -7,6 +7,7 @@
     --muted: #5a6474;
     --line: #dfe4ec;
     --surface: #ffffff;
+    --danger: #b42318;
 
     min-height: 100vh;
     width: 100%;
@@ -115,4 +116,41 @@
     .signin-card h1 {
         font-size: 1.75rem;
     }
+}
+
+/* Validation message shown above the submit button. */
+.signin-card .signin-error {
+    margin: -0.5rem 0 1.25rem;
+    font-size: 0.875rem;
+    color: var(--danger);
+}
+
+/* "Don't have an account?" row under the form. */
+.signin-card .signin-switch {
+    margin: 1.25rem 0 0;
+    text-align: center;
+    font-size: 0.875rem;
+}
+
+/* Plain text link, not another brand-blue button. */
+.signin-card .signin-switch button {
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    background: none;
+    color: var(--brand);
+    font: inherit;
+    font-weight: 600;
+    text-decoration: underline;
+    cursor: pointer;
+}
+
+.signin-card .signin-switch button:hover {
+    background: none;
+    color: var(--brand-accent);
+}
+
+.signin-card .signin-switch button:focus-visible {
+    outline: 2px solid var(--brand-accent);
+    outline-offset: 2px;
 }
