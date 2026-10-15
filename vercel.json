@@ -12,6 +12,7 @@
   ],
   "routes": [
     { "src": "/api/(.*)", "dest": "app/backend/main.py" },
-    { "src": "/(.*)", "dest": "/app/frontend/$1" }
+    { "src": "/(.*\\.[^/]+)$", "dest": "/app/frontend/$1" },
+    { "src": "/(.*)", "dest": "/app/frontend/index.html" }
   ]
 }
