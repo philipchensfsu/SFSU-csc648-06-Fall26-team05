@@ -1,7 +1,7 @@
-import About from "./components/About";
+import Prototype from "./prototype/Prototype";
 
 function App() {
-  return <About />;
+  return <Prototype />;
 }
 
 export default App;
