@@ -154,3 +154,51 @@
     outline: 2px solid var(--brand-accent);
     outline-offset: 2px;
 }
+
+/* "or" rule between the email form and the Google button. */
+.signin-card .signin-divider {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin: 1.25rem 0;
+    font-size: 0.8125rem;
+    color: var(--muted);
+}
+
+.signin-card .signin-divider::before,
+.signin-card .signin-divider::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background-color: var(--line);
+}
+
+/* Secondary button: white with a border, not the brand blue. */
+.signin-card .signin-google {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.625rem;
+    width: 100%;
+    background-color: var(--surface);
+    border-color: var(--line);
+    color: var(--ink);
+}
+
+.signin-card .signin-google:hover:not(:disabled) {
+    background-color: var(--surface);
+    border-color: var(--brand);
+    color: var(--brand);
+}
+
+.signin-google-icon {
+    width: 18px;
+    height: 18px;
+    flex-shrink: 0;
+}
+
+/* Both buttons dim while a request is in flight. */
+.signin-card button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
