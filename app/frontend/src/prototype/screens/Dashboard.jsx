@@ -104,23 +104,25 @@ function Dashboard({
                 </span>
               </td>
               <td>{formatDate(prd.modified)}</td>
-              <td className="nt-row-actions">
-                <button
-                  type="button"
-                  className="nt-btn nt-btn-secondary nt-btn-sm"
-                  onClick={() => onOpen(prd)}
-                  aria-label={`Open ${prd.title}`}
-                >
-                  Open
-                </button>
-                <button
-                  type="button"
-                  className="nt-btn nt-btn-danger-ghost nt-btn-sm"
-                  onClick={() => setPendingDelete(prd)}
-                  aria-label={`Delete ${prd.title}`}
-                >
-                  Delete
-                </button>
+              <td>
+                <div className="nt-row-actions">
+                  <button
+                    type="button"
+                    className="nt-btn nt-btn-secondary nt-btn-sm"
+                    onClick={() => onOpen(prd)}
+                    aria-label={`Open ${prd.title}`}
+                  >
+                    Open
+                  </button>
+                  <button
+                    type="button"
+                    className="nt-btn nt-btn-danger-ghost nt-btn-sm"
+                    onClick={() => setPendingDelete(prd)}
+                    aria-label={`Delete ${prd.title}`}
+                  >
+                    Delete
+                  </button>
+                </div>
               </td>
             </tr>
           ))}

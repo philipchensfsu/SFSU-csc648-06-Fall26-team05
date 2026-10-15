@@ -7,7 +7,7 @@ import {
   draftSectionsFromAnswers,
   today,
 } from "./data";
-import { SignIn, SignUp } from "./screens/Auth";
+import SignIn from "../components/SignIn";
 import Dashboard from "./screens/Dashboard";
 import CreatePrd from "./screens/CreatePrd";
 import Interview from "./screens/Interview";
@@ -82,7 +82,7 @@ function Prototype() {
 
   function jumpTo(target) {
     const email = user ?? "student@sfsu.edu";
-    if (target === "signin" || target === "signup") {
+    if (target === "signin") {
       setUser(null);
       go(target, null);
       return;
@@ -116,12 +116,7 @@ function Prototype() {
 
   let content;
   if (!user) {
-    content =
-      screen === "signup" ? (
-        <SignUp onSignUp={signIn} onSwitch={() => go("signin")} />
-      ) : (
-        <SignIn onSignIn={signIn} onSwitch={() => go("signup")} />
-      );
+    content = <SignIn onSignIn={signIn} />;
   } else if (screen === "create") {
     content = (
       <CreatePrd

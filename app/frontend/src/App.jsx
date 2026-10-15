@@ -1,10 +1,10 @@
 import About from "./components/About";
-import SignIn from "./components/SignIn";
+import Prototype from "./prototype/Prototype";
 
 function App() {
-  // Show the sign-in page at /signin.
+  // The prototype starts on the sign-in page, then shows the PRD screens.
   if (window.location.pathname === "/signin") {
-    return <SignIn />;
+    return <Prototype />;
   }
 
   // Keep the existing About page at the main address.

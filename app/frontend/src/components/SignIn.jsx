@@ -1,7 +1,7 @@
 import { useState } from "react";
 import "./SignIn.css";
 
-function SignIn() {
+function SignIn({ onSignIn }) {
   // "signin" shows the login form, "signup" shows the create-account form.
   const [mode, setMode] = useState("signin");
   const [error, setError] = useState("");
@@ -28,6 +28,7 @@ function SignIn() {
 
     setError("");
     // TODO: connect to Supabase auth once the project keys are configured.
+    onSignIn?.(form.email.value);
   }
 
   return (

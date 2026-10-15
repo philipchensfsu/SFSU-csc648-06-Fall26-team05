@@ -2,7 +2,6 @@ import { useState } from "react";
 
 const SCREENS = [
   ["signin", "Sign in"],
-  ["signup", "Create account"],
   ["dashboard", "Dashboard"],
   ["dashboard-empty", "Dashboard (no PRDs)"],
   ["create", "Create a PRD"],

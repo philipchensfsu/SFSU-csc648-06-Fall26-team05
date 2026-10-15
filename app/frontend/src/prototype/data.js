@@ -1,7 +1,5 @@
 // Mock data for the UI prototype. Nothing here is persisted.
 
-export const TAKEN_EMAILS = ["taken@example.com", "demo@nautilus.app"];
-
 export const INITIAL_PROJECTS = [
   { id: "p1", name: "Student Apps", description: "Apps for campus life" },
   { id: "p2", name: "Capstone", description: "Senior capstone work" },
