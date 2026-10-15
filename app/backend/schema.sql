@@ -52,6 +52,35 @@ create trigger profile_set_updated_at
   before update on profile
   for each row execute function set_updated_at();
 
+-- Auto-create a profile row whenever someone signs up through Supabase Auth.
+-- Without this, a new auth.users row has no matching profile, and since
+-- every RLS policy keys off profile.role, that user could authenticate but
+-- couldn't create anything. Defaults new signups to 'pm' since the signup
+-- form has no role picker; engineer/admin roles are assigned by an admin
+-- afterward (e.g. via the Supabase dashboard) until a real admin UI exists.
+create or replace function handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profile (id, email, full_name, role)
+  values (
+    new.id,
+    new.email,
+    new.raw_user_meta_data ->> 'full_name',
+    'pm'
+  )
+  on conflict (id) do nothing;
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function handle_new_user();
+
 -- Looks up the caller's role. SECURITY DEFINER so it can read `profile`
 -- from inside that table's own RLS policies without recursing.
 create or replace function current_profile_role()

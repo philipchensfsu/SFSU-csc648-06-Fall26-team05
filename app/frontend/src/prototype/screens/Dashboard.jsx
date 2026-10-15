@@ -7,6 +7,7 @@ const STATUSES = ["Draft", "Generated", "Updated"];
 function Dashboard({
   prds,
   projects,
+  projectsError,
   onCreatePrd,
   onOpen,
   onDelete,
@@ -159,6 +160,11 @@ function Dashboard({
       </nav>
 
       <main className="nt-main">
+        {projectsError ? (
+          <p className="nt-error" role="alert">
+            Couldn&apos;t load your projects from the server: {projectsError}
+          </p>
+        ) : null}
         <div className="nt-page-head">
           <div>
             <h1>Your PRDs</h1>
