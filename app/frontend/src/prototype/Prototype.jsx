@@ -77,7 +77,7 @@ function Prototype({ initialUser = null, onLogOut }) {
         id,
         title,
         projectId,
-        status: "Draft",
+        status: "draft",
         modified: today(),
         answers: {},
         sections: null,
@@ -93,7 +93,9 @@ function Prototype({ initialUser = null, onLogOut }) {
 
   function finishGeneration() {
     updatePrd(activePrd.id, {
-      status: "Generated",
+      // The AI just generated a first draft; a PM still needs to review it
+      // before it's final, hence 'in_review' rather than 'draft'.
+      status: "in_review",
       sections: draftSectionsFromAnswers(activePrd.answers),
     });
     go("ready");
@@ -180,7 +182,9 @@ function Prototype({ initialUser = null, onLogOut }) {
       <Editor
         prd={activePrd}
         onSave={(sections) =>
-          updatePrd(activePrd.id, { sections, status: "Updated" })
+          // Edits keep it 'in_review' -- there's no "mark as final" action
+          // in this prototype yet.
+          updatePrd(activePrd.id, { sections, status: "in_review" })
         }
         onDashboard={() => go("dashboard", null)}
         onExport={() => go("export")}
