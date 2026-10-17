@@ -1,8 +1,8 @@
 import { useState } from "react";
 import Dialog from "../Dialog";
-import { formatDate } from "../data";
+import { formatDate, STATUS_LABELS } from "../data";
 
-const STATUSES = ["Draft", "Generated", "Updated"];
+const STATUSES = Object.keys(STATUS_LABELS);
 
 function Dashboard({
   prds,
@@ -100,8 +100,8 @@ function Dashboard({
               <th scope="row">{prd.title}</th>
               <td>{projectName(prd.projectId)}</td>
               <td>
-                <span className={`nt-status nt-status-${prd.status.toLowerCase()}`}>
-                  {prd.status}
+                <span className={`nt-status nt-status-${prd.status}`}>
+                  {STATUS_LABELS[prd.status] ?? prd.status}
                 </span>
               </td>
               <td>{formatDate(prd.modified)}</td>
@@ -203,7 +203,7 @@ function Dashboard({
               <option value="">Status: all</option>
               {STATUSES.map((value) => (
                 <option key={value} value={value}>
-                  {value}
+                  {STATUS_LABELS[value]}
                 </option>
               ))}
             </select>

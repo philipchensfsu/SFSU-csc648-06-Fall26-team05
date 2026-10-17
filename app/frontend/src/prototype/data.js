@@ -62,6 +62,9 @@ export const SAMPLE_ANSWERS = {
   notes: "",
 };
 
+// Section `id`s match the fixed section-type vocabulary from Section 1.5 of
+// the M2 report exactly, so these map directly onto content_json's
+// `sections[].type` with no translation needed.
 const CAMPUS_SECTIONS = [
   {
     id: "problem",
@@ -74,18 +77,18 @@ const CAMPUS_SECTIONS = [
     html: "<ul><li>Help students join a relevant study group within one day of searching.</li><li>Let students create and manage their own groups.</li><li>Keep group details current and easy to scan.</li></ul>",
   },
   {
-    id: "nongoals",
+    id: "non_goals",
     title: "Non-Goals",
     html: "<ul><li>Video calls or built-in chat.</li><li>Tutoring marketplaces or paid features.</li><li>Support for universities beyond the pilot campus.</li></ul>",
   },
   {
-    id: "users",
+    id: "target_users",
     title: "Target Users",
     html: '<p>Undergraduate students at the pilot university, mostly first and second year. <mark class="nt-assumption" data-assumption="1">Most users are likely on mobile phones between classes.</mark></p><ul><li>Joiners who want an existing group for a course.</li><li>Organizers who want to start and fill a group.</li></ul>',
     assumptions: 1,
   },
   {
-    id: "stories",
+    id: "user_stories",
     title: "User Stories",
     html: "<ul><li>As a student, I filter groups by course so I can find one that fits.</li><li>As a student, I request to join a group so the organizer can approve me.</li><li>As an organizer, I edit meeting times so members stay informed.</li></ul>",
   },
@@ -95,7 +98,7 @@ const CAMPUS_SECTIONS = [
     html: "<ul><li>FR-01: Students search groups by course code and section.</li><li>FR-02: Students request to join a group.</li><li>FR-03: Organizers approve or decline join requests.</li></ul>",
   },
   {
-    id: "metrics",
+    id: "success_metrics",
     title: "Success Metrics",
     html: '<ul><li><mark class="nt-assumption" data-assumption="1">60% of searching students join a group within 24 hours.</mark></li><li>Weekly active groups grow through the semester.</li></ul>',
     assumptions: 1,
@@ -106,18 +109,21 @@ const CAMPUS_SECTIONS = [
     html: "<ul><li>Low adoption if too few groups exist at launch.</li><li>Stale groups that no longer meet.</li></ul>",
   },
   {
-    id: "questions",
+    id: "open_questions",
     title: "Open Questions",
     html: "<ul><li>Should groups be tied to a specific section or the whole course?</li><li>Do organizers need moderation tools?</li></ul>",
   },
 ];
 
+// UI status labels now match the real schema's status enum exactly
+// (Section 1.4: draft | in_review | final | assigned) instead of an
+// invented vocabulary, so there's nothing to translate at the API boundary.
 export const INITIAL_PRDS = [
   {
     id: "d1",
     title: "CampusConnect PRD",
     projectId: "p1",
-    status: "Updated",
+    status: "in_review",
     modified: "2026-10-12",
     answers: SAMPLE_ANSWERS,
     sections: CAMPUS_SECTIONS,
@@ -126,7 +132,7 @@ export const INITIAL_PRDS = [
     id: "d2",
     title: "Study Group Finder",
     projectId: "p1",
-    status: "Generated",
+    status: "in_review",
     modified: "2026-10-09",
     answers: SAMPLE_ANSWERS,
     sections: CAMPUS_SECTIONS,
@@ -135,7 +141,7 @@ export const INITIAL_PRDS = [
     id: "d3",
     title: "Capstone Scheduler",
     projectId: "p2",
-    status: "Draft",
+    status: "draft",
     modified: "2026-10-05",
     answers: {},
     sections: null,
@@ -144,12 +150,56 @@ export const INITIAL_PRDS = [
     id: "d4",
     title: "Notes App Idea",
     projectId: null,
-    status: "Draft",
+    status: "draft",
     modified: "2026-09-28",
     answers: {},
     sections: null,
   },
 ];
+
+// Status enum values, in the order they appear in Section 1.4, with the
+// label shown in the UI for each.
+export const STATUS_LABELS = {
+  draft: "Draft",
+  in_review: "In Review",
+  final: "Final",
+  assigned: "Assigned",
+};
+
+// --- content_json <-> sections -----------------------------------------
+// content_json is stored as `{ sections: [{ type, title, html }] }`. This
+// isn't a full ProseMirror document yet -- that requires the real Tiptap
+// editor, which doesn't exist in this prototype -- but it's valid JSONB
+// using the spec's exact section-type vocabulary, so it's a direct,
+// low-cost upgrade path once Tiptap is actually wired up.
+
+export function sectionsToContentJson(sections) {
+  return {
+    sections: (sections ?? []).map(({ id, title, html }) => ({
+      type: id,
+      title,
+      html,
+    })),
+  };
+}
+
+export function contentJsonToSections(contentJson) {
+  const sections = contentJson?.sections;
+  if (!sections) return null;
+  return sections.map(({ type, title, html }) => ({ id: type, title, html }));
+}
+
+// Plain-text derived from the section HTML, for content_text (search/AI
+// input). Strips tags with the browser's own parser rather than regex.
+export function sectionsToText(sections) {
+  return (sections ?? [])
+    .map((section) => {
+      const div = document.createElement("div");
+      div.innerHTML = section.html;
+      return `${section.title}\n${div.textContent.trim()}`;
+    })
+    .join("\n\n");
+}
 
 function escapeHtml(text) {
   return text
@@ -168,8 +218,8 @@ export function draftSectionsFromAnswers(answers) {
     const override =
       (section.id === "problem" && fromAnswer("problem")) ||
       (section.id === "goals" && fromAnswer("goals")) ||
-      (section.id === "metrics" && fromAnswer("metrics"));
-    if (section.id === "users" && answers.users) {
+      (section.id === "success_metrics" && fromAnswer("metrics"));
+    if (section.id === "target_users" && answers.users) {
       return {
         ...section,
         html: `<p>${escapeHtml(answers.users)} <mark class="nt-assumption" data-assumption="1">Most users are likely on mobile phones between classes.</mark></p>`,

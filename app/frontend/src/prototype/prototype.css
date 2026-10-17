@@ -350,8 +350,9 @@
 }
 
 .nt-status-draft { background: #f2f4f7; color: #344054; }
-.nt-status-generated { background: var(--brand-tint); color: var(--brand); }
-.nt-status-updated { background: var(--ok-tint); color: var(--ok); }
+.nt-status-in_review { background: var(--brand-tint); color: var(--brand); }
+.nt-status-final { background: var(--ok-tint); color: var(--ok); }
+.nt-status-assigned { background: var(--ok-tint); color: var(--ok); }
 .nt-status-unsaved { background: var(--warn-tint); color: var(--warn); }
 
 .nt-empty {

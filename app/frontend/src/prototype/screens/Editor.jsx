@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import Dialog from "../Dialog";
-import { formatDate } from "../data";
+import { formatDate, STATUS_LABELS } from "../data";
 
 const sectionNumber = (index) => `§${String(index + 1).padStart(2, "0")}`;
 
@@ -216,8 +216,8 @@ function Editor({ prd, onSave, onDashboard, onExport }) {
     <div className="nt-editor">
       <div className="nt-editor-bar">
         <div className="nt-editor-title">
-          <span className={`nt-status nt-status-${dirty ? "unsaved" : "updated"}`}>
-            {dirty ? "Unsaved changes" : prd.status}
+          <span className={`nt-status nt-status-${dirty ? "unsaved" : prd.status}`}>
+            {dirty ? "Unsaved changes" : STATUS_LABELS[prd.status] ?? prd.status}
           </span>
           <strong>{prd.title}</strong>
         </div>
@@ -396,7 +396,7 @@ function Editor({ prd, onSave, onDashboard, onExport }) {
       <Dialog open={showHistory} title="Version history" onClose={() => setShowHistory(false)}>
         <ul className="nt-history">
           <li>
-            <strong>v1 · {prd.status}</strong>
+            <strong>v1 · {STATUS_LABELS[prd.status] ?? prd.status}</strong>
             <span className="nt-muted">{formatDate(prd.modified)}</span>
           </li>
           <li>
