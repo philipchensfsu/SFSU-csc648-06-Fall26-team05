@@ -26,9 +26,12 @@ export const api = {
   listProjects: () => request("/projects"),
   createProject: (name) =>
     request("/projects", { method: "POST", body: JSON.stringify({ name }) }),
+  renameProject: (id, name) =>
+    request(`/projects/${id}`, { method: "PUT", body: JSON.stringify({ name }) }),
   deleteProject: (id) => request(`/projects/${id}`, { method: "DELETE" }),
 
-  listPrds: () => request("/prds"),
+  listPrds: (search) =>
+    request(search ? `/prds?search=${encodeURIComponent(search)}` : "/prds"),
   createPrd: (title, projectId) =>
     request("/prds", {
       method: "POST",
@@ -38,4 +41,11 @@ export const api = {
   updatePrd: (id, payload) =>
     request(`/prds/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePrd: (id) => request(`/prds/${id}`, { method: "DELETE" }),
+
+  listIntakeAnswers: (prdId) => request(`/prds/${prdId}/intake`),
+  saveIntakeAnswer: (prdId, questionKey, answerText) =>
+    request(`/prds/${prdId}/intake/${questionKey}`, {
+      method: "PUT",
+      body: JSON.stringify({ answer_text: answerText, skipped: !answerText }),
+    }),
 };

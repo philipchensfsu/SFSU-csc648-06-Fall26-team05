@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Dialog from "../Dialog";
 import { formatDate, STATUS_LABELS } from "../data";
 
 const STATUSES = Object.keys(STATUS_LABELS);
+const SEARCH_DEBOUNCE_MS = 300;
 
 function Dashboard({
   prds,
@@ -10,6 +11,7 @@ function Dashboard({
   projectsError,
   prdsError,
   onCreatePrd,
+  onSearch,
   onOpen,
   onDelete,
   onCreateProject,
@@ -21,9 +23,20 @@ function Dashboard({
   const [showNewProject, setShowNewProject] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
 
+  // Text search runs on the server (title + content_text, GET
+  // /api/prds?search=). Runs immediately on mount -- that's what loads the
+  // list -- then debounced while typing. `onSearch` must be stable (it's
+  // useCallback'd in Prototype), or this would re-fetch every render.
+  useEffect(() => {
+    const term = query.trim();
+    const handle = setTimeout(() => onSearch(term), term ? SEARCH_DEBOUNCE_MS : 0);
+    return () => clearTimeout(handle);
+  }, [query, onSearch]);
+
   const projectName = (id) =>
     projects.find((project) => project.id === id)?.name ?? "No project";
 
+  // Project and status filters stay client-side over the search results.
   const visible = prds.filter((prd) => {
     if (projectFilter === "none" && prd.projectId) return false;
     if (
@@ -33,8 +46,7 @@ function Dashboard({
     ) {
       return false;
     }
-    if (status && prd.status !== status) return false;
-    return prd.title.toLowerCase().includes(query.trim().toLowerCase());
+    return !status || prd.status === status;
   });
 
   function handleCreateProject(event) {
@@ -49,7 +61,9 @@ function Dashboard({
   }
 
   let body;
-  if (prds.length === 0) {
+  // With server-side search, an empty list during a search means "no
+  // matches", not "no PRDs yet".
+  if (prds.length === 0 && !query.trim()) {
     body = (
       <div className="nt-empty">
         <h2>No PRDs yet</h2>
