@@ -91,8 +91,13 @@ def health():
 @app.get("/api/health/db")
 def health_db():
     # Confirms the Supabase connection works by querying the real schema.
-    response = supabase.table("prd").select("*").limit(1).execute()
-    return {"status": "ok", "sample": response.data}
+    # This route is public and the service-role client bypasses RLS, so it
+    # only reports reachability and never returns row data.
+    try:
+        supabase.table("prd").select("id").limit(1).execute()
+    except Exception:
+        raise HTTPException(status_code=503, detail="Database unreachable")
+    return {"status": "ok"}
 
 
 @app.post("/api/projects", response_model=ProjectOut, status_code=201)
