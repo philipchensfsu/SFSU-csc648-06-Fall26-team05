@@ -8,6 +8,7 @@ function Dashboard({
   prds,
   projects,
   projectsError,
+  prdsError,
   onCreatePrd,
   onOpen,
   onDelete,
@@ -163,6 +164,11 @@ function Dashboard({
         {projectsError ? (
           <p className="nt-error" role="alert">
             Couldn&apos;t load your projects from the server: {projectsError}
+          </p>
+        ) : null}
+        {prdsError ? (
+          <p className="nt-error" role="alert">
+            {prdsError}
           </p>
         ) : null}
         <div className="nt-page-head">

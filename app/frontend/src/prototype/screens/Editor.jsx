@@ -56,6 +56,8 @@ function Editor({ prd, onSave, onDashboard, onExport }) {
   const assumptionCursor = useRef(-1);
   const [initialHtml] = useState(() => buildDocumentHtml(prd.sections));
   const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState(null);
   const [showAi, setShowAi] = useState(true);
   const [showHistory, setShowHistory] = useState(false);
   const [assumptions, setAssumptions] = useState({});
@@ -120,8 +122,19 @@ function Editor({ prd, onSave, onDashboard, onExport }) {
         ?.innerHTML ?? section.html,
       assumptions: assumptions[section.id] ?? 0,
     }));
-    onSave(sections);
-    setDirty(false);
+    setSaving(true);
+    setSaveError(null);
+    // onSave is a real network request now (PUT /api/prds/:id), not a
+    // synchronous local update, so wait for it before clearing `dirty` --
+    // otherwise a failed save would still show as "saved".
+    Promise.resolve(onSave(sections))
+      .then(() => setDirty(false))
+      .catch((error) =>
+        setSaveError(
+          error.message || "Couldn't save your changes. Try again.",
+        ),
+      )
+      .finally(() => setSaving(false));
   }
 
   function reviewNextAssumption() {
@@ -216,10 +229,21 @@ function Editor({ prd, onSave, onDashboard, onExport }) {
     <div className="nt-editor">
       <div className="nt-editor-bar">
         <div className="nt-editor-title">
-          <span className={`nt-status nt-status-${dirty ? "unsaved" : prd.status}`}>
-            {dirty ? "Unsaved changes" : STATUS_LABELS[prd.status] ?? prd.status}
+          <span
+            className={`nt-status nt-status-${saving ? "unsaved" : dirty ? "unsaved" : prd.status}`}
+          >
+            {saving
+              ? "Saving…"
+              : dirty
+                ? "Unsaved changes"
+                : (STATUS_LABELS[prd.status] ?? prd.status)}
           </span>
           <strong>{prd.title}</strong>
+          {saveError ? (
+            <span className="nt-error" role="alert">
+              {saveError}
+            </span>
+          ) : null}
         </div>
         <div className="nt-actions">
           <button type="button" className="nt-btn nt-btn-ghost" onClick={onDashboard}>
@@ -246,10 +270,10 @@ function Editor({ prd, onSave, onDashboard, onExport }) {
           <button
             type="button"
             className="nt-btn nt-btn-primary"
-            disabled={!dirty}
+            disabled={!dirty || saving}
             onClick={handleSave}
           >
-            Save
+            {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </div>

@@ -201,6 +201,23 @@ export function sectionsToText(sections) {
     .join("\n\n");
 }
 
+// Maps a real `prd` row (snake_case, from GET/POST/PUT /api/prds) onto the
+// shape every screen in this prototype expects. `answers` isn't persisted
+// yet -- intake_answer is a separate table with no endpoints built for it
+// yet -- so reopening an existing draft always starts the wizard blank.
+export function fromApiPrd(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    projectId: row.project_id,
+    status: row.status,
+    modified: row.updated_at.slice(0, 10),
+    revision: row.revision,
+    answers: {},
+    sections: contentJsonToSections(row.content_json),
+  };
+}
+
 function escapeHtml(text) {
   return text
     .replace(/&/g, "&amp;")
