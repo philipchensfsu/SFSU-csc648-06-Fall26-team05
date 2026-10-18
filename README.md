@@ -120,6 +120,12 @@ the contents of `app/backend/schema.sql`, and run it. It's a single idempotent-i
 re-run if no real data exists yet, since it drops the old M0 placeholder tables (`profiles`/`prds`)
 before creating the real ones.
 
+**Demo data:** `app/backend/seed_demo.py` creates a demo PM account (`nautilus.demo@example.com`) and
+seeds it with 3 projects and 10 PRDs, for the M2 vertical prototype's "list and search" requirement.
+Run `python seed_demo.py` from `app/backend`. It's re-runnable and only replaces the demo account's own
+data. Row Level Security only shows PMs their own PRDs, so reviewers sign in *as* the demo account. The
+password isn't stored in the repo; it's shared in the milestone submission.
+
 TA/instructor database access is granted directly in the Supabase project (Project Settings > Team).
 
 ## Deployment
