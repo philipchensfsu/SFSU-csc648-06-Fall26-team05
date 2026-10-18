@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import "./prototype.css";
 import {
   INITIAL_PRDS,
   INITIAL_PROJECTS,
   SAMPLE_ANSWERS,
   draftSectionsFromAnswers,
+  fromApiIntakeAnswers,
   fromApiPrd,
   sectionsToContentJson,
   sectionsToText,
@@ -26,30 +27,41 @@ import ScreenJumper from "./ScreenJumper";
 function Prototype({ initialUser = null, onLogOut }) {
   const [user, setUser] = useState(initialUser);
   const [screen, setScreen] = useState(initialUser ? "dashboard" : "signin");
-  const [prds, setPrds] = useState(INITIAL_PRDS);
-  const [projects, setProjects] = useState(INITIAL_PROJECTS);
+  // Start empty rather than with mock data, so a real user never sees (or
+  // clicks) placeholder PRDs before the API responds.
+  const [prds, setPrds] = useState([]);
+  const [projects, setProjects] = useState([]);
   const [activePrdId, setActivePrdId] = useState(null);
   const [failGeneration, setFailGeneration] = useState(false);
   const [projectsError, setProjectsError] = useState(null);
   const [prdsError, setPrdsError] = useState(null);
+  const latestSearch = useRef(0);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
 
-  // Both projects and PRDs are wired to the real backend now that the
-  // content_json/status shape matches the schema (see data.js). Intake
-  // answers are not -- there's no endpoint for intake_answer yet -- so
-  // `answers` always comes back empty on a freshly loaded PRD.
+  // PRDs aren't loaded here: the Dashboard runs a search (empty = all) every
+  // time it's shown, which also keeps the list fresh after editing.
   useEffect(() => {
     if (!user) return;
     api
       .listProjects()
       .then((real) => setProjects(real))
       .catch((error) => setProjectsError(error.message));
-    api
-      .listPrds()
-      .then((real) => setPrds(real.map(fromApiPrd)))
-      .catch((error) => setPrdsError(error.message));
   }, [user]);
+
+  // Stable identity (only touches setters and a ref), so Dashboard can list
+  // it as an effect dependency without re-fetching on every render.
+  const searchPrds = useCallback((query) => {
+    // Ignore responses that arrive after a newer search was started, so a
+    // slow early request can't overwrite the results of a later one.
+    const requestId = ++latestSearch.current;
+    api
+      .listPrds(query)
+      .then((real) => {
+        if (requestId === latestSearch.current) setPrds(real.map(fromApiPrd));
+      })
+      .catch((error) => setPrdsError(error.message));
+  }, []);
 
   function go(nextScreen, prdId = activePrdId) {
     setActivePrdId(prdId);
@@ -91,7 +103,37 @@ function Prototype({ initialUser = null, onLogOut }) {
   }
 
   function openPrd(prd) {
-    go(prd.sections ? "editor" : "interview", prd.id);
+    if (prd.sections) {
+      go("editor", prd.id);
+      return;
+    }
+    // Load saved answers *before* showing the wizard: Interview picks its
+    // starting question from `answers` once, on mount.
+    api
+      .listIntakeAnswers(prd.id)
+      .then((rows) => {
+        const answers = fromApiIntakeAnswers(rows);
+        setPrds((current) =>
+          current.map((p) => (p.id === prd.id ? { ...p, answers } : p)),
+        );
+      })
+      .catch((error) => setPrdsError(error.message))
+      .finally(() => go("interview", prd.id));
+  }
+
+  // Interview and Review both hand back the full answers object with one
+  // key changed; persist just the keys that differ (Section 1.6: "each
+  // answer is saved as soon as it is submitted").
+  function saveAnswers(prd, nextAnswers) {
+    const changed = Object.keys(nextAnswers).filter(
+      (key) => nextAnswers[key] !== prd.answers[key],
+    );
+    updatePrd(prd.id, { answers: nextAnswers });
+    changed.forEach((key) =>
+      api
+        .saveIntakeAnswer(prd.id, key, nextAnswers[key])
+        .catch((error) => setPrdsError(error.message)),
+    );
   }
 
   // Shared by the Editor's Save button and finishGeneration below: persists
@@ -178,7 +220,7 @@ function Prototype({ initialUser = null, onLogOut }) {
     content = (
       <Interview
         prd={activePrd}
-        onChange={(answers) => updatePrd(activePrd.id, { answers })}
+        onChange={(answers) => saveAnswers(activePrd, answers)}
         onDone={() => go("review")}
         onSaveForLater={() => go("dashboard", null)}
       />
@@ -187,7 +229,7 @@ function Prototype({ initialUser = null, onLogOut }) {
     content = (
       <Review
         prd={activePrd}
-        onChange={(answers) => updatePrd(activePrd.id, { answers })}
+        onChange={(answers) => saveAnswers(activePrd, answers)}
         onBack={() => go("interview")}
         onGenerate={() => go("generating")}
       />
@@ -225,6 +267,7 @@ function Prototype({ initialUser = null, onLogOut }) {
         prds={prds}
         projects={projects}
         onCreatePrd={() => go("create", null)}
+        onSearch={searchPrds}
         onOpen={openPrd}
         onDelete={(id) =>
           api

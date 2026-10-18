@@ -13,7 +13,7 @@ export const QUESTIONS = [
     required: true,
   },
   {
-    id: "users",
+    id: "target_users",
     label: "Target users",
     prompt: "Who will use this product?",
     required: true,
@@ -39,7 +39,7 @@ export const QUESTIONS = [
     required: false,
   },
   {
-    id: "metrics",
+    id: "success_metrics",
     label: "Success metrics",
     prompt: "How will you know the product is successful?",
     required: false,
@@ -54,11 +54,11 @@ export const QUESTIONS = [
 
 export const SAMPLE_ANSWERS = {
   problem: "Students struggle to find study groups for their classes.",
-  users: "Undergraduates at one university, mostly first and second year.",
+  target_users: "Undergraduates at one university, mostly first and second year.",
   goals: "Help students join a group within one day of searching.",
   scope: "In: group search, join requests. Out: video calls.",
   constraints: "Web only, one semester, team of five.",
-  metrics: "",
+  success_metrics: "",
   notes: "",
 };
 
@@ -202,9 +202,9 @@ export function sectionsToText(sections) {
 }
 
 // Maps a real `prd` row (snake_case, from GET/POST/PUT /api/prds) onto the
-// shape every screen in this prototype expects. `answers` isn't persisted
-// yet -- intake_answer is a separate table with no endpoints built for it
-// yet -- so reopening an existing draft always starts the wizard blank.
+// shape every screen in this prototype expects. Intake answers live in a
+// separate table, so `answers` starts empty and is filled in by
+// fromApiIntakeAnswers when the PRD is opened.
 export function fromApiPrd(row) {
   return {
     id: row.id,
@@ -216,6 +216,14 @@ export function fromApiPrd(row) {
     answers: {},
     sections: contentJsonToSections(row.content_json),
   };
+}
+
+// intake_answer rows -> the { question_key: text } object the wizard uses.
+// A skipped question maps to "" so the wizard still counts it as answered.
+export function fromApiIntakeAnswers(rows) {
+  return Object.fromEntries(
+    rows.map((row) => [row.question_key, row.skipped ? "" : (row.answer_text ?? "")]),
+  );
 }
 
 function escapeHtml(text) {
@@ -235,11 +243,11 @@ export function draftSectionsFromAnswers(answers) {
     const override =
       (section.id === "problem" && fromAnswer("problem")) ||
       (section.id === "goals" && fromAnswer("goals")) ||
-      (section.id === "success_metrics" && fromAnswer("metrics"));
-    if (section.id === "target_users" && answers.users) {
+      (section.id === "success_metrics" && fromAnswer("success_metrics"));
+    if (section.id === "target_users" && answers.target_users) {
       return {
         ...section,
-        html: `<p>${escapeHtml(answers.users)} <mark class="nt-assumption" data-assumption="1">Most users are likely on mobile phones between classes.</mark></p>`,
+        html: `<p>${escapeHtml(answers.target_users)} <mark class="nt-assumption" data-assumption="1">Most users are likely on mobile phones between classes.</mark></p>`,
       };
     }
     return override ? { ...section, html: override, assumptions: 0 } : section;

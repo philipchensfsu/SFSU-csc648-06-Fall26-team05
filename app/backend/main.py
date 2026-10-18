@@ -1,6 +1,7 @@
 import os
+import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
 
@@ -8,11 +9,39 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
 from supabase_client import supabase, user_client
 
 app = FastAPI()
+
+# Fixed in application code, not the DB (Section 1.6 of the M2 report).
+INTAKE_QUESTION_KEYS = {
+    "problem",
+    "target_users",
+    "goals",
+    "scope",
+    "constraints",
+    "success_metrics",
+    "notes",
+}
+
+
+# When RLS rejects a write, or a constraint fails, the Supabase client raises
+# instead of returning empty data -- so without this, those cases surface as
+# a bare 500 rather than the 403/400 the sequence diagrams describe.
+@app.exception_handler(APIError)
+async def postgrest_error_handler(request, exc: APIError):
+    code = exc.code or ""
+    if code == "42501":
+        return JSONResponse(status_code=403, content={"detail": "Not allowed"})
+    if code == "23503":
+        return JSONResponse(status_code=404, content={"detail": "Related record not found"})
+    if code.startswith(("22", "23")):
+        return JSONResponse(status_code=400, content={"detail": exc.message})
+    return JSONResponse(status_code=500, content={"detail": "Database error"})
 
 # Only needed for local dev, where the Vite dev server (5173) and uvicorn
 # (8000) are different origins. In production they're served from the same
@@ -83,6 +112,18 @@ class PRDOut(BaseModel):
     updated_at: datetime
 
 
+class IntakeAnswerIn(BaseModel):
+    answer_text: str = Field(default="", max_length=5000)
+    skipped: bool = False
+
+
+class IntakeAnswerOut(BaseModel):
+    question_key: str
+    answer_text: Optional[str]
+    skipped: bool
+    answered_at: datetime
+
+
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
@@ -117,6 +158,20 @@ def list_projects(auth=Depends(get_current_user)):
     return response.data
 
 
+@app.put("/api/projects/{project_id}", response_model=ProjectOut)
+def rename_project(project_id: UUID, payload: ProjectCreate, auth=Depends(get_current_user)):
+    client = auth["client"]
+    response = (
+        client.table("project")
+        .update({"name": payload.name})
+        .eq("id", str(project_id))
+        .execute()
+    )
+    if not response.data:
+        raise HTTPException(status_code=404, detail="Project not found or not allowed")
+    return response.data[0]
+
+
 @app.delete("/api/projects/{project_id}", status_code=204)
 def delete_project(project_id: UUID, auth=Depends(get_current_user)):
     client = auth["client"]
@@ -138,9 +193,17 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
 
 
 @app.get("/api/prds", response_model=list[PRDOut])
-def list_prds(auth=Depends(get_current_user)):
+def list_prds(search: Optional[str] = None, auth=Depends(get_current_user)):
     client = auth["client"]
-    response = client.table("prd").select("*").order("updated_at", desc=True).execute()
+    query = client.table("prd").select("*")
+
+    # Commas/parens are structural in PostgREST's or= filter and */% are
+    # wildcards, so strip them rather than let user text change the filter.
+    term = re.sub(r'[,()*%"\\]', " ", search or "").strip()
+    if term:
+        query = query.or_(f"title.ilike.*{term}*,content_text.ilike.*{term}*")
+
+    response = query.order("updated_at", desc=True).execute()
     return response.data
 
 
@@ -180,3 +243,42 @@ def delete_prd(prd_id: UUID, auth=Depends(get_current_user)):
     response = client.table("prd").delete().eq("id", str(prd_id)).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found or not allowed")
+
+
+@app.get("/api/prds/{prd_id}/intake", response_model=list[IntakeAnswerOut])
+def list_intake_answers(prd_id: UUID, auth=Depends(get_current_user)):
+    client = auth["client"]
+    response = (
+        client.table("intake_answer")
+        .select("question_key, answer_text, skipped, answered_at")
+        .eq("prd_id", str(prd_id))
+        .execute()
+    )
+    return response.data
+
+
+@app.put("/api/prds/{prd_id}/intake/{question_key}", response_model=IntakeAnswerOut)
+def save_intake_answer(
+    prd_id: UUID,
+    question_key: str,
+    payload: IntakeAnswerIn,
+    auth=Depends(get_current_user),
+):
+    if question_key not in INTAKE_QUESTION_KEYS:
+        raise HTTPException(status_code=400, detail=f"Unknown question: {question_key}")
+
+    client = auth["client"]
+    row = {
+        "prd_id": str(prd_id),
+        "question_key": question_key,
+        "answer_text": payload.answer_text,
+        "skipped": payload.skipped,
+        "answered_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Unique on (prd_id, question_key), so revising an answer overwrites it.
+    response = (
+        client.table("intake_answer")
+        .upsert(row, on_conflict="prd_id,question_key")
+        .execute()
+    )
+    return response.data[0]
