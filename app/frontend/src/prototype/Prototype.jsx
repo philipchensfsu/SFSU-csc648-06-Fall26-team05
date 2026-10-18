@@ -5,6 +5,9 @@ import {
   INITIAL_PROJECTS,
   SAMPLE_ANSWERS,
   draftSectionsFromAnswers,
+  fromApiPrd,
+  sectionsToContentJson,
+  sectionsToText,
   today,
 } from "./data";
 import { api } from "../../lib/api";
@@ -28,18 +31,24 @@ function Prototype({ initialUser = null, onLogOut }) {
   const [activePrdId, setActivePrdId] = useState(null);
   const [failGeneration, setFailGeneration] = useState(false);
   const [projectsError, setProjectsError] = useState(null);
+  const [prdsError, setPrdsError] = useState(null);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
 
-  // Projects have no shape mismatch with the real schema (id/name map
-  // directly), so they're wired to the backend for real. PRDs stay on mock
-  // data for now -- see the note on createPrd below for why.
+  // Both projects and PRDs are wired to the real backend now that the
+  // content_json/status shape matches the schema (see data.js). Intake
+  // answers are not -- there's no endpoint for intake_answer yet -- so
+  // `answers` always comes back empty on a freshly loaded PRD.
   useEffect(() => {
     if (!user) return;
     api
       .listProjects()
       .then((real) => setProjects(real))
       .catch((error) => setProjectsError(error.message));
+    api
+      .listPrds()
+      .then((real) => setPrds(real.map(fromApiPrd)))
+      .catch((error) => setPrdsError(error.message));
   }, [user]);
 
   function go(nextScreen, prdId = activePrdId) {
@@ -71,33 +80,52 @@ function Prototype({ initialUser = null, onLogOut }) {
   }
 
   function createPrd({ title, projectId }) {
-    const id = `d${Date.now()}`;
-    setPrds((current) => [
-      {
-        id,
-        title,
-        projectId,
-        status: "draft",
-        modified: today(),
-        answers: {},
-        sections: null,
-      },
-      ...current,
-    ]);
-    go("interview", id);
+    api
+      .createPrd(title, projectId)
+      .then((created) => {
+        const prd = fromApiPrd(created);
+        setPrds((current) => [prd, ...current]);
+        go("interview", prd.id);
+      })
+      .catch((error) => setPrdsError(error.message));
   }
 
   function openPrd(prd) {
     go(prd.sections ? "editor" : "interview", prd.id);
   }
 
+  // Shared by the Editor's Save button and finishGeneration below: persists
+  // content_json/content_text/status to the real PRD row, using the
+  // revision the UI last saw for optimistic-concurrency (409 if someone
+  // else saved first). Returns the promise so callers can show save state.
+  function savePrdContent(id, sections, status) {
+    const prd = prds.find((p) => p.id === id);
+    if (!prd) return Promise.resolve();
+    return api
+      .updatePrd(id, {
+        revision: prd.revision,
+        content_json: sectionsToContentJson(sections),
+        content_text: sectionsToText(sections),
+        status,
+      })
+      .then((saved) => {
+        setPrds((current) =>
+          current.map((p) =>
+            p.id === id ? { ...fromApiPrd(saved), answers: p.answers } : p,
+          ),
+        );
+      });
+  }
+
   function finishGeneration() {
-    updatePrd(activePrd.id, {
-      // The AI just generated a first draft; a PM still needs to review it
-      // before it's final, hence 'in_review' rather than 'draft'.
-      status: "in_review",
-      sections: draftSectionsFromAnswers(activePrd.answers),
-    });
+    const sections = draftSectionsFromAnswers(activePrd.answers);
+    // Update the UI immediately rather than waiting on the network, then
+    // persist in the background; a failure surfaces via prdsError without
+    // blocking the screen transition.
+    updatePrd(activePrd.id, { status: "in_review", sections });
+    savePrdContent(activePrd.id, sections, "in_review").catch((error) =>
+      setPrdsError(error.message),
+    );
     go("ready");
   }
 
@@ -181,11 +209,10 @@ function Prototype({ initialUser = null, onLogOut }) {
     content = (
       <Editor
         prd={activePrd}
-        onSave={(sections) =>
-          // Edits keep it 'in_review' -- there's no "mark as final" action
-          // in this prototype yet.
-          updatePrd(activePrd.id, { sections, status: "in_review" })
-        }
+        // Edits keep it 'in_review' -- there's no "mark as final" action in
+        // this prototype yet. Returns the save promise so the Editor can
+        // show real saving/error state instead of assuming success.
+        onSave={(sections) => savePrdContent(activePrd.id, sections, "in_review")}
         onDashboard={() => go("dashboard", null)}
         onExport={() => go("export")}
       />
@@ -200,9 +227,15 @@ function Prototype({ initialUser = null, onLogOut }) {
         onCreatePrd={() => go("create", null)}
         onOpen={openPrd}
         onDelete={(id) =>
-          setPrds((current) => current.filter((prd) => prd.id !== id))
+          api
+            .deletePrd(id)
+            .then(() =>
+              setPrds((current) => current.filter((prd) => prd.id !== id)),
+            )
+            .catch((error) => setPrdsError(error.message))
         }
         projectsError={projectsError}
+        prdsError={prdsError}
         onCreateProject={(project) =>
           // `description` isn't in the project table yet (see Section 1.3 of
           // the M2 report), so it's only kept in local UI state for now.
