@@ -15,6 +15,9 @@ function Dashboard({
   onOpen,
   onDelete,
   onCreateProject,
+  onRenameProject,
+  onDeleteProject,
+  onCountProjectPrds,
 }) {
   // "all", "none" (no project), or a project id.
   const [projectFilter, setProjectFilter] = useState("all");
@@ -22,6 +25,31 @@ function Dashboard({
   const [status, setStatus] = useState("");
   const [showNewProject, setShowNewProject] = useState(false);
   const [pendingDelete, setPendingDelete] = useState(null);
+  const [renaming, setRenaming] = useState(null);
+  const [renameError, setRenameError] = useState(null);
+  const [renameBusy, setRenameBusy] = useState(false);
+  // count stays null until a full (unsearched) PRD list comes back. The
+  // on-screen list can be a search result, so it can't be used for the
+  // "how many PRDs will be deleted" confirmation.
+  const [pendingProjectDelete, setPendingProjectDelete] = useState(null);
+  const [openMenuId, setOpenMenuId] = useState(null);
+
+  useEffect(() => {
+    if (!openMenuId) return undefined;
+    function onKeyDown(event) {
+      if (event.key === "Escape") setOpenMenuId(null);
+    }
+    function onMouseDown(event) {
+      if (event.target.closest?.("[data-project-menu]")) return;
+      setOpenMenuId(null);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("mousedown", onMouseDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("mousedown", onMouseDown);
+    };
+  }, [openMenuId]);
 
   // Text search runs on the server (title + content_text, GET
   // /api/prds?search=). Runs immediately on mount -- that's what loads the
@@ -52,12 +80,62 @@ function Dashboard({
   function handleCreateProject(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    onCreateProject({
-      name: form.get("projectName").trim(),
-      description: form.get("projectDescription").trim(),
-    });
+    onCreateProject(form.get("projectName").trim());
     event.currentTarget.reset();
     setShowNewProject(false);
+  }
+
+  function startRename(project) {
+    setRenameError(null);
+    setRenaming(project);
+  }
+
+  function handleRename(event) {
+    event.preventDefault();
+    const name = new FormData(event.currentTarget).get("projectName").trim();
+    if (name === renaming.name) {
+      setRenaming(null);
+      return;
+    }
+    setRenameBusy(true);
+    setRenameError(null);
+    onRenameProject(renaming.id, name)
+      .then(() => setRenaming(null))
+      .catch((error) => setRenameError(error.message))
+      .finally(() => setRenameBusy(false));
+  }
+
+  function askDeleteProject(project) {
+    setPendingProjectDelete({ project, count: null, error: null, busy: false });
+    onCountProjectPrds()
+      .then((rows) => {
+        const count = rows.filter((row) => row.project_id === project.id).length;
+        setPendingProjectDelete((current) =>
+          current?.project.id === project.id ? { ...current, count } : current,
+        );
+      })
+      .catch((error) => {
+        setPendingProjectDelete((current) =>
+          current?.project.id === project.id
+            ? { ...current, error: error.message }
+            : current,
+        );
+      });
+  }
+
+  function confirmDeleteProject() {
+    const { project } = pendingProjectDelete;
+    setPendingProjectDelete((current) => ({ ...current, busy: true, error: null }));
+    onDeleteProject(project.id)
+      .then(() => {
+        if (projectFilter === project.id) setProjectFilter("all");
+        setPendingProjectDelete(null);
+      })
+      .catch((error) =>
+        setPendingProjectDelete((current) =>
+          current ? { ...current, busy: false, error: error.message } : current,
+        ),
+      );
   }
 
   let body;
@@ -157,15 +235,63 @@ function Dashboard({
           All PRDs
         </SidebarItem>
         <p className="nt-sidebar-heading">Projects</p>
-        {projects.map((project) => (
-          <SidebarItem
-            key={project.id}
-            active={projectFilter === project.id}
-            onClick={() => setProjectFilter(project.id)}
-          >
-            {project.name}
-          </SidebarItem>
-        ))}
+        {projects.map((project) => {
+          const menuOpen = openMenuId === project.id;
+          const selected = projectFilter === project.id;
+          return (
+            <div
+              key={project.id}
+              className={`nt-project-row${selected ? " is-active" : ""}`}
+            >
+              <SidebarItem
+                active={selected}
+                onClick={() => {
+                  setOpenMenuId(null);
+                  setProjectFilter(project.id);
+                }}
+              >
+                {project.name}
+              </SidebarItem>
+              <div className="nt-project-menu" data-project-menu>
+                <button
+                  type="button"
+                  className="nt-project-more"
+                  aria-label={`Actions for ${project.name}`}
+                  aria-haspopup="menu"
+                  aria-expanded={menuOpen}
+                  onClick={() => setOpenMenuId(menuOpen ? null : project.id)}
+                >
+                  ···
+                </button>
+                {menuOpen ? (
+                  <div className="nt-project-menu-panel" role="menu">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setOpenMenuId(null);
+                        startRename(project);
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="is-danger"
+                      onClick={() => {
+                        setOpenMenuId(null);
+                        askDeleteProject(project);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
         <SidebarItem
           active={projectFilter === "none"}
           onClick={() => setProjectFilter("none")}
@@ -248,13 +374,7 @@ function Dashboard({
             <label htmlFor="projectName">
               Project name <span className="nt-req">(Required)</span>
             </label>
-            <input id="projectName" name="projectName" required />
-          </div>
-          <div className="nt-field">
-            <label htmlFor="projectDescription">
-              One-line description <span className="nt-req">(Optional)</span>
-            </label>
-            <input id="projectDescription" name="projectDescription" />
+            <input id="projectName" name="projectName" maxLength={200} required />
           </div>
           <div className="nt-dialog-actions">
             <button
@@ -297,8 +417,101 @@ function Dashboard({
           </button>
         </div>
       </Dialog>
+
+      <Dialog
+        open={renaming !== null}
+        title={renaming ? `Rename “${renaming.name}”` : ""}
+        onClose={() => {
+          if (!renameBusy) setRenaming(null);
+        }}
+      >
+        <form key={renaming?.id ?? "rename"} onSubmit={handleRename}>
+          <div className="nt-field">
+            <label htmlFor="renameProjectName">
+              Project name <span className="nt-req">(Required)</span>
+            </label>
+            <input
+              id="renameProjectName"
+              name="projectName"
+              defaultValue={renaming?.name ?? ""}
+              maxLength={200}
+              required
+            />
+          </div>
+          {renameError ? (
+            <p className="nt-error" role="alert">
+              {renameError}
+            </p>
+          ) : null}
+          <div className="nt-dialog-actions">
+            <button
+              type="button"
+              className="nt-btn nt-btn-secondary"
+              disabled={renameBusy}
+              onClick={() => setRenaming(null)}
+            >
+              Cancel
+            </button>
+            <button type="submit" className="nt-btn nt-btn-primary" disabled={renameBusy}>
+              {renameBusy ? "Saving…" : "Save"}
+            </button>
+          </div>
+        </form>
+      </Dialog>
+
+      <Dialog
+        open={pendingProjectDelete !== null}
+        title={
+          pendingProjectDelete
+            ? `Delete “${pendingProjectDelete.project.name}”?`
+            : ""
+        }
+        onClose={() => {
+          if (!pendingProjectDelete?.busy) setPendingProjectDelete(null);
+        }}
+      >
+        <p>
+          {!pendingProjectDelete || pendingProjectDelete.count === null
+            ? pendingProjectDelete?.error
+              ? "Couldn't check how many PRDs would be deleted."
+              : "Checking how many PRDs this will delete…"
+            : projectDeleteMessage(pendingProjectDelete.count)}
+        </p>
+        {pendingProjectDelete?.error ? (
+          <p className="nt-error" role="alert">
+            {pendingProjectDelete.error}
+          </p>
+        ) : null}
+        <div className="nt-dialog-actions">
+          <button
+            type="button"
+            className="nt-btn nt-btn-secondary"
+            disabled={pendingProjectDelete?.busy}
+            onClick={() => setPendingProjectDelete(null)}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="nt-btn nt-btn-danger"
+            disabled={
+              !pendingProjectDelete ||
+              pendingProjectDelete.busy ||
+              pendingProjectDelete.count === null
+            }
+            onClick={confirmDeleteProject}
+          >
+            {pendingProjectDelete?.busy ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      </Dialog>
     </div>
   );
+}
+
+function projectDeleteMessage(count) {
+  const noun = count === 1 ? "PRD" : "PRDs";
+  return `This permanently deletes this project and ${count} ${noun} inside it. This can't be undone.`;
 }
 
 function SidebarItem({ active, onClick, children }) {

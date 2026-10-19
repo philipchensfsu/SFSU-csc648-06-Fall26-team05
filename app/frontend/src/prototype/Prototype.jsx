@@ -279,19 +279,26 @@ function Prototype({ initialUser = null, onLogOut }) {
         }
         projectsError={projectsError}
         prdsError={prdsError}
-        onCreateProject={(project) =>
-          // `description` isn't in the project table yet (see Section 1.3 of
-          // the M2 report), so it's only kept in local UI state for now.
+        onCreateProject={(name) =>
           api
-            .createProject(project.name)
-            .then((created) =>
-              setProjects((current) => [
-                ...current,
-                { ...created, description: project.description },
-              ]),
-            )
+            .createProject(name)
+            .then((created) => setProjects((current) => [...current, created]))
             .catch((error) => setProjectsError(error.message))
         }
+        onRenameProject={(id, name) =>
+          api.renameProject(id, name).then((updated) => {
+            setProjects((current) =>
+              current.map((project) => (project.id === id ? updated : project)),
+            );
+          })
+        }
+        onDeleteProject={(id) =>
+          api.deleteProject(id).then(() => {
+            setProjects((current) => current.filter((project) => project.id !== id));
+            setPrds((current) => current.filter((prd) => prd.projectId !== id));
+          })
+        }
+        onCountProjectPrds={() => api.listPrds()}
       />
     );
   }
