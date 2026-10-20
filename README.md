@@ -18,7 +18,7 @@ San Francisco State University
 - [Tech Stack](#tech-stack)
 
 ## Project Overview
-**Specced** is an AI-assisted web app that helps product managers, founders, and students write
+**Nautilus** is an AI-assisted web app that helps product managers, founders, and students write
 Product Requirements Documents (PRDs). Users answer a short guided interview about their product idea,
 and the app generates a structured PRD draft they can review, edit, and save.
 
