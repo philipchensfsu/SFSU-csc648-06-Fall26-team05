@@ -17,6 +17,12 @@
 --     be preferable for audit/history tables like prd_version.
 --   * classification_suggestion and comment (Phase 2/3) are intentionally
 --     not created here; they're out of scope for the M2 vertical prototype.
+--
+-- Table grants: as of 2026-10-30 Supabase no longer auto-grants Data API
+-- access to new tables in `public`, so each table grants it explicitly
+-- right after enabling RLS. Grants decide whether a role can touch the
+-- table at all; RLS policies still decide which rows. `anon` gets nothing
+-- because every data route requires a signed-in user.
 
 create extension if not exists pgcrypto;
 
@@ -94,6 +100,7 @@ as $$
 $$;
 
 alter table profile enable row level security;
+grant select, insert, update, delete on profile to authenticated, service_role;
 
 create policy "view own profile or admin"
   on profile for select
@@ -127,6 +134,7 @@ create trigger project_set_updated_at
   for each row execute function set_updated_at();
 
 alter table project enable row level security;
+grant select, insert, update, delete on project to authenticated, service_role;
 
 create policy "view own projects or admin"
   on project for select
@@ -176,6 +184,7 @@ create trigger prd_set_updated_at
   for each row execute function set_updated_at();
 
 alter table prd enable row level security;
+grant select, insert, update, delete on prd to authenticated, service_role;
 
 create policy "view accessible prds"
   on prd for select
@@ -253,6 +262,7 @@ create table intake_answer (
 );
 
 alter table intake_answer enable row level security;
+grant select, insert, update, delete on intake_answer to authenticated, service_role;
 
 create policy "view intake answers" on intake_answer for select using (can_view_prd(prd_id));
 create policy "write intake answers" on intake_answer for insert with check (can_edit_prd(prd_id));
@@ -276,6 +286,7 @@ create table attachment (
 -- constraint can't count sibling rows); enforce it in the upload endpoint.
 
 alter table attachment enable row level security;
+grant select, insert, update, delete on attachment to authenticated, service_role;
 
 create policy "view attachments" on attachment for select using (can_view_prd(prd_id));
 create policy "write attachments" on attachment for insert with check (can_edit_prd(prd_id));
@@ -300,6 +311,7 @@ create trigger prd_context_set_updated_at
   for each row execute function set_updated_at();
 
 alter table prd_context enable row level security;
+grant select, insert, update, delete on prd_context to authenticated, service_role;
 
 create policy "view prd context" on prd_context for select using (can_view_prd(prd_id));
 create policy "write prd context" on prd_context for insert with check (can_edit_prd(prd_id));
@@ -322,6 +334,7 @@ create table source (
 );
 
 alter table source enable row level security;
+grant select, insert, update, delete on source to authenticated, service_role;
 
 create policy "view sources" on source for select using (can_view_prd(prd_id));
 create policy "write sources" on source for insert with check (can_edit_prd(prd_id));
@@ -348,6 +361,7 @@ alter table prd
   foreign key (current_version_id) references prd_version(id) on delete set null;
 
 alter table prd_version enable row level security;
+grant select, insert, update, delete on prd_version to authenticated, service_role;
 
 create policy "view prd versions" on prd_version for select using (can_view_prd(prd_id));
 create policy "write prd versions" on prd_version for insert with check (can_edit_prd(prd_id));
@@ -373,6 +387,7 @@ create table generation_record (
 );
 
 alter table generation_record enable row level security;
+grant select, insert, update, delete on generation_record to authenticated, service_role;
 
 create policy "view generation records" on generation_record for select using (can_view_prd(prd_id));
 create policy "write generation records" on generation_record for insert with check (can_edit_prd(prd_id));
