@@ -115,16 +115,6 @@ function App() {
             }),
           )
         }
-        onEmailLink={(formEmail) =>
-          authCall(
-            () =>
-              supabase.auth.signInWithOtp({
-                email: formEmail,
-                options: { emailRedirectTo: back },
-              }),
-            "Check your inbox for a sign-in link.",
-          )
-        }
         onForgotPassword={(formEmail) =>
           authCall(
             () => supabase.auth.resetPasswordForEmail(formEmail, { redirectTo: back }),
