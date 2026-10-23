@@ -1,0 +1,120 @@
+/* Nautilus sign in + sign up.
+   Every class here starts with au-, so these rules can't clash with the app's other styles (Vite loads CSS
+   globally). Page-wide rules only apply while a sign-in or sign-up page is on screen (.nautilus-auth).
+   Fonts: Geist, Geist Mono, Instrument Serif (loaded by useAuthPage). */
+
+/* the pages were drawn with the browser's default box model; keep it inside them, whatever the app sets */
+.nautilus-auth,
+.nautilus-auth :where(:not(button, input, select, textarea)),
+.nautilus-auth *::before,
+.nautilus-auth *::after{box-sizing:content-box}
+body:has(.nautilus-auth){margin:0}
+body:has(.au-signin){background:#F1F7F8}
+body:has(.au-signup){background:#FFFFFF}
+
+/* logo: the wordmark; hover it and the bubble on the i floats up */
+.au-logo{display:block;overflow:visible}
+.au-logo-dot{transition:translate .7s cubic-bezier(.3,1.8,.45,1)}
+.au-logo-link:hover .au-logo-dot{translate:0 -120px}
+@media (prefers-reduced-motion: reduce){.au-logo-dot{transition:none}}
+:where(.nautilus-auth) a{color:#1D6F7A}:where(.nautilus-auth) a:hover{color:#102C33}
+:where(.nautilus-auth) *:focus-visible{outline:2px solid #1D6F7A;outline-offset:2px}
+/* type accents: a serif italic word, and a flat aqua highlighter under it */
+.au-serif{font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-weight:400;letter-spacing:-0.01em;font-size:1.12em}
+.au-hl{background-image:linear-gradient(#85D1DB,#85D1DB);background-repeat:no-repeat;background-size:100% .3em;background-position:0 80%;padding:0 .06em;-webkit-box-decoration-break:clone;box-decoration-break:clone}
+
+/* sea life: flat palette colours, everything decorative */
+.au-sea{pointer-events:none}
+.au-sea svg{display:block;overflow:visible}
+.au-sea-light{--sea1:#85D1DB;--sea2:#1D6F7A;--sea3:#B3EBF2;--sea4:#4FAAB7;--eye:#102C33;--mouth:#102C33;--bubble:#4FAAB7;--sh1:#B3EBF2;--sh2:#1D6F7A;--sh3:#85D1DB;--sh4:#FFFFFF}
+.au-sea-aqua{--bg:#85D1DB;--sea1:#1D6F7A;--sea2:#155E68;--sea3:#B3EBF2;--sea4:#2E8C99;--eye:#102C33;--mouth:#E8FAFC;--bubble:#FFFFFF;--sh1:#E8FAFC;--sh2:#1D6F7A;--sh3:#B3EBF2;--sh4:#FFFFFF}
+.au-s1{fill:var(--sea1)}.au-s2{fill:var(--sea2)}.au-s3{fill:var(--sea3)}.au-s4{fill:var(--sea4)}.au-se{fill:var(--eye)}.au-sw{fill:#FFFFFF}
+.au-k1{stroke:var(--sea1)}.au-k2{stroke:var(--sea2)}.au-k3{stroke:var(--sea3)}.au-k4{stroke:var(--sea4)}.au-ke{stroke:var(--mouth)}.au-kw{stroke:#FFFFFF}
+.au-h1{fill:var(--sh1)}.au-h3{fill:var(--sh3)}.au-h4{fill:var(--sh4)}.au-hk{stroke:var(--sh2)}.au-hk2{fill:var(--sh2)}
+.au-bobY{animation:au-bobY 3.4s ease-in-out infinite}
+@keyframes au-bobY{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+.au-bobS{display:block;animation:au-bobS 2.6s ease-in-out infinite}
+@keyframes au-bobS{0%,100%{transform:translateY(0)}50%{transform:translateY(-2px)}}
+.au-tail{transform-box:fill-box;transform-origin:100% 50%;animation:au-wag .8s ease-in-out infinite alternate}
+@keyframes au-wag{from{transform:rotate(-13deg)}to{transform:rotate(13deg)}}
+.au-bubble{position:absolute;width:10px;height:10px;border-radius:50%;border:1.5px solid var(--bubble);box-sizing:border-box;opacity:0;pointer-events:none;animation:au-bubble 6s ease-in infinite}
+.au-b-sm{width:6px;height:6px}.au-b-lg{width:14px;height:14px}
+@keyframes au-bubble{0%{opacity:0;transform:translate(0,0) scale(.6)}15%{opacity:.9}70%{opacity:.6}100%{opacity:0;transform:translate(8px,-150px) scale(1.1)}}
+.au-weed{transform-box:fill-box;transform-origin:50% 100%;animation:au-weed 5s ease-in-out infinite alternate}
+.au-wd2{animation-duration:4.2s;animation-delay:-1.4s}.au-wd3{animation-duration:3.6s;animation-delay:-2.2s}
+@keyframes au-weed{from{transform:rotate(-5deg)}to{transform:rotate(6deg)}}
+.au-clam-lid{transform-box:fill-box;transform-origin:0% 100%;transform:rotate(-26deg);animation:au-clam 8s ease-in-out infinite}
+@keyframes au-clam{0%,46%,100%{transform:rotate(-26deg)}56%,68%{transform:rotate(-3deg)}}
+.au-surface{position:absolute;left:0;right:0;top:-22px;height:44px;overflow:hidden;pointer-events:none}
+.au-wv{position:absolute;left:0;top:0;display:block;max-width:none}
+.au-wv-back{animation:au-wvR 11s linear infinite}.au-wv-front{animation:au-wvL 7s linear infinite}
+@keyframes au-wvL{from{transform:translateX(0)}to{transform:translateX(-160px)}}
+@keyframes au-wvR{from{transform:translateX(-220px)}to{transform:translateX(0)}}
+.au-wv-fill{fill:var(--bg)}
+.au-hl-w{background-image:linear-gradient(#FFFFFF,#FFFFFF)}
+@media (prefers-reduced-motion: reduce){.au-sea,.au-sea *,.au-clam-lid{animation:none!important;transition:none!important}}
+
+
+/* ===== sign in: gulls in the sky, a strip of sea along the bottom ===== */
+.au-si-sea{position:absolute;left:0;right:0;bottom:0;height:96px;background:#85D1DB;z-index:0}
+.au-si-sea .au-surface{z-index:1}
+.au-si-swim{position:absolute;left:30%;top:30px;z-index:1;animation:au-siSwim 30s ease-in-out infinite}
+@keyframes au-siSwim{0%{left:30%;top:30px;scale:1 1}45%{left:66%;top:42px;scale:1 1}50%{left:66%;top:42px;scale:-1 1}95%{left:30%;top:30px;scale:-1 1}100%{left:30%;top:30px;scale:1 1}}
+/* sky: two gulls over the margins, each kept to its side of the form */
+.au-si-sky{position:absolute;top:15%;height:48%;width:calc(50% - 250px);pointer-events:none;z-index:0}
+.au-si-sky-l{left:0}.au-si-sky-r{right:0}
+.au-si-gull{position:absolute}
+.au-g-bob{animation:au-gBob 2.8s ease-in-out infinite}
+@keyframes au-gBob{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+/* a few wing beats, then a long glide on flat wings */
+.au-g-wing{transform-box:fill-box;transform-origin:74% 100%;animation:au-gFlap 4.6s ease-in-out infinite}
+.au-g-far{transform-origin:22% 100%}
+@keyframes au-gFlap{0%,9%,18%,27%{transform:scaleY(1)}4.5%,13.5%,22.5%{transform:scaleY(-.5)}34%,90%{transform:scaleY(.3)}100%{transform:scaleY(1)}}
+.au-si-g1{left:12%;top:34%;animation:au-siG1 36s ease-in-out infinite}
+@keyframes au-siG1{0%{left:12%;top:34%;scale:1 1;rotate:0deg}11%{rotate:-5deg}22%{left:60%;top:12%;scale:1 1;rotate:0deg}26%{left:63%;top:13%;scale:-1 1}37%{rotate:-4deg}48%{left:22%;top:46%;scale:-1 1;rotate:0deg}52%{left:19%;top:48%;scale:1 1}63%{rotate:-3deg}74%{left:58%;top:58%;scale:1 1;rotate:0deg}78%{left:61%;top:56%;scale:-1 1}89%{rotate:4deg}100%{left:12%;top:34%;scale:-1 1;rotate:0deg}}
+.au-si-g2{left:70%;top:22%;animation:au-siG2 42s ease-in-out infinite}
+.au-si-g2 .au-g-wing{animation-duration:5.4s;animation-delay:-2.2s}
+.au-si-g2 .au-g-bob{animation-delay:-1.3s}
+@keyframes au-siG2{0%{left:70%;top:22%;scale:-1 1;rotate:0deg}12%{rotate:4deg}24%{left:24%;top:8%;scale:-1 1;rotate:0deg}28%{left:21%;top:9%;scale:1 1}39%{rotate:3deg}50%{left:66%;top:40%;scale:1 1;rotate:0deg}54%{left:69%;top:42%;scale:-1 1}65%{rotate:-4deg}76%{left:30%;top:30%;scale:-1 1;rotate:0deg}80%{left:27%;top:28%;scale:1 1}90%{rotate:-3deg}100%{left:70%;top:22%;scale:1 1;rotate:0deg}}
+@media (max-width:760px){.au-si-sky{display:none}}
+/* sea: fish at three depths, and a gull riding the waves (its belly behind the front wave) */
+.au-si-swim2{position:absolute;left:8%;top:50px;z-index:1;animation:au-siSwim2 36s ease-in-out infinite}
+@keyframes au-siSwim2{0%{left:8%;top:50px;scale:1 1}46%{left:27%;top:44px;scale:1 1}50%{left:27%;top:44px;scale:-1 1}96%{left:8%;top:50px;scale:-1 1}100%{left:8%;top:50px;scale:1 1}}
+.au-si-swim3{position:absolute;left:90%;top:38px;z-index:1;animation:au-siSwim3 40s ease-in-out infinite}
+@keyframes au-siSwim3{0%{left:90%;top:38px;scale:-1 1}46%{left:70%;top:44px;scale:-1 1}50%{left:70%;top:44px;scale:1 1}96%{left:90%;top:38px;scale:1 1}100%{left:90%;top:38px;scale:-1 1}}
+.au-si-float{position:absolute;left:74%;top:-27px;z-index:1;animation:au-siPaddle 48s ease-in-out infinite}
+@keyframes au-siPaddle{0%{left:74%;scale:1 1}44%{left:83%;scale:1 1}50%{left:83%;scale:-1 1}94%{left:74%;scale:-1 1}100%{left:74%;scale:1 1}}
+.au-g-ride{animation:au-gRide 3.4s ease-in-out infinite}
+@keyframes au-gRide{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(2.5px) rotate(2deg)}}
+/* bubbles fade before they reach the surface */
+.au-si-sea .au-bubble{animation-name:au-siBubble}
+@keyframes au-siBubble{0%{opacity:0;transform:translate(0,0) scale(.6)}15%{opacity:.9}70%{opacity:.5}100%{opacity:0;transform:translate(6px,-70px) scale(1.05)}}
+
+/* ===== sign up: the aqua panel and its whale ===== */
+/* the whale on the sign-up panel: swims the width of the floor and back, slowly */
+.au-su-whale{position:absolute;left:8%;bottom:40px;width:190px;animation:au-suWhale 52s ease-in-out infinite}
+@keyframes au-suWhale{0%{left:8%;bottom:40px;scale:-1 1}22%{bottom:62px}44%{left:56%;bottom:44px;scale:-1 1}48%{left:56%;bottom:44px;scale:1 1}72%{bottom:66px}94%{left:8%;bottom:40px;scale:1 1}98%,100%{left:8%;bottom:40px;scale:-1 1}}
+.au-whale-bob{animation:au-whalebob 5s ease-in-out infinite}
+@keyframes au-whalebob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-8px) rotate(-1.5deg)}}
+.au-w-fluke{transform-box:fill-box;transform-origin:0% 70%;animation:au-fluke 1.9s ease-in-out infinite alternate}
+@keyframes au-fluke{from{transform:rotate(-9deg)}to{transform:rotate(11deg)}}
+.au-w-flip{transform-box:fill-box;transform-origin:60% 0;animation:au-flipper 2.1s ease-in-out infinite alternate}
+@keyframes au-flipper{from{transform:rotate(-12deg)}to{transform:rotate(14deg)}}
+.au-w-eye{transform-box:fill-box;transform-origin:50% 50%;animation:au-blink 5.4s ease-in-out infinite}
+@keyframes au-blink{0%,91%,97%,100%{transform:scaleY(1)}94%{transform:scaleY(.08)}}
+.au-spout{opacity:0;transform-box:fill-box;transform-origin:50% 100%;animation:au-spoutc 11s ease-out infinite 3s}
+@keyframes au-spoutc{0%,64%{opacity:0;transform:scale(.3,.05)}70%{opacity:1;transform:scale(1,1)}82%{opacity:1;transform:scale(1.04,1.06)}90%,100%{opacity:0;transform:scale(1.08,1.12)}}
+.au-drop{opacity:0;transform-box:fill-box;transform-origin:50% 50%;animation:au-dropc 11s ease-out infinite 3s}
+@keyframes au-dropc{0%,66%{opacity:0;transform:translateY(14px) scale(.4)}74%{opacity:1;transform:translateY(-6px) scale(1)}86%,100%{opacity:0;transform:translateY(22px) scale(.7)}}
+@media (max-width:760px){.au-su-whale{width:150px}}
+
+/* ===== the forms ===== */
+/* fields: a teal edge and a soft aqua ring while you type in one */
+.au-input{border:1px solid #C3DADE}
+.au-input:focus{border-color:#1D6F7A;box-shadow:0 0 0 3px #D3F0F4;outline:none}
+.au-primary{border:0;padding:0;width:100%;font:inherit;cursor:pointer}
+.au-primary:disabled,.nautilus-auth button:disabled{opacity:.7;cursor:progress}
+/* a message above the main button: notice in aqua, error in the style guide's "changes requested" red */
+.au-msg{margin:0;padding:10px 12px;border-radius:9px;font-size:14px;line-height:1.45;background:#E3F6F8;color:#155E68}
+.au-msg-error{background:#FCE6E1;color:#8C2F1D}
+.au-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
