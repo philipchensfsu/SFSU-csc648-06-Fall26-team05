@@ -7,6 +7,16 @@ import SignUpPage from "./nautilus/auth/SignUpPage";
 import ResetPasswordPage from "./nautilus/auth/ResetPasswordPage";
 import { supabase } from "../lib/supabaseClient";
 
+// A reset link arrives as #...type=recovery. Supabase reads that hash as soon
+// as the client is built, so PASSWORD_RECOVERY can fire -- and the hash be
+// cleared -- before the listener below is attached. A missed event dropped the
+// person on the dashboard with their password unchanged, so read the URL here
+// too, while the hash is still there. SIGNED_IN follows recovery, so this has
+// to be known before that arrives.
+const OPENED_RESET_LINK =
+  typeof window !== "undefined" &&
+  window.location.hash.includes("type=recovery");
+
 function App() {
   const [session, setSession] = useState(null);
   // Without Supabase there is no session to wait for, so start off resolved.
@@ -18,7 +28,7 @@ function App() {
   const [authBusy, setAuthBusy] = useState(false);
   // A recovery link signs the person in, so without this they would land on
   // the dashboard and the password would never change.
-  const [recovering, setRecovering] = useState(false);
+  const [recovering, setRecovering] = useState(OPENED_RESET_LINK);
 
   // Restore an existing login on page load, then follow any later changes.
   useEffect(() => {
