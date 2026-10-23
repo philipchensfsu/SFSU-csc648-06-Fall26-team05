@@ -4,7 +4,7 @@ import { memo } from 'react';
 const TEAM = [
   { name: "Aksh Patel", roles: ["Front-End Lead", "GitHub Co-Lead"], github: "https://github.com/AkshPatel63",
     bio: "Builds the React interface and owns component structure and responsive layout, and helps keep the repository and pull requests in order." },
-  { name: "Giovannie Silva", roles: ["AI Master"], github: null,
+  { name: "Giovannie Silva", roles: ["AI Master"], github: "https://github.com/Gsilva-code",
     bio: "Researches and integrates the machine learning features that power the smarter parts of our application." },
   { name: "Leman Yuksel", roles: ["Scrum Master"], github: "https://github.com/LemanYuksel",
     bio: "Runs our standups and sprint planning, tracks the backlog, and keeps every milestone moving on schedule." },
