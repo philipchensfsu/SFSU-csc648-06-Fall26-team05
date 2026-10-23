@@ -1,0 +1,747 @@
+/* Nautilus landing + about us: shared styles.
+   Everything is class-based under the page root (.nautilus-page with .theme-light or .theme-dark); the few
+   page-wide rules (smooth scrolling, body background, link colour) only apply while one of these pages is
+   on screen. Fonts: Bricolage Grotesque, Instrument Serif, Geist, Geist Mono (Google Fonts, loaded by SeaPage).
+   .motion / .still on the root: scroll-driven effects run only in .motion (set by SeaPage.checkMotion). */
+
+/* The pages were drawn with the browser's default box model. Keep it inside them, even though the app sets
+   *{box-sizing:border-box} globally; the elements that need border-box say so below. */
+.nautilus-page,
+.nautilus-page :where(:not(button, input, select, textarea)),
+.nautilus-page *::before,
+.nautilus-page *::after{box-sizing:content-box}
+
+html:has(.nautilus-page){scroll-behavior:smooth}
+body:has(.nautilus-page){margin:0;background:#F7FBFC}
+body:has(.nautilus-page.theme-dark){background:#0D2328}
+:where(.nautilus-page) a{color:var(--accent)}:where(.nautilus-page) a:hover{color:var(--ink)}
+:where(.nautilus-page) *:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+:where(.nautilus-page) [id]{scroll-margin-top:84px}
+:where(.nautilus-page) .tilt{font-family:'Geist',ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif}
+:where(.nautilus-page) .serif{font-family:'Instrument Serif',Georgia,serif;font-style:italic;font-weight:400;letter-spacing:-0.01em}
+:where(.nautilus-page) .mono{font-family:'Geist Mono',ui-monospace,Menlo,monospace}
+:where(.nautilus-page) .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+@property --step{syntax:'<integer>';inherits:false;initial-value:1}
+@property --rx{syntax:'<angle>';inherits:false;initial-value:0deg}
+@property --ry{syntax:'<angle>';inherits:false;initial-value:0deg}
+
+/* ===== Palette: seaside aqua — aqua #85D1DB · pale aqua #B3EBF2 · deep teal #1D6F7A · ink #102C33. Flat colours only. ===== */
+.nautilus-page.theme-light{
+  color-scheme:light;
+  --bg:#F7FBFC;
+  --ink:#102C33;--text:#3E5A60;--muted:#557479;--label:#557479;
+  --line:#DCEBEE;--line2:#EAF3F5;--dim:#D2E3E6;
+  --accent:#1D6F7A;--brand:#85D1DB;--hl:#85D1DB;
+  --btn:#85D1DB;--btn-ink:#102C33;
+  --nav:#F7FBFC;
+  --grid:rgba(16,44,51,.06);--spot:rgba(29,111,122,.3);
+  --stroke:#1D6F7A;--numfill:#85D1DB;--bgword:rgba(29,111,122,.14);
+  --demo-border:#B3EBF2;--demo-shadow:0 30px 70px -40px rgba(16,44,51,.35);
+  --ticker:#6F8C91;--ticker-hi:#102C33;
+  --wm:#85D1DB;
+  --logo-dot:#4FAAB7;--wm-dot:#4FAAB7;
+}
+.nautilus-page.theme-dark{
+  color-scheme:dark;
+  --bg:#0D2328;
+  --ink:#EEF9FA;--text:#C3DCDF;--muted:#9FC2C7;--label:#9FC2C7;
+  --line:rgba(133,209,219,.18);--line2:rgba(133,209,219,.1);--dim:#24444A;
+  --accent:#85D1DB;--brand:#85D1DB;--hl:#1D6F7A;
+  --btn:#85D1DB;--btn-ink:#0D2328;
+  --nav:#0D2328;
+  --grid:rgba(133,209,219,.07);--spot:rgba(133,209,219,.35);
+  --stroke:rgba(133,209,219,.75);--numfill:#85D1DB;--bgword:rgba(133,209,219,.12);
+  --demo-border:#1D6F7A;--demo-shadow:0 30px 70px -40px rgba(0,0,0,.6);
+  --ticker:#7FA3A8;--ticker-hi:#EEF9FA;
+  --wm:#85D1DB;
+  --logo-dot:#85D1DB;--wm-dot:#EEF9FA;
+}
+/* pale-aqua band (interview) */
+:where(.nautilus-page) .sec-band{
+  --bg:#B3EBF2;
+  --ink:#102C33;--text:#2E4A50;--muted:#3F5F65;--label:#3F5F65;
+  --line:rgba(16,44,51,.16);--line2:rgba(16,44,51,.09);--dim:#8FC6CE;
+  --accent:#155E68;--brand:#155E68;--hl:#85D1DB;
+  --btn:#102C33;--btn-ink:#B3EBF2;
+  --stroke:#1D6F7A;--numfill:#FFFFFF;--bgword:rgba(29,111,122,.18);
+}
+.nautilus-page.theme-dark .sec-band{
+  --bg:#123239;
+  --ink:#EEF9FA;--text:#C3DCDF;--muted:#9FC2C7;--label:#9FC2C7;
+  --line:rgba(133,209,219,.2);--line2:rgba(133,209,219,.1);--dim:#24444A;
+  --accent:#85D1DB;--brand:#85D1DB;--hl:#1D6F7A;
+  --btn:#85D1DB;--btn-ink:#0D2328;
+  --stroke:rgba(133,209,219,.75);--numfill:#85D1DB;--bgword:rgba(133,209,219,.12);
+}
+/* aqua band (closing call to action) */
+:where(.nautilus-page) .sec-cta{
+  --bg:#85D1DB;
+  --ink:#102C33;--text:#102C33;--muted:#1E4950;--label:#1E4950;
+  --line:rgba(16,44,51,.2);--accent:#102C33;--brand:#102C33;--hl:#FFFFFF;
+  --btn:#102C33;--btn-ink:#FFFFFF;
+  --grid:rgba(16,44,51,.08);
+}
+/* deep-teal band (footer) */
+:where(.nautilus-page) .sec-dark{
+  --bg:#102C33;
+  --ink:#EEF9FA;--text:#C3DCDF;--muted:#9FC2C7;--label:#9FC2C7;
+  --line:rgba(133,209,219,.18);--line2:rgba(133,209,219,.1);--dim:#24444A;
+  --accent:#85D1DB;--brand:#85D1DB;--hl:#1D6F7A;
+  --btn:#85D1DB;--btn-ink:#102C33;
+  --logo-dot:#85D1DB;
+}
+.nautilus-page.theme-dark .sec-dark{--bg:#081A1E}
+
+/* ===== sea creatures — flat, palette-only ===== */
+.nautilus-page.theme-light{--sea1:#85D1DB;--sea2:#1D6F7A;--sea3:#B3EBF2;--sea4:#4FAAB7;--eye:#102C33;--mouth:#102C33;--bubble:#4FAAB7;--inkpuff:#102C33}
+.nautilus-page.theme-dark{--sea1:#85D1DB;--sea2:#4FAAB7;--sea3:#B3EBF2;--sea4:#6FC0CC;--eye:#102C33;--mouth:#102C33;--bubble:#85D1DB;--inkpuff:#4FAAB7}
+:where(.nautilus-page) .sec-band{--bubble:#1D6F7A}
+.nautilus-page.theme-dark .sec-band{--bubble:#85D1DB}
+:where(.nautilus-page) .sec-cta{--sea1:#1D6F7A;--sea2:#155E68;--sea3:#B3EBF2;--sea4:#2E8C99;--mouth:#E8FAFC;--bubble:#FFFFFF}
+:where(.nautilus-page) .s1{fill:var(--sea1)}:where(.nautilus-page) .s2{fill:var(--sea2)}:where(.nautilus-page) .s3{fill:var(--sea3)}:where(.nautilus-page) .s4{fill:var(--sea4)}:where(.nautilus-page) .se{fill:var(--eye)}:where(.nautilus-page) .sw{fill:#FFFFFF}
+:where(.nautilus-page) .k1{stroke:var(--sea1)}:where(.nautilus-page) .k2{stroke:var(--sea2)}:where(.nautilus-page) .k3{stroke:var(--sea3)}:where(.nautilus-page) .k4{stroke:var(--sea4)}:where(.nautilus-page) .ke{stroke:var(--mouth)}:where(.nautilus-page) .kw{stroke:#FFFFFF}
+:where(.nautilus-page) .nav::before{content:"";position:absolute;inset:0;z-index:-1;background:var(--nav);border-bottom:1px solid var(--line);pointer-events:none}
+/* on phones the section links make way, so the sticky bar stays one slim row */
+@media (max-width:860px){:where(.nautilus-page) .nav nav{display:none!important}}
+:where(.nautilus-page) .sea{pointer-events:none}
+:where(.nautilus-page) .sea svg{display:block;overflow:visible}
+/* Each creature roams its own patch of the page on its own clock (see the script):
+   .sea-zone is the patch, .swim-home is where it starts, .swim is what moves. */
+:where(.nautilus-page) .sea-zone{position:absolute;z-index:1;pointer-events:none}
+:where(.nautilus-page) .sea-back{z-index:0}
+:where(.nautilus-page) .sea-front{z-index:3}
+:where(.nautilus-page) .swim-home{position:absolute}
+:where(.nautilus-page) .swim{position:relative}
+:where(.nautilus-page) .bobY{animation:bobY 3.4s ease-in-out infinite}
+@keyframes bobY{0%,100%{transform:translateY(0)}50%{transform:translateY(-6px)}}
+:where(.nautilus-page) .tail{transform-box:fill-box;transform-origin:100% 50%;animation:wag .8s ease-in-out infinite alternate}
+@keyframes wag{from{transform:rotate(-13deg)}to{transform:rotate(13deg)}}
+:where(.nautilus-page) .bubble{position:absolute;width:10px;height:10px;border-radius:50%;border:1.5px solid var(--bubble);box-sizing:border-box;opacity:0;pointer-events:none;animation:bubble 6s ease-in infinite}
+:where(.nautilus-page) .b-sm{width:6px;height:6px}:where(.nautilus-page) .b-lg{width:14px;height:14px}
+@keyframes bubble{0%{opacity:0;transform:translate(0,0) scale(.6)}15%{opacity:.9}70%{opacity:.6}100%{opacity:0;transform:translate(8px,-150px) scale(1.1)}}
+:where(.nautilus-page) .scuttle{animation:scuttle .32s linear infinite}
+@keyframes scuttle{0%,100%{transform:translateY(0)}50%{transform:translateY(-1.6px)}}
+:where(.nautilus-page) .claw-l{transform-box:fill-box;transform-origin:85% 90%;animation:snapL 2.8s ease-in-out infinite}
+:where(.nautilus-page) .claw-r{transform-box:fill-box;transform-origin:15% 90%;animation:snapR 2.8s ease-in-out infinite}
+@keyframes snapL{0%,70%,100%{transform:rotate(0)}78%{transform:rotate(-16deg)}86%{transform:rotate(0)}}
+@keyframes snapR{0%,70%,100%{transform:rotate(0)}78%{transform:rotate(16deg)}86%{transform:rotate(0)}}
+:where(.nautilus-page) .jellybob{animation:jelly 6s ease-in-out infinite}
+@keyframes jelly{0%,100%{transform:translateY(0)}50%{transform:translateY(-14px)}}
+:where(.nautilus-page) .bell{transform-box:fill-box;transform-origin:50% 100%;animation:bell 2.6s ease-in-out infinite}
+@keyframes bell{0%,100%{transform:scale(1,1)}50%{transform:scale(1.04,.92)}}
+:where(.nautilus-page) .tentacles{transform-box:fill-box;transform-origin:50% 0;animation:sway 3s ease-in-out infinite alternate}
+@keyframes sway{from{transform:skewX(-5deg)}to{transform:skewX(5deg)}}
+:where(.nautilus-page) .flip-f{transform-box:fill-box;transform-origin:100% 100%;animation:paddleA 1.8s ease-in-out infinite alternate}
+:where(.nautilus-page) .flip-f2{transform-box:fill-box;transform-origin:100% 0;animation:paddleB 1.8s ease-in-out infinite alternate}
+@keyframes paddleA{from{transform:rotate(-12deg)}to{transform:rotate(16deg)}}
+@keyframes paddleB{from{transform:rotate(12deg)}to{transform:rotate(-16deg)}}
+:where(.nautilus-page) .wave{transform-box:fill-box;transform-origin:0 0;animation:wave 1.4s ease-in-out infinite alternate}
+@keyframes wave{from{transform:rotate(12deg)}to{transform:rotate(-28deg)}}
+:where(.nautilus-page) .seahorse{animation:seabob 4.6s ease-in-out infinite}
+@keyframes seabob{0%,100%{transform:translateY(0) rotate(-3deg)}50%{transform:translateY(-8px) rotate(3deg)}}
+/* the octopus leaves a puff of ink when the cursor startles it */
+:where(.nautilus-page) .ink{position:absolute;left:0;top:0;width:34px;height:34px;border-radius:50%;background:var(--inkpuff);opacity:0;pointer-events:none}
+:where(.nautilus-page) .ink::before,:where(.nautilus-page) .ink::after{content:"";position:absolute;border-radius:50%;background:var(--inkpuff)}
+:where(.nautilus-page) .ink::before{width:22px;height:22px;left:-13px;top:12px}
+:where(.nautilus-page) .ink::after{width:18px;height:18px;left:27px;top:15px}
+
+/* the whale: roams the floor of the closing band, tail beating, blinking, spouting now and then */
+:where(.nautilus-page) .cta-pad{padding:140px 24px 300px}
+:where(.nautilus-page) .whale{width:250px}
+:where(.nautilus-page) .whale svg{width:100%;height:auto}
+:where(.nautilus-page) .whale-bob{animation:whalebob 5s ease-in-out infinite}
+@keyframes whalebob{0%,100%{transform:translateY(0) rotate(0)}50%{transform:translateY(-8px) rotate(-1.5deg)}}
+:where(.nautilus-page) .w-fluke{transform-box:fill-box;transform-origin:0% 70%;animation:fluke 1.9s ease-in-out infinite alternate}
+@keyframes fluke{from{transform:rotate(-9deg)}to{transform:rotate(11deg)}}
+:where(.nautilus-page) .w-flip{transform-box:fill-box;transform-origin:60% 0;animation:flipper 2.1s ease-in-out infinite alternate}
+@keyframes flipper{from{transform:rotate(-12deg)}to{transform:rotate(14deg)}}
+:where(.nautilus-page) .w-eye{transform-box:fill-box;transform-origin:50% 50%;animation:blink 5.4s ease-in-out infinite}
+@keyframes blink{0%,91%,97%,100%{transform:scaleY(1)}94%{transform:scaleY(.08)}}
+:where(.nautilus-page) .spout{opacity:0;transform-box:fill-box;transform-origin:50% 100%}
+:where(.nautilus-page) .drop{opacity:0;transform-box:fill-box;transform-origin:50% 50%}
+:where(.nautilus-page) .whale-lane{left:1.5%;right:1.5%;bottom:12px;height:278px;z-index:2}
+@media (max-width:760px){:where(.nautilus-page) .whale{width:190px}:where(.nautilus-page) .cta-pad{padding-bottom:250px}:where(.nautilus-page) .whale-lane{height:230px}}
+:where(.nautilus-page) .weed{transform-box:fill-box;transform-origin:50% 100%;animation:weed 5s ease-in-out infinite alternate}
+:where(.nautilus-page) .wd2{animation-duration:4.2s;animation-delay:-1.4s}
+:where(.nautilus-page) .wd3{animation-duration:3.6s;animation-delay:-2.2s}
+@keyframes weed{from{transform:rotate(-5deg)}to{transform:rotate(6deg)}}
+
+/* the dolphin, the sea surface and its splashes (top of the closing band) */
+:where(.nautilus-page) .db{fill:#E8FAFC}
+:where(.nautilus-page) .d-tail{transform-box:view-box;transform-origin:13px 33px;animation:dtail .7s ease-in-out infinite alternate}
+@keyframes dtail{from{transform:rotate(-9deg)}to{transform:rotate(9deg)}}
+:where(.nautilus-page) .d-flip{transform-box:fill-box;transform-origin:80% 0;animation:flipper 1.8s ease-in-out infinite alternate}
+:where(.nautilus-page) .surface{position:absolute;left:0;right:0;top:-22px;height:44px;overflow:hidden;pointer-events:none;z-index:1}
+:where(.nautilus-page) .surface-front{z-index:3}
+:where(.nautilus-page) .wv{position:absolute;left:0;top:0;display:block;max-width:none}
+:where(.nautilus-page) .wv-back{animation:wvR 11s linear infinite}
+:where(.nautilus-page) .wv-front{animation:wvL 7s linear infinite}
+@keyframes wvL{from{transform:translateX(0)}to{transform:translateX(-160px)}}
+@keyframes wvR{from{transform:translateX(-220px)}to{transform:translateX(0)}}
+:where(.nautilus-page) .wv-fill{fill:var(--bg)}
+:where(.nautilus-page) .dolphin-lane{left:3%;right:3%;top:-150px;height:275px;z-index:2}
+:where(.nautilus-page) .splash-layer{position:absolute;z-index:4;pointer-events:none}
+:where(.nautilus-page) .splash{position:absolute;left:0;top:0;opacity:0;transform-origin:30px 40px}
+:where(.nautilus-page) .splash svg{display:block;overflow:visible}
+:where(.nautilus-page) .sdrop{fill:#FFFFFF;transform-box:fill-box;transform-origin:50% 50%}
+:where(.nautilus-page) .ripple{stroke:#FFFFFF;transform-box:fill-box;transform-origin:50% 50%}
+/* the manta's wings beat slowly */
+:where(.nautilus-page) .m-wing{transform-box:view-box;transform-origin:50px 40px;animation:mflap 2.6s ease-in-out infinite}
+@keyframes mflap{0%,100%{transform:scaleY(1)}50%{transform:scaleY(.72)}}
+/* the pufferfish: spikes hidden until it puffs */
+:where(.nautilus-page) .puff-body,:where(.nautilus-page) .puff-spikes{transform-box:view-box;transform-origin:30px 27px}
+:where(.nautilus-page) .puff-spikes{opacity:0}
+:where(.nautilus-page) .p-fin{transform-box:fill-box;transform-origin:100% 0;animation:flipper 1.2s ease-in-out infinite alternate}
+/* the anglerfish and the deep sea */
+:where(.nautilus-page) .a-lure{transform-box:view-box;transform-origin:60px 12px;animation:lure 3.2s ease-in-out infinite alternate}
+@keyframes lure{from{transform:rotate(-6deg)}to{transform:rotate(7deg)}}
+:where(.nautilus-page) .a-glow{fill:#B3EBF2;opacity:.22;transform-box:fill-box;transform-origin:50% 50%;animation:glow 2.4s ease-in-out infinite}
+:where(.nautilus-page) .a-glow2{opacity:.1;animation-delay:-1.2s}
+@keyframes glow{0%,100%{transform:scale(.85)}50%{transform:scale(1.25)}}
+:where(.nautilus-page) .a-bulb{fill:#E8FAFC;transform-box:fill-box;transform-origin:50% 50%}
+:where(.nautilus-page) .a-jaw{transform-box:view-box;transform-origin:57px 37px}
+:where(.nautilus-page) .a-fin{transform-box:fill-box;transform-origin:100% 0;animation:flipper 1.6s ease-in-out infinite alternate}
+:where(.nautilus-page) .snow{position:absolute;width:3px;height:3px;border-radius:50%;background:#85D1DB;opacity:0;pointer-events:none;animation:snow 13s linear infinite}
+@keyframes snow{0%{opacity:0;transform:translate(0,0)}15%{opacity:.45}85%{opacity:.3}100%{opacity:0;transform:translate(10px,46px)}}
+
+/* ===== shells — scattered on lines and corners; hover one and it wiggles and lets out bubbles ===== */
+.nautilus-page.theme-light{--sh1:#B3EBF2;--sh2:#1D6F7A;--sh3:#85D1DB;--sh4:#FFFFFF}
+.nautilus-page.theme-dark{--sh1:#85D1DB;--sh2:#0D2328;--sh3:#1D6F7A;--sh4:#EEF9FA}
+:where(.nautilus-page) .sec-band{--sh1:#FFFFFF;--sh2:#1D6F7A;--sh3:#85D1DB;--sh4:#FFFFFF}
+.nautilus-page.theme-dark .sec-band{--sh1:#85D1DB;--sh2:#123239;--sh3:#1D6F7A;--sh4:#EEF9FA}
+:where(.nautilus-page) .sec-cta{--sh1:#E8FAFC;--sh2:#1D6F7A;--sh3:#B3EBF2;--sh4:#FFFFFF}
+:where(.nautilus-page) .sec-dark{--sh1:#85D1DB;--sh2:#102C33;--sh3:#1D6F7A;--sh4:#EEF9FA}
+.nautilus-page.theme-dark .sec-dark{--sh2:#081A1E}
+:where(.nautilus-page) .h1{fill:var(--sh1)}:where(.nautilus-page) .h3{fill:var(--sh3)}:where(.nautilus-page) .h4{fill:var(--sh4)}:where(.nautilus-page) .hk{stroke:var(--sh2)}:where(.nautilus-page) .hk2{fill:var(--sh2)}
+:where(.nautilus-page) .shell{position:absolute;z-index:1;display:block;line-height:0}
+:where(.nautilus-page) .shell svg{display:block;overflow:visible}
+:where(.nautilus-page) .shell:hover svg{animation:shellwig .7s ease}
+@keyframes shellwig{0%,100%{transform:rotate(0)}20%{transform:translateY(-3px) rotate(-12deg)}45%{transform:translateY(-4px) rotate(9deg)}70%{transform:rotate(-5deg)}}
+:where(.nautilus-page) .clam-lid{transform-box:fill-box;transform-origin:0% 100%;transform:rotate(-26deg);animation:clam 8s ease-in-out infinite}
+@keyframes clam{0%,46%,100%{transform:rotate(-26deg)}56%,68%{transform:rotate(-3deg)}}
+@media (max-width:1320px){:where(.nautilus-page) .hide-sm{display:none!important}}
+@media (max-width:760px){:where(.nautilus-page) .hide-xs{display:none!important}}
+
+/* ===== cursor bubbles ===== */
+.nautilus-page.theme-light{--cbc:rgba(29,111,122,.6);--cbf:rgba(255,255,255,.4)}
+.nautilus-page.theme-dark{--cbc:rgba(133,209,219,.8);--cbf:rgba(255,255,255,.1)}
+:where(.nautilus-page) .cb-layer{position:fixed;inset:0;pointer-events:none;z-index:80;overflow:hidden}
+:where(.nautilus-page) .cb,:where(.nautilus-page) .cb-ring{position:absolute;left:0;top:0;border-radius:50%;border:1.5px solid var(--cbc);background:var(--cbf);box-sizing:border-box;opacity:0;pointer-events:none}
+:where(.nautilus-page) .cb{will-change:transform,opacity}
+:where(.nautilus-page) .cb-ring{width:28px;height:28px;transition:opacity .3s ease}
+:where(.nautilus-page) .cb::after,:where(.nautilus-page) .cb-ring::after{content:"";position:absolute;left:22%;top:16%;width:28%;height:28%;border-radius:50%;background:rgba(255,255,255,.9)}
+@media (hover:none){:where(.nautilus-page) .cb-layer{display:none}}
+
+/* ===== backgrounds ===== */
+:where(.nautilus-page) .gridbg{background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:64px 64px;-webkit-mask-image:radial-gradient(ellipse 70% 55% at 50% 0%,#000 25%,transparent 75%);mask-image:radial-gradient(ellipse 70% 55% at 50% 0%,#000 25%,transparent 75%)}
+:where(.nautilus-page) .spot-clip{position:absolute;inset:0;overflow:hidden;pointer-events:none}
+:where(.nautilus-page) .spot{position:absolute;left:0;top:0;width:480px;height:480px;-webkit-mask-image:radial-gradient(240px circle at 50% 50%,#000,transparent 75%);mask-image:radial-gradient(240px circle at 50% 50%,#000,transparent 75%);will-change:transform}
+:where(.nautilus-page) .spot-grid{position:absolute;left:0;top:0;width:544px;height:544px;background-image:linear-gradient(var(--spot) 1px,transparent 1px),linear-gradient(90deg,var(--spot) 1px,transparent 1px);background-size:64px 64px}
+
+/* solid highlighter mark behind words */
+:where(.nautilus-page) .hl{background-image:linear-gradient(var(--hl),var(--hl));background-repeat:no-repeat;background-size:100% .3em;background-position:0 78%;-webkit-box-decoration-break:clone;box-decoration-break:clone;padding:0 .05em}
+@keyframes hlgrow{from{background-size:0% .3em}}
+:where(.nautilus-page) .hl-load{animation:hlgrow .9s cubic-bezier(.6,0,.2,1) 1.3s both}
+
+/* ===== hero ===== */
+:where(.nautilus-page) .fu{opacity:0;animation:fu .9s cubic-bezier(.2,.7,.2,1) forwards}
+@keyframes fu{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
+:where(.nautilus-page) .w{display:inline-block;margin-right:.2em;opacity:0;animation:wordin .9s cubic-bezier(.2,.7,.2,1) forwards}
+@keyframes wordin{from{opacity:0;transform:translateY(.45em);filter:blur(10px)}to{opacity:1;transform:none;filter:blur(0)}}
+:where(.nautilus-page) .tilt{opacity:0;animation:tiltin 1.2s cubic-bezier(.2,.7,.2,1) 1s forwards}
+@keyframes tiltin{from{opacity:0;transform:translateY(46px) scale(.97)}to{opacity:1;transform:none}}
+:where(.nautilus-page) .rot{display:inline-block;height:1.15em;overflow:hidden;vertical-align:bottom;margin-bottom:-0.04em}
+:where(.nautilus-page) .rot-in{display:flex;flex-direction:column;align-items:center;animation:rot 9s cubic-bezier(.75,0,.2,1) infinite}
+:where(.nautilus-page) .rot-in span{display:block;height:1.15em;line-height:1.15em;white-space:nowrap}
+@keyframes rot{0%,28%{transform:translateY(0)}33%,61%{transform:translateY(-1.15em)}66%,94%{transform:translateY(-2.3em)}100%{transform:translateY(-3.45em)}}
+
+/* the big wordmark: one colour fading out, letters rise one by one */
+:where(.nautilus-page) .wmh{display:flex;justify-content:center;line-height:0}
+:where(.nautilus-page) .wmh span{display:block;flex:none;height:.98em;-webkit-mask-image:linear-gradient(180deg,#000 38%,transparent 100%);mask-image:linear-gradient(180deg,#000 38%,transparent 100%);animation:wmup 1.2s cubic-bezier(.2,.7,.2,1) both;transition:scale .45s cubic-bezier(.2,.7,.2,1)}
+:where(.nautilus-page) .wmh svg{display:block;width:100%;height:100%;overflow:visible;fill:var(--wm)}
+/* the dot on the i is a bubble: it drifts on its own */
+:where(.nautilus-page) .wmh-dot{fill:var(--wm-dot);animation:wmdot 5.6s ease-in-out infinite}
+@keyframes wmdot{0%,100%{translate:0 0}50%{translate:0 -40px}}
+/* logo: hover the wordmark and its bubble floats up */
+:where(.nautilus-page) .logo{display:block;overflow:visible}
+:where(.nautilus-page) .logo-dot{transition:translate .7s cubic-bezier(.3,1.8,.45,1)}
+:where(.nautilus-page) .logo-link:hover .logo-dot{translate:0 -120px}
+:where(.nautilus-page) .wmh span:hover{scale:1.06}
+@keyframes wmup{from{translate:0 45%;opacity:0;filter:blur(14px)}to{translate:0 0;opacity:1;filter:blur(0)}}
+
+/* floating spec tags */
+:where(.nautilus-page) .ftag{position:absolute;z-index:1;display:inline-flex;align-items:center;gap:8px;font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-size:12px;letter-spacing:.06em;color:var(--label);white-space:nowrap;pointer-events:none}
+:where(.nautilus-page) .ftag-dot{width:6px;height:6px;border-radius:50%;background:var(--brand)}
+:where(.nautilus-page) .t1{animation:fadein 1.2s ease 1.2s both,bobA 7s ease-in-out infinite alternate}
+:where(.nautilus-page) .t2{animation:fadein 1.2s ease 1.3s both,bobB 9s ease-in-out infinite alternate}
+:where(.nautilus-page) .t3{animation:fadein 1.2s ease 1.4s both,bobB 8s ease-in-out infinite alternate}
+:where(.nautilus-page) .t4{animation:fadein 1.2s ease 1.5s both,bobA 10s ease-in-out infinite alternate}
+:where(.nautilus-page) .t5{animation:fadein 1.2s ease 1.6s both,bobA 9s ease-in-out infinite alternate}
+:where(.nautilus-page) .t6{animation:fadein 1.2s ease 1.7s both,bobB 7s ease-in-out infinite alternate}
+@keyframes fadein{from{opacity:0}}
+@keyframes bobA{from{translate:0 -7px}to{translate:0 9px}}
+@keyframes bobB{from{translate:0 8px}to{translate:0 -8px}}
+@media (max-width:1320px){:where(.nautilus-page) .ftag{display:none}}
+
+/* ===== small utilities ===== */
+:where(.nautilus-page) .ping{animation:ping 1.8s cubic-bezier(0,0,.2,1) infinite}
+@keyframes ping{75%,100%{transform:scale(2.6);opacity:0}}
+:where(.nautilus-page) .btn-w{transition:transform .2s ease,opacity .2s ease}
+:where(.nautilus-page) .btn-w:hover{transform:translateY(-1px);opacity:.92}
+:where(.nautilus-page) .navlink{transition:color .2s ease}:where(.nautilus-page) .navlink:hover{color:var(--ink)!important}
+:where(.nautilus-page) .sprog{transform-origin:left;transform:scaleX(0)}
+
+/* ===== demo (app preview in the same palette) ===== */
+:where(.nautilus-page) .type{display:inline-block;white-space:nowrap;clip-path:inset(0 100% 0 0);animation:type 1s steps(30,end) forwards}
+@keyframes type{to{clip-path:inset(0 0 0 0)}}
+:where(.nautilus-page) .caret{display:inline-block;width:2px;height:1.05em;background:#1D6F7A;vertical-align:text-bottom;margin-left:2px;animation:blink 1s steps(1) infinite}
+@keyframes blink{50%{opacity:0}}
+:where(.nautilus-page) .pop{opacity:0;animation:pop .55s cubic-bezier(.2,.8,.2,1.15) forwards}
+@keyframes pop{from{opacity:0;transform:translateY(10px) scale(.97)}to{opacity:1;transform:none}}
+:where(.nautilus-page) .fill{width:0;animation:fill 3.8s cubic-bezier(.3,.6,.3,1) forwards}
+@keyframes fill{to{width:100%}}
+:where(.nautilus-page) .tabbar{width:0;animation:fill 6s linear forwards}
+:where(.nautilus-page) .strike{position:relative;animation:oldtxt .5s ease 1.2s forwards}
+:where(.nautilus-page) .strike::after{content:"";position:absolute;left:0;top:55%;height:1.5px;width:0;background:#1D6F7A;animation:strk .5s ease 1.2s forwards}
+@keyframes strk{to{width:100%}}
+@keyframes oldtxt{to{color:#8BA3A7}}
+:where(.nautilus-page) .out{animation:out .3s ease 2.6s forwards}
+@keyframes out{to{opacity:0;transform:translateY(-6px)}}
+:where(.nautilus-page) .demo-grid{display:grid;grid-template-columns:210px minmax(0,1fr)}
+@media (max-width:760px){:where(.nautilus-page) .demo-grid{grid-template-columns:minmax(0,1fr)}:where(.nautilus-page) .demo-side{display:none!important}}
+:where(.nautilus-page) .tab{transition:color .2s ease}:where(.nautilus-page) .tab:hover{color:var(--ink)!important}
+/* ===== demo v2: a scripted product video. Resting styles are the END state of each scene. ===== */
+@property --pct{syntax:'<integer>';inherits:false;initial-value:100}
+@property --fr{syntax:'<integer>';inherits:false;initial-value:6}
+:where(.nautilus-page) .d-stage{position:relative;height:470px;overflow:hidden}
+:where(.nautilus-page) .d-scene{position:absolute;inset:0;animation:d-scene-in .6s cubic-bezier(.2,.8,.2,1) both}
+@keyframes d-scene-in{from{opacity:0;transform:translateY(12px) scale(.985);filter:blur(6px)}}
+:where(.nautilus-page) .d-mono-label{font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-size:11px;color:#557479;letter-spacing:.05em}
+:where(.nautilus-page) .d-h{font-size:24px;font-weight:650;letter-spacing:-0.025em;line-height:1.15;color:#102C33}
+/* generic beats */
+@keyframes d-vis{0%{opacity:0;visibility:hidden}4%,92%{opacity:1;visibility:visible}100%{opacity:0;visibility:hidden}}
+@keyframes d-pop{from{opacity:0;transform:scale(.6)}}
+@keyframes d-fade-in{from{opacity:0}}
+@keyframes d-fade-out{from{opacity:1}to{opacity:0}}
+:where(.nautilus-page) [style*="d-fade-out"]{opacity:0}
+:where(.nautilus-page) [style*="d-vis"]{opacity:0;visibility:hidden}
+@keyframes d-rise{from{opacity:0;transform:translateY(14px)}}
+@keyframes d-press{0%,100%{transform:none}35%{transform:scale(.93);filter:brightness(.92)}}
+@keyframes d-draw{from{stroke-dashoffset:24}to{stroke-dashoffset:0}}
+:where(.nautilus-page) .d-spin{display:inline-block;width:14px;height:14px;box-sizing:border-box;border-radius:50%;border:2px solid #B3EBF2;border-top-color:#1D6F7A;animation:d-spin .7s linear infinite}
+@keyframes d-spin{to{transform:rotate(360deg)}}
+:where(.nautilus-page) .d-dots{display:inline-flex;align-items:center;gap:4px;height:22px}
+:where(.nautilus-page) .d-dots i{width:7px;height:7px;border-radius:50%;background:#1D6F7A;animation:d-bounce 1s ease-in-out infinite}
+:where(.nautilus-page) .d-dots i:nth-child(2){animation-delay:.15s}:where(.nautilus-page) .d-dots i:nth-child(3){animation-delay:.3s}
+:where(.nautilus-page) .d-dots-sm{height:auto;margin-left:6px;gap:3px}:where(.nautilus-page) .d-dots-sm i{width:4px;height:4px}
+@keyframes d-bounce{0%,60%,100%{transform:none;opacity:.45}30%{transform:translateY(-5px);opacity:1}}
+/* typewriter: one character per step, caret on the moving edge */
+:where(.nautilus-page) .d-tw{display:inline-block;vertical-align:bottom;white-space:nowrap;overflow:hidden;max-width:var(--w);border-right:2px solid transparent;padding-right:1px;animation:d-type var(--d) steps(var(--n),end) var(--t) both}
+:where(.nautilus-page) .d-tw-hold{animation:d-type var(--d) steps(var(--n),end) var(--t) both,d-caret-hold var(--d) linear var(--t) forwards}
+:where(.nautilus-page) .d-tw-blink{animation:d-type var(--d) steps(var(--n),end) var(--t) both,d-caret 1s step-end var(--t) infinite}
+@keyframes d-type{from{max-width:0}}
+@keyframes d-caret-hold{0%,99%{border-right-color:#1D6F7A}100%{border-right-color:transparent}}
+@keyframes d-caret{0%,100%{border-right-color:#1D6F7A}50%{border-right-color:transparent}}
+/* cursor */
+:where(.nautilus-page) .d-cur{position:absolute;left:0;top:0;z-index:20;width:20px;height:24px;pointer-events:none;opacity:0;filter:drop-shadow(0 2px 3px rgba(16,44,51,.25))}
+:where(.nautilus-page) .d-click{position:absolute;left:-13px;top:-13px;width:26px;height:26px;box-sizing:border-box;border-radius:50%;border:2px solid #1D6F7A;opacity:0}
+@keyframes d-ripple{0%{opacity:.9;transform:scale(.3)}100%{opacity:0;transform:scale(1.6)}}
+
+/* scene 1 · interview */
+:where(.nautilus-page) .d-side{border-right:1px solid #DCEBEE;background:#F7FBFC;padding:22px 14px;display:flex;flex-direction:column;gap:3px;font-size:13px}
+:where(.nautilus-page) .d-qrow{position:relative;z-index:1;display:flex;align-items:center;gap:10px;height:34px;padding:0 8px}
+:where(.nautilus-page) .d-qpill{position:absolute;left:0;right:0;top:68px;height:34px;border-radius:8px;background:#E3F6F8}
+@keyframes d-pill-down{from{transform:translateY(-34px)}}
+:where(.nautilus-page) .d-num,:where(.nautilus-page) .d-num-stack{flex:none;width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;box-sizing:border-box}
+:where(.nautilus-page) .d-num-stack{display:inline-grid}:where(.nautilus-page) .d-num-stack>*{grid-area:1/1}
+:where(.nautilus-page) .d-num-done{background:#102C33;color:#FFFFFF}
+:where(.nautilus-page) .d-num-on{background:#1D6F7A;color:#FFFFFF}
+:where(.nautilus-page) .d-num-todo{border:1px solid #C3DADE;color:#557479}
+@keyframes d-num-wake{from{background:transparent;color:#557479;box-shadow:inset 0 0 0 1px #C3DADE}}
+@keyframes d-row-off{from{color:#155E68;font-weight:600}}
+@keyframes d-row-wake{from{color:#557479;font-weight:400}}
+:where(.nautilus-page) .d-main{padding:22px 34px 20px;display:flex;flex-direction:column;gap:16px;min-width:0;text-align:left}
+:where(.nautilus-page) .d-segs{display:flex;gap:4px}:where(.nautilus-page) .d-seg{flex:1;height:5px;border-radius:3px;background:#DCEBEE}
+@keyframes d-seg-aqua-ink{from{background:#85D1DB}}
+@keyframes d-seg-line-aqua{from{background:#DCEBEE}}
+:where(.nautilus-page) .d-q1,:where(.nautilus-page) .d-q2{position:absolute;inset:0;display:flex;flex-direction:column;gap:12px}
+:where(.nautilus-page) .d-q1{opacity:0;visibility:hidden}
+@keyframes d-slide-out{from{opacity:1;visibility:visible;transform:none}to{opacity:0;visibility:hidden;transform:translateX(-48px)}}
+@keyframes d-slide-in{from{opacity:0;transform:translateX(56px)}}
+:where(.nautilus-page) .d-answer{border:1px solid #1D6F7A;box-shadow:0 0 0 4px #D3F0F4;border-radius:12px;padding:12px 16px;display:flex;flex-direction:column;gap:10px}
+:where(.nautilus-page) .d-lines{display:flex;flex-direction:column;gap:2px;font-size:15px;color:#102C33;line-height:1.45}
+:where(.nautilus-page) .d-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;background:#EEF6F7;color:#3E5A60;font-size:12px}
+:where(.nautilus-page) .d-chip-new{background:#E3F6F8;color:#155E68;font-weight:600;box-shadow:inset 0 0 0 1px #85D1DB}
+@keyframes d-chip-in{0%{opacity:0;transform:scale(.4);max-width:0}60%{opacity:1;transform:scale(1.12)}100%{max-width:220px}}
+:where(.nautilus-page) .d-ai{display:flex;gap:12px;align-items:flex-start;border:1px solid #B3EBF2;background:#F1FAFB;border-radius:12px;padding:12px 14px}
+:where(.nautilus-page) .d-ai-badge{flex:none;width:28px;height:28px;border-radius:8px;background:#1D6F7A;color:#FFFFFF;display:inline-flex;align-items:center;justify-content:center}
+:where(.nautilus-page) .d-btn-ai{display:inline-grid;align-items:center;padding:5px 11px;border-radius:7px;background:#1D6F7A;color:#FFFFFF;font-weight:600;font-size:13px}
+:where(.nautilus-page) .d-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:10px}
+:where(.nautilus-page) .d-btn-next{padding:8px 14px;border-radius:9px;background:#85D1DB;color:#102C33;font-weight:600;font-size:13px}
+:where(.nautilus-page) .s1 .d-cur{--sx: 872px; --sy: 404px; --ax: 384px; --ay: 354px; --bx: 1026px; --by: 436px; animation:d-cur-s1 9.0s ease-in-out both}
+:where(.nautilus-page) .s1 .d-click-1{animation:d-ripple .5s ease-out 6.2s}:where(.nautilus-page) .s1 .d-click-2{animation:d-ripple .5s ease-out 7.25s}
+@keyframes d-cur-s1{
+  0.00%{left:var(--sx);top:var(--sy);scale:1;opacity:0}
+  55.56%{left:var(--sx);top:var(--sy);scale:1;opacity:0}
+  57.22%{left:var(--sx);top:var(--sy);scale:1;opacity:1}
+  66.11%{left:var(--ax);top:var(--ay);scale:1;opacity:1}
+  68.89%{left:var(--ax);top:var(--ay);scale:0.86;opacity:1}
+  70.56%{left:var(--ax);top:var(--ay);scale:1;opacity:1}
+  73.33%{left:var(--ax);top:var(--ay);scale:1;opacity:1}
+  78.33%{left:var(--bx);top:var(--by);scale:1;opacity:1}
+  80.56%{left:var(--bx);top:var(--by);scale:0.86;opacity:1}
+  82.22%{left:var(--bx);top:var(--by);scale:1;opacity:1}
+  92.78%{left:calc(var(--bx) + 40px);top:calc(var(--by) + 26px);scale:1;opacity:1}
+  96.67%{left:calc(var(--bx) + 40px);top:calc(var(--by) + 26px);scale:1;opacity:0}
+  100.00%{left:calc(var(--bx) + 40px);top:calc(var(--by) + 26px);scale:1;opacity:0}
+}
+
+/* scene 2 · generate */
+:where(.nautilus-page) .d-genleft{flex:1 1 340px;padding:30px 34px;display:flex;flex-direction:column;gap:18px;border-right:1px solid #DCEBEE;min-width:0}
+:where(.nautilus-page) .d-genright{flex:1 1 360px;padding:20px 26px;background:#F7FBFC;display:flex;flex-direction:column;gap:2px;font-size:14px;min-width:0}
+:where(.nautilus-page) .d-bar{height:6px;border-radius:3px;background:#DCEBEE;overflow:hidden}
+:where(.nautilus-page) .d-bar-fill{display:block;height:100%;border-radius:3px;background:#1D6F7A;animation:d-gen 6s linear .2s both}
+@keyframes d-gen{0%{width:0}12%{width:14%}30%{width:37%}38%{width:41%}58%{width:66%}66%{width:70%}86%{width:91%}100%{width:100%}}
+:where(.nautilus-page) .d-pct{font-family:'Geist Mono',ui-monospace,monospace;counter-reset:pct var(--pct);animation:d-pct 6s linear .2s both}
+:where(.nautilus-page) .d-pct::after{content:counter(pct) "%"}
+@keyframes d-pct{0%{--pct:0}12%{--pct:14}30%{--pct:37}38%{--pct:41}58%{--pct:66}66%{--pct:70}86%{--pct:91}100%{--pct:100}}
+:where(.nautilus-page) .d-step{display:flex;align-items:center;gap:10px;color:#102C33}
+@keyframes d-step-wake{from{color:#9DB3B7}}
+:where(.nautilus-page) .d-stepicon{flex:none;display:inline-grid;place-items:center;width:20px;height:20px}
+:where(.nautilus-page) .d-stepdone{width:20px;height:20px;border-radius:50%;background:#1D6F7A;display:inline-flex;align-items:center;justify-content:center}
+:where(.nautilus-page) .d-sm,:where(.nautilus-page) .d-sm .d-stepdone{width:16px;height:16px}:where(.nautilus-page) .d-sm .d-spin{width:12px;height:12px}
+:where(.nautilus-page) .d-ok{background:#1C9A62}
+:where(.nautilus-page) .d-fr{font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;color:#155E68;counter-reset:fr var(--fr)}
+:where(.nautilus-page) .d-fr::before{content:"FR-0" counter(fr)}
+@keyframes d-fr{from{--fr:1}to{--fr:6}}
+:where(.nautilus-page) .d-sec{position:relative;display:flex;align-items:center;gap:11px;height:40px;padding:0 12px;border-radius:9px}
+:where(.nautilus-page) .d-sec-hl{position:absolute;inset:0;border-radius:9px;background:#FFFFFF;box-shadow:inset 0 0 0 1px #B3EBF2;z-index:-1}
+:where(.nautilus-page) .d-genright{position:relative;z-index:0}
+@keyframes d-row-in{from{opacity:0;transform:translateX(18px)}}
+:where(.nautilus-page) .d-skel{margin-left:auto;width:var(--sw);height:6px;border-radius:3px;background:#DCEBEE}
+@keyframes d-skel{from{width:0;background:#85D1DB}}
+:where(.nautilus-page) .d-pdot{width:16px;height:16px;border-radius:50%}
+:where(.nautilus-page) .d-pill3{margin-left:auto;font-size:11px;font-weight:600;color:#102C33;background:#85D1DB;border-radius:5px;padding:1px 7px}
+:where(.nautilus-page) .d-toast{position:absolute;left:0;right:0;margin:0 auto;bottom:18px;z-index:10;display:flex;align-items:center;gap:12px;width:max-content;max-width:calc(100% - 32px);padding:10px 10px 10px 12px;border-radius:12px;background:#102C33;color:#EEF9FA;font-size:13px;box-shadow:0 18px 40px -16px rgba(16,44,51,.6)}
+:where(.nautilus-page) .d-toast-ic{flex:none;width:24px;height:24px;border-radius:50%;background:#1C9A62;display:inline-flex;align-items:center;justify-content:center}
+@keyframes d-toast-up{from{opacity:0;transform:translateY(24px) scale(.96)}}
+:where(.nautilus-page) .d-btn-open{padding:6px 12px;border-radius:8px;background:#85D1DB;color:#102C33;font-weight:600}
+:where(.nautilus-page) .s2 .d-cur{--sx: 872px; --sy: 404px; --ax: 760px; --ay: 429px; animation:d-cur-s2 8.0s ease-in-out both}
+:where(.nautilus-page) .s2 .d-click-1{animation:d-ripple .5s ease-out 7.2s}
+@keyframes d-cur-s2{
+  0.00%{left:var(--sx);top:var(--sy);scale:1;opacity:0}
+  80.62%{left:var(--sx);top:var(--sy);scale:1;opacity:0}
+  82.50%{left:var(--sx);top:var(--sy);scale:1;opacity:1}
+  87.50%{left:var(--ax);top:var(--ay);scale:1;opacity:1}
+  90.00%{left:var(--ax);top:var(--ay);scale:0.86;opacity:1}
+  91.88%{left:var(--ax);top:var(--ay);scale:1;opacity:1}
+  100.00%{left:var(--ax);top:var(--ay);scale:1;opacity:1}
+}
+
+/* scene 3 · refine */
+:where(.nautilus-page) .d-ver{display:inline-grid;margin-left:4px;perspective:200px}
+:where(.nautilus-page) .d-ver>*{grid-area:1/1;font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;border-radius:6px;padding:1px 8px;border:1px solid #DCEBEE;color:#3E5A60;backface-visibility:hidden}
+:where(.nautilus-page) .d-ver>:first-child{opacity:0}
+:where(.nautilus-page) .d-ver-new{background:#102C33;border-color:#102C33!important;color:#FFFFFF!important}
+@keyframes d-flip-out{from{opacity:1;transform:none}to{opacity:0;transform:rotateX(90deg)}}
+@keyframes d-flip-in{from{opacity:0;transform:rotateX(-90deg)}}
+:where(.nautilus-page) .d-diffchip{margin-left:auto;display:inline-flex;align-items:center;gap:7px;padding:6px 11px;border-radius:9px;background:#E3F6F8;border:1px solid #B3EBF2;color:#155E68;font-size:13px;font-weight:500}
+:where(.nautilus-page) .d-table{position:relative;border:1px solid #DCEBEE;border-radius:12px;font-size:14px}
+:where(.nautilus-page) .d-frrow{position:relative;display:grid;grid-template-columns:62px minmax(0,1fr) 64px;gap:12px;padding:12px 16px;border-bottom:1px solid #EAF3F5}
+:where(.nautilus-page) .d-frrow:last-of-type{border-bottom:0}
+:where(.nautilus-page) .d-rowhl{position:absolute;inset:0;background:#F1FAFB;z-index:-1}
+:where(.nautilus-page) .d-table{z-index:0}
+:where(.nautilus-page) .d-pri{justify-self:end;align-self:start;font-size:11px;font-weight:600;padding:2px 7px;border-radius:5px}
+:where(.nautilus-page) .d-strike{position:relative;color:#8BA3A7;animation:d-old-txt .4s ease var(--st) both}
+:where(.nautilus-page) .d-strike::after{content:"";position:absolute;left:0;right:0;top:55%;height:1.5px;background:#1D6F7A;transform-origin:left;animation:d-strike-line .4s ease var(--st) both}
+@keyframes d-old-txt{from{color:#102C33}}
+@keyframes d-strike-line{from{transform:scaleX(0)}}
+:where(.nautilus-page) .d-newline{align-self:flex-start;max-width:100%;background:#B3EBF2;color:#102C33;border-radius:6px;padding:3px 8px;margin-left:-8px}
+:where(.nautilus-page) .d-scan{position:absolute;left:0;right:0;top:0;height:2px;background:#1D6F7A;box-shadow:0 0 0 6px rgba(133,209,219,.35);opacity:0;animation:d-scan 1.05s ease-in-out 3.95s both}
+@keyframes d-scan{0%{opacity:0;top:0}10%{opacity:1}90%{opacity:1}100%{opacity:0;top:100%}}
+:where(.nautilus-page) .d-toolbar{position:absolute;right:92px;top:98px;z-index:5;display:flex;gap:2px;padding:4px;border-radius:10px;background:#FFFFFF;border:1px solid #DCEBEE;box-shadow:0 14px 30px -14px rgba(16,44,51,.4)}
+:where(.nautilus-page) .d-tb-btn{display:inline-flex;align-items:center;gap:6px;padding:6px 10px;border-radius:7px;background:#E3F6F8;color:#155E68;font-size:13px;font-weight:500}
+:where(.nautilus-page) .d-prompt{position:absolute;right:0;top:-56px;width:min(440px,100%);box-sizing:border-box;z-index:6;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:11px;background:#FFFFFF;border:2px solid #1D6F7A;box-shadow:0 0 0 4px #D3F0F4,0 18px 40px -18px rgba(16,44,51,.45)}
+:where(.nautilus-page) .d-think{display:inline-flex;align-items:center;font-size:14px;color:#155E68;background:#FFFFFF}
+:where(.nautilus-page) .d-kbd{flex:none;font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;padding:2px 7px;border-radius:6px;border:1px solid #C3DADE;color:#3E5A60;background:#F7FBFC}
+:where(.nautilus-page) .d-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px;justify-content:flex-end;font-size:13px}
+:where(.nautilus-page) .d-btn-ghost{padding:8px 12px;border-radius:8px;border:1px solid #C3DADE;color:#102C33}
+:where(.nautilus-page) .d-btn-teal{padding:8px 14px;border-radius:8px;background:#1D6F7A;color:#FFFFFF;font-weight:600}
+:where(.nautilus-page) .d-toast-tc{top:14px;bottom:auto}
+@keyframes d-toast-down{from{opacity:0;transform:translateY(-18px) scale(.96)}}
+:where(.nautilus-page) .s3 .d-cur{--sx: 872px; --sy: 404px; --ax: 610px; --ay: 215px; --bx: 852px; --by: 195px; --cx: 1024px; --cy: 367px; animation:d-cur-s3 9.5s ease-in-out both}
+:where(.nautilus-page) .s3 .d-click-1{animation:d-ripple .5s ease-out 2.1s}:where(.nautilus-page) .s3 .d-click-2{animation:d-ripple .5s ease-out 7.0s}
+@keyframes d-cur-s3{
+  0.00%{left:var(--sx);top:var(--sy);scale:1;opacity:0}
+  2.11%{left:var(--sx);top:var(--sy);scale:1;opacity:0}
+  4.74%{left:var(--sx);top:var(--sy);scale:1;opacity:1}
+  13.16%{left:var(--ax);top:var(--ay);scale:1;opacity:1}
+  16.84%{left:var(--ax);top:var(--ay);scale:1;opacity:1}
+  20.53%{left:var(--bx);top:var(--by);scale:1;opacity:1}
+  22.11%{left:var(--bx);top:var(--by);scale:0.86;opacity:1}
+  23.68%{left:var(--bx);top:var(--by);scale:1;opacity:1}
+  30.53%{left:calc(var(--bx) + -260px);top:calc(var(--by) + 190px);scale:1;opacity:1}
+  63.68%{left:calc(var(--bx) + -230px);top:calc(var(--by) + 200px);scale:1;opacity:1}
+  71.05%{left:var(--cx);top:var(--cy);scale:1;opacity:1}
+  73.68%{left:var(--cx);top:var(--cy);scale:0.86;opacity:1}
+  75.26%{left:var(--cx);top:var(--cy);scale:1;opacity:1}
+  89.47%{left:calc(var(--cx) + -30px);top:calc(var(--cy) + 18px);scale:1;opacity:1}
+  94.74%{left:calc(var(--cx) + -30px);top:calc(var(--cy) + 18px);scale:1;opacity:0}
+  100.00%{left:calc(var(--cx) + -30px);top:calc(var(--cy) + 18px);scale:1;opacity:0}
+}
+
+/* scene 4 · sign-off */
+:where(.nautilus-page) .d-status{font-size:13px;font-weight:600}
+:where(.nautilus-page) .d-st{display:inline-flex;align-items:center;gap:7px;padding:4px 12px;border-radius:999px}
+:where(.nautilus-page) .d-st i{width:7px;height:7px;border-radius:50%}
+:where(.nautilus-page) .d-st-draft{background:#EAF3F5;color:#3E5A60}:where(.nautilus-page) .d-st-draft i{background:#7D979C}
+:where(.nautilus-page) .d-st-rev{background:#FFF1D6;color:#7A4300}:where(.nautilus-page) .d-st-rev i{background:#D98200}
+:where(.nautilus-page) .d-st-final{background:#E3F5EC;color:#0E6139}:where(.nautilus-page) .d-st-final i{background:#1C9A62}
+@keyframes d-final{0%{opacity:0;transform:scale(.5)}55%{opacity:1;transform:scale(1.18)}100%{transform:none}}
+:where(.nautilus-page) .d-bubs{position:absolute;left:50%;top:4px;width:0;height:0;z-index:2}
+:where(.nautilus-page) .d-bub{position:absolute;left:0;top:0;width:var(--bs);height:var(--bs);box-sizing:border-box;border-radius:50%;border:2px solid #1D6F7A;background:rgba(133,209,219,.25);opacity:0;animation:d-bub 1.8s ease-out both}
+@keyframes d-bub{0%{opacity:0;transform:translate(0,6px) scale(.5)}12%{opacity:1}70%{opacity:.8}100%{opacity:0;transform:translate(var(--bx),-96px) scale(1.2)}}
+:where(.nautilus-page) .d-send{align-self:flex-start;display:inline-grid;padding:10px 16px;border-radius:10px;background:#102C33;color:#FFFFFF;font-weight:600;font-size:14px}
+:where(.nautilus-page) .d-signed{display:inline-flex;align-items:center;gap:8px;font-size:14px;font-weight:500;color:#0E6139}
+:where(.nautilus-page) .d-apcard{background:#FFFFFF;border:1px solid #DCEBEE;border-radius:14px;padding:18px 18px 8px;display:flex;flex-direction:column;gap:12px}
+:where(.nautilus-page) .d-apsegs{display:flex;gap:4px}
+:where(.nautilus-page) .d-apseg{flex:1;height:7px;border-radius:4px;background:#DCEBEE;overflow:hidden}
+:where(.nautilus-page) .d-apseg>span{display:block;height:100%;border-radius:4px;background:#1C9A62}
+@keyframes d-seg-fill{from{width:0}}
+:where(.nautilus-page) .d-aprow{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid #EAF3F5}
+:where(.nautilus-page) .d-av{flex:none;width:32px;height:32px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+:where(.nautilus-page) .d-av-sm{width:24px;height:24px;font-size:10px}
+:where(.nautilus-page) .d-ap{display:inline-flex;align-items:center;gap:6px;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:500;white-space:nowrap}
+:where(.nautilus-page) .d-ap-wait{background:#EAF3F5;color:#3E5A60}:where(.nautilus-page) .d-ap-rev{background:#FFF1D6;color:#7A4300}:where(.nautilus-page) .d-ap-ok{background:#E3F5EC;color:#0E6139}
+:where(.nautilus-page) .d-pulse{width:7px;height:7px;border-radius:50%;background:#D98200;animation:d-pulse 1s ease-in-out infinite}
+@keyframes d-pulse{50%{opacity:.35;transform:scale(.7)}}
+:where(.nautilus-page) .d-notes{position:absolute;right:18px;top:16px;display:grid;z-index:8}
+:where(.nautilus-page) .d-note{grid-area:1/1;display:flex;align-items:center;gap:10px;padding:8px 12px 8px 8px;border-radius:12px;background:#FFFFFF;border:1px solid #DCEBEE;box-shadow:0 16px 34px -16px rgba(16,44,51,.45);font-size:13px}
+:where(.nautilus-page) .s4 .d-cur{--sx: 872px; --sy: 404px; --ax: 137px; --ay: 239px; animation:d-cur-s4 8.0s ease-in-out both}
+:where(.nautilus-page) .s4 .d-click-1{animation:d-ripple .5s ease-out 1.0s}
+@keyframes d-cur-s4{
+  0.00%{left:var(--sx);top:var(--sy);scale:1;opacity:0}
+  1.25%{left:var(--sx);top:var(--sy);scale:1;opacity:0}
+  3.75%{left:var(--sx);top:var(--sy);scale:1;opacity:1}
+  10.62%{left:var(--ax);top:var(--ay);scale:1;opacity:1}
+  12.50%{left:var(--ax);top:var(--ay);scale:0.86;opacity:1}
+  14.37%{left:var(--ax);top:var(--ay);scale:1;opacity:1}
+  23.75%{left:calc(var(--ax) + 60px);top:calc(var(--ay) + 40px);scale:1;opacity:1}
+  28.75%{left:calc(var(--ax) + 60px);top:calc(var(--ay) + 40px);scale:1;opacity:0}
+  100.00%{left:calc(var(--ax) + 60px);top:calc(var(--ay) + 40px);scale:1;opacity:0}
+}
+/* tabs: completed ones stay full, the active one fills over its scene */
+:where(.nautilus-page) .tabbar{animation-name:d-tabfill;animation-timing-function:linear;animation-fill-mode:forwards}
+@keyframes d-tabfill{from{width:0}to{width:100%}}
+@media (max-width:760px){:where(.nautilus-page) .d-genright{display:none}:where(.nautilus-page) .d-diffchip{display:none}:where(.nautilus-page) .d-toolbar{right:12px}:where(.nautilus-page) .d-prompt{top:-6px}}
+
+/* window controls on the demo: hover them for the symbols */
+:where(.nautilus-page) .lights{display:flex;gap:7px}
+:where(.nautilus-page) .light{display:inline-flex;width:12px;height:12px;border-radius:50%;box-shadow:inset 0 0 0 .5px rgba(0,0,0,.18)}
+:where(.nautilus-page) .light svg{width:12px;height:12px;fill:none;stroke:rgba(0,0,0,.5);stroke-width:1.3;stroke-linecap:round;opacity:0;transition:opacity .15s ease}
+:where(.nautilus-page) .lights:hover .light svg{opacity:1}
+
+/* ===== tickers ===== */
+:where(.nautilus-page) .mq-wrap{-webkit-mask-image:linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent);mask-image:linear-gradient(90deg,transparent,#000 10%,#000 90%,transparent);overflow:hidden}
+:where(.nautilus-page) .mq{display:flex;align-items:baseline;width:max-content;gap:44px;animation:mq 60s linear infinite}
+:where(.nautilus-page) .mq-wrap:hover .mq{animation-play-state:paused}
+@keyframes mq{to{transform:translateX(-50%)}}
+:where(.nautilus-page) .tick2{display:flex;align-items:center;gap:28px;width:max-content;white-space:nowrap}
+
+/* ===== why nautilus: next to a chat prompt ===== */
+:where(.nautilus-page) .vs-table{position:relative;margin-top:76px;border-top:1px solid var(--line)}
+:where(.nautilus-page) .vs-row{position:relative;display:grid;grid-template-columns:200px minmax(0,1fr) minmax(0,1fr);gap:10px 48px;align-items:baseline;padding:24px 0;border-bottom:1px solid var(--line)}
+:where(.nautilus-page) .vs-head{align-items:center;padding:16px 0}
+:where(.nautilus-page) .vs-k{font-size:12px;letter-spacing:.08em;color:var(--accent)}
+:where(.nautilus-page) .vs-a,:where(.nautilus-page) .vs-b{display:flex;align-items:baseline;gap:12px;min-width:0}
+:where(.nautilus-page) .vs-a{font-size:17px;color:var(--text)}
+:where(.nautilus-page) .vs-b{font-size:19px;font-weight:500;letter-spacing:-0.01em;color:var(--ink);transition:color .25s ease}
+:where(.nautilus-page) .vs-head .vs-a,:where(.nautilus-page) .vs-head .vs-b{align-items:center;font-size:14px;font-weight:600;letter-spacing:0}
+:where(.nautilus-page) .vs-head svg{flex:none}
+:where(.nautilus-page) .vs-mark{flex:none;width:18px;height:18px;align-self:flex-start;margin-top:4px;transition:scale .35s cubic-bezier(.2,.7,.2,1.4),rotate .35s cubic-bezier(.2,.7,.2,1.4)}
+:where(.nautilus-page) .vs-tag{display:none}
+:where(.nautilus-page) .vs-line{position:absolute;left:0;right:0;bottom:-1px;height:2px;background:var(--brand);transform:scaleX(0);transform-origin:left;transition:transform .6s cubic-bezier(.2,.7,.2,1)}
+:where(.nautilus-page) .vs-row:hover .vs-line{transform:scaleX(1)}
+:where(.nautilus-page) .vs-row:hover .vs-b{color:var(--accent)}
+:where(.nautilus-page) .vs-row:hover .vs-b .vs-mark{scale:1.15;rotate:-8deg}
+@media (max-width:860px){:where(.nautilus-page) .vs-row{grid-template-columns:minmax(0,1fr);gap:12px;padding:22px 0}:where(.nautilus-page) .vs-head{display:none}:where(.nautilus-page) .vs-a,:where(.nautilus-page) .vs-b{flex-wrap:wrap;column-gap:10px;row-gap:4px}:where(.nautilus-page) .vs-tag{display:block;flex-basis:100%;font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-size:11px;font-weight:400;letter-spacing:.08em;text-transform:uppercase;color:var(--label)}}
+
+/* ===== how it works ===== */
+:where(.nautilus-page) .how{view-timeline-name:--how}
+:where(.nautilus-page) .howfill{transform-origin:left}
+
+/* ===== interview (pinned, sideways) ===== */
+:where(.nautilus-page) .hs-outer{position:relative}
+:where(.nautilus-page) .hs-sticky{position:relative;overflow:hidden;padding:120px 0 110px}
+:where(.nautilus-page) .hs-bgword{position:absolute;left:0;bottom:24px;font-size:280px;line-height:1;font-weight:700;letter-spacing:-0.045em;color:transparent;-webkit-text-stroke:1px var(--bgword);white-space:nowrap;pointer-events:none;user-select:none}
+:where(.nautilus-page) .hs-scroller{overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:thin;scrollbar-color:var(--line) transparent;padding-bottom:18px;scroll-padding-inline:max(24px,calc((100% - 1152px) / 2))}
+:where(.nautilus-page) .hs-track{position:relative;z-index:1;display:flex;width:max-content;padding:8px max(24px,calc((100% - 1152px) / 2))}
+:where(.nautilus-page) .hs-panel{flex:0 0 auto;width:420px;max-width:82vw;box-sizing:border-box;padding:4px 44px 4px 36px;border-left:1px solid var(--line);display:flex;flex-direction:column;gap:16px;min-height:380px;scroll-snap-align:start}
+:where(.nautilus-page) .hs-count{counter-reset:s var(--step)}
+:where(.nautilus-page) .hs-count::after{content:counter(s,decimal-leading-zero)}
+:where(.nautilus-page) .hs-countwrap{display:none}
+:where(.nautilus-page) .hs-bar{transform-origin:left}
+
+/* ===== up close ===== */
+:where(.nautilus-page) .ucl{view-timeline-name:--ucl}
+:where(.nautilus-page) .ucr{view-timeline-name:--ucr}
+:where(.nautilus-page) .lstrike{position:relative;animation:oldc 7s infinite}
+:where(.nautilus-page) .lstrike::after{content:"";position:absolute;left:0;top:54%;height:2px;width:100%;transform:scaleX(0);transform-origin:left;background:var(--accent);animation:lstrk 7s infinite}
+@keyframes lstrk{0%,12%{transform:scaleX(0)}26%,88%{transform:scaleX(1)}100%{transform:scaleX(0)}}
+@keyframes oldc{0%,14%{color:var(--text)}26%,88%{color:var(--label)}100%{color:var(--text)}}
+:where(.nautilus-page) .lnew{opacity:0;animation:lnew 7s infinite}
+@keyframes lnew{0%,28%{opacity:0;transform:translateY(10px)}40%,88%{opacity:1;transform:none}97%,100%{opacity:0}}
+:where(.nautilus-page) .dashv{stroke-dasharray:5 7;animation:dashv 1.3s linear infinite}
+@keyframes dashv{to{stroke-dashoffset:-24}}
+
+/* ===== who ===== */
+:where(.nautilus-page) .wrow .wrole{transition:color .25s ease,letter-spacing .4s cubic-bezier(.2,.7,.2,1)}
+:where(.nautilus-page) .wrow:hover .wrole{color:var(--ink);letter-spacing:-0.02em}
+:where(.nautilus-page) .wrow .wline{transform:scaleX(0);transform-origin:left;transition:transform .6s cubic-bezier(.2,.7,.2,1)}
+:where(.nautilus-page) .wrow:hover .wline{transform:scaleX(1)}
+:where(.nautilus-page) .wrow .farrow{opacity:0;transform:translateX(-8px);transition:opacity .25s ease,transform .35s cubic-bezier(.2,.7,.2,1)}
+:where(.nautilus-page) .wrow:hover .farrow{opacity:1;transform:none}
+
+/* =========================================================
+   SCROLL-DRIVEN MOTION — only when the page really scrolls
+   (full-window / Play) and the browser supports it.
+   ========================================================= */
+@supports (animation-timeline: view()){
+  @keyframes grow{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+
+  .nautilus-page.motion .nav::before{animation:navfade linear both;animation-timeline:scroll(root);animation-range:0px 80px}
+  @keyframes navfade{from{opacity:0}}
+  .nautilus-page.motion .sprog{animation:grow linear both;animation-timeline:scroll(root)}
+
+  .nautilus-page.motion .hero-par{animation:heropar linear both;animation-timeline:scroll(root);animation-range:0px 680px}
+  @keyframes heropar{to{transform:translateY(-110px) scale(.95);opacity:0}}
+  .nautilus-page.motion .wmh span{animation:wmup 1.2s cubic-bezier(.2,.7,.2,1) both,wmpar linear both;animation-timeline:auto,scroll(root);animation-range:normal,0px 700px}
+  @keyframes wmpar{to{transform:translateY(calc(var(--d) * -1))}}
+  .nautilus-page.motion .t1{animation:fadein 1.2s ease 1.2s both,bobA 7s ease-in-out infinite alternate,parA linear both;animation-timeline:auto,auto,scroll(root);animation-range:normal,normal,0px 900px}
+  .nautilus-page.motion .t2{animation:fadein 1.2s ease 1.3s both,bobB 9s ease-in-out infinite alternate,parB linear both;animation-timeline:auto,auto,scroll(root);animation-range:normal,normal,0px 900px}
+  .nautilus-page.motion .t3{animation:fadein 1.2s ease 1.4s both,bobB 8s ease-in-out infinite alternate,parC linear both;animation-timeline:auto,auto,scroll(root);animation-range:normal,normal,0px 900px}
+  .nautilus-page.motion .t4{animation:fadein 1.2s ease 1.5s both,bobA 10s ease-in-out infinite alternate,parA linear both;animation-timeline:auto,auto,scroll(root);animation-range:normal,normal,0px 900px}
+  .nautilus-page.motion .t5{animation:fadein 1.2s ease 1.6s both,bobA 9s ease-in-out infinite alternate,parB linear both;animation-timeline:auto,auto,scroll(root);animation-range:normal,normal,0px 900px}
+  .nautilus-page.motion .t6{animation:fadein 1.2s ease 1.7s both,bobB 7s ease-in-out infinite alternate,parC linear both;animation-timeline:auto,auto,scroll(root);animation-range:normal,normal,0px 900px}
+  @keyframes parA{to{transform:translateY(-280px)}}
+  @keyframes parB{to{transform:translateY(-150px)}}
+  @keyframes parC{to{transform:translateY(-70px) rotate(-4deg)}}
+
+  .nautilus-page.motion .demo-scroll{animation:untilt linear both;animation-timeline:view();animation-range:entry 0% cover 40%}
+  @keyframes untilt{from{transform:perspective(1600px) rotateX(30deg) scale(.86) translateY(30px);opacity:.45}}
+
+  .nautilus-page.motion .tick2{animation:tick2 linear both;animation-timeline:view();animation-range:cover 0% cover 100%}
+  @keyframes tick2{from{transform:translateX(-40%)}to{transform:translateX(-4%)}}
+
+  .nautilus-page.motion .vs-row:not(.vs-head){view-timeline-name:--vr;animation:vsrow linear both;animation-timeline:--vr;animation-range:entry 0% entry 100%}
+  @keyframes vsrow{from{opacity:0;transform:translateY(26px)}}
+  @keyframes vsdim{to{opacity:.5}}
+  .nautilus-page.motion .vs-row:not(.vs-head) .vs-b .vs-mark{animation:vspop linear both;animation-timeline:--vr;animation-range:entry 20% entry 100%}
+  @keyframes vspop{from{transform:scale(0) rotate(-90deg)}}
+
+  .nautilus-page.motion .hl-scroll{animation:hlgrow linear both;animation-timeline:view();animation-range:entry 60% cover 50%}
+
+  .nautilus-page.motion .howfill{animation:grow linear both;animation-timeline:--how;animation-range:cover 22% cover 52%}
+  .nautilus-page.motion .how-step{animation:stepon linear both;animation-timeline:--how}
+  .nautilus-page.motion .how-num{animation:numfill linear both;animation-timeline:--how}
+  @keyframes stepon{from{opacity:.2;transform:translateY(28px)}}
+  @keyframes numfill{from{color:transparent}}
+
+  .nautilus-page.motion .hs-outer{height:3000px;view-timeline-name:--hs}
+  .nautilus-page.motion .hs-sticky{position:sticky;top:68px;height:min(780px,calc(100vh - 68px));padding:0;display:flex;flex-direction:column;justify-content:center}
+  .nautilus-page.motion .hs-scroller{overflow:visible;scroll-snap-type:none;padding-bottom:0}
+  .nautilus-page.motion .hs-track{animation:hs linear both;animation-timeline:--hs;animation-range:contain 0% contain 100%}
+  @keyframes hs{to{transform:translateX(calc(-100% + 100vw))}}
+  .nautilus-page.motion .hs-bgword{animation:hsbg linear both;animation-timeline:--hs;animation-range:contain 0% contain 100%}
+  @keyframes hsbg{to{transform:translateX(-38%)}}
+  .nautilus-page.motion .hs-bar{animation:grow linear both;animation-timeline:--hs;animation-range:contain 0% contain 100%}
+  .nautilus-page.motion .hs-countwrap{display:inline}
+  .nautilus-page.motion .hs-hint{display:none}
+  .nautilus-page.motion .hs-count{animation:hsc steps(7,jump-none) both;animation-timeline:--hs;animation-range:contain 0% contain 100%}
+  @keyframes hsc{from{--step:1}to{--step:7}}
+  .nautilus-page.motion .hs-num{animation:hsnum linear both;animation-timeline:--hs}
+  @keyframes hsnum{0%,100%{color:transparent}25%,75%{color:var(--numfill)}}
+
+
+  .nautilus-page.motion .ucl .lstrike{animation:ucold linear both;animation-timeline:--ucl;animation-range:cover 28% cover 40%}
+  @keyframes ucold{from{color:var(--text)}to{color:var(--label)}}
+  .nautilus-page.motion .ucl .lstrike::after{animation:ucstrk linear both;animation-timeline:--ucl;animation-range:cover 28% cover 40%}
+  @keyframes ucstrk{from{transform:scaleX(0)}to{transform:scaleX(1)}}
+  .nautilus-page.motion .ucl .lnew{opacity:1;animation:ucnew linear both;animation-timeline:--ucl;animation-range:cover 38% cover 50%}
+  @keyframes ucnew{from{opacity:0;transform:translateY(16px)}}
+  .nautilus-page.motion .ucl .uc-hl{animation:hlgrow linear both;animation-timeline:--ucl;animation-range:cover 44% cover 54%}
+  .nautilus-page.motion .ucr .uc-q{animation:rise linear both;animation-timeline:--ucr;animation-range:cover 18% cover 32%}
+  .nautilus-page.motion .ucr .uc-arrow{animation:rise linear both;animation-timeline:--ucr;animation-range:cover 26% cover 38%}
+  .nautilus-page.motion .ucr .uc-fr{animation:rise linear both;animation-timeline:--ucr;animation-range:cover 32% cover 46%}
+  @keyframes rise{from{opacity:0;transform:translateY(30px)}}
+
+  .nautilus-page.motion .wrow{animation:wrowin linear both;animation-timeline:view();animation-range:entry 0% entry 100%}
+  @keyframes wrowin{from{opacity:0;transform:translateX(-56px)}}
+
+  .nautilus-page.motion .rv{animation:rv linear both;animation-timeline:view();animation-range:entry 0% entry 45%}
+  @keyframes rv{from{opacity:0;transform:translateY(36px)}}
+  .nautilus-page.motion .rv-x{animation:rvx linear both;animation-timeline:view();animation-range:entry 10% cover 40%}
+  @keyframes rvx{from{opacity:0;transform:translateY(30px) scale(.97)}}
+
+  .nautilus-page.motion .cta-zoom{animation:zoomin linear both;animation-timeline:view();animation-range:entry 0% cover 45%}
+  @keyframes zoomin{from{transform:scale(.84);opacity:.15}}
+}
+
+/* ===== more sea life (nautilus, hermit crab, moray, shrimp, glowing jellies) ===== */
+:where(.nautilus-page) .n-tent{transform-box:fill-box;transform-origin:0% 50%;animation:ntent 1.5s ease-in-out infinite alternate}
+@keyframes ntent{from{transform:rotate(-7deg)}to{transform:rotate(9deg) scaleX(.94)}}
+:where(.nautilus-page) .n-bub,:where(.nautilus-page) .eel-bub{opacity:0}
+:where(.nautilus-page) .hc-out{transform-box:view-box;transform-origin:38px 28px}
+:where(.nautilus-page) .sh-ant{transform-box:fill-box;transform-origin:100% 100%;animation:shant 1.1s ease-in-out infinite alternate}
+@keyframes shant{from{transform:rotate(-6deg)}to{transform:rotate(7deg)}}
+:where(.nautilus-page) .sh-legs{transform-box:fill-box;transform-origin:50% 0;animation:shlegs .36s ease-in-out infinite alternate}
+@keyframes shlegs{from{transform:skewX(-14deg)}to{transform:skewX(14deg)}}
+:where(.nautilus-page) .eel-b{transform-box:view-box;transform-origin:40px 56px;transform:translateY(58px)}
+:where(.nautilus-page) .jglow{opacity:.16;transform-box:fill-box;transform-origin:50% 50%;animation:jglow 3.4s ease-in-out infinite}
+@keyframes jglow{0%,100%{opacity:.1;transform:scale(.9)}50%{opacity:.22;transform:scale(1.12)}}
+
+/* ===== up close: marked up by hand ===== */
+:where(.nautilus-page) .uc-hand path{fill:none;stroke:var(--accent);stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round}
+:where(.nautilus-page) .uc-ring path{stroke-width:2}
+:where(.nautilus-page) .uc-ask{display:inline-flex;align-items:flex-start;gap:4px;align-self:flex-start;color:var(--accent);font-size:clamp(26px,2.6vw,32px);line-height:1.05;rotate:-2.5deg;transform-origin:left}
+:where(.nautilus-page) .uc-ask svg{flex:none;margin-top:18px}
+:where(.nautilus-page) .uc-old{position:relative;color:var(--label);white-space:nowrap}
+:where(.nautilus-page) .uc-strike{position:absolute;left:-6px;top:30%;width:calc(100% + 12px);height:.5em;overflow:visible;pointer-events:none}
+:where(.nautilus-page) .uc-new{color:var(--ink)}
+:where(.nautilus-page) .uc-ringed{position:relative;white-space:nowrap}
+:where(.nautilus-page) .uc-ring{position:absolute;left:-9%;top:-24%;width:118%;height:150%;overflow:visible;pointer-events:none}
+:where(.nautilus-page) .uc-ul{position:relative;white-space:nowrap}
+:where(.nautilus-page) .uc-under{position:absolute;left:-2px;bottom:-.24em;width:calc(100% + 4px);height:.34em;overflow:visible;pointer-events:none}
+@media (max-width:1040px){:where(.nautilus-page) .ucl{padding-right:0!important}:where(.nautilus-page) .ucr{padding-left:0!important;border-left:0!important}}
+@media (max-width:560px){:where(.nautilus-page) .uc-doc{font-size:24px!important}}
+@supports (animation-timeline: view()){
+  .nautilus-page.motion .ucl .uc-old{animation:ucold linear both;animation-timeline:--ucl;animation-range:cover 26% cover 38%}
+  .nautilus-page.motion .ucl .uc-new{animation:ucnew linear both;animation-timeline:--ucl;animation-range:cover 36% cover 48%}
+  .nautilus-page.motion .uc-hand path{stroke-dasharray:1;stroke-dashoffset:1;animation:ucdraw linear both}
+  .nautilus-page.motion .ucl .uc-curl path{animation-timeline:--ucl;animation-range:cover 18% cover 28%}
+  .nautilus-page.motion .ucl .uc-strike path{animation-timeline:--ucl;animation-range:cover 26% cover 38%}
+  .nautilus-page.motion .ucl .uc-ring path{animation-timeline:--ucl;animation-range:cover 44% cover 56%}
+  .nautilus-page.motion .ucr .uc-wave path{animation-timeline:--ucr;animation-range:cover 24% cover 38%}
+  .nautilus-page.motion .ucr .uc-under path{animation-timeline:--ucr;animation-range:cover 36% cover 48%}
+  @keyframes ucdraw{to{stroke-dashoffset:0}}
+}
+
+/* Sections far off screen go idle (set by the page script): their loops hold still until they come back.
+   Scroll-linked animations re-sync to the scroll position when they resume. */
+:where(.nautilus-page) .idle *,:where(.nautilus-page) .idle *::before,:where(.nautilus-page) .idle *::after{animation-play-state:paused!important}
+/* Once the entrance has played, the finished animations are dropped so they stop holding compositor layers. */
+.nautilus-page.settled .w,.nautilus-page.settled .fu,.nautilus-page.settled .tilt,.nautilus-page.settled .hl-load,.nautilus-page.settled .wmh span{animation:none;opacity:1}
+@supports (animation-timeline: view()){
+  .nautilus-page.settled.motion .wmh span{animation:wmpar linear both;animation-timeline:scroll(root);animation-range:0px 700px}
+}
+
+@media (prefers-reduced-motion: reduce){
+  html:has(.nautilus-page){scroll-behavior:auto}
+  :where(.nautilus-page),:where(.nautilus-page) *,:where(.nautilus-page) *::before,:where(.nautilus-page) *::after{animation:none!important;transition:none!important}
+  :where(.nautilus-page) .fu,:where(.nautilus-page) .w,:where(.nautilus-page) .tilt,:where(.nautilus-page) .pop,:where(.nautilus-page) .lnew,:where(.nautilus-page) .wmh span{opacity:1!important;transform:none!important;translate:none!important;filter:none!important}
+  :where(.nautilus-page) .type{clip-path:none!important}
+  :where(.nautilus-page) .fill,:where(.nautilus-page) .tabbar{width:100%!important}
+  :where(.nautilus-page) .d-cur{display:none!important}
+  :where(.nautilus-page) .eel-b{transform:none!important}
+  :where(.nautilus-page) .hl{background-size:100% .3em!important}
+}

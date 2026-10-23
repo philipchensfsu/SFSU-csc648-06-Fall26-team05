@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
-import About from "./components/About";
-import SiteHeader from "./components/SiteHeader";
+import { lazy, Suspense, useEffect, useState } from "react";
 import Prototype from "./prototype/Prototype";
 import SignInPage from "./nautilus/auth/SignInPage";
 import SignUpPage from "./nautilus/auth/SignUpPage";
 import ResetPasswordPage from "./nautilus/auth/ResetPasswordPage";
 import { supabase } from "../lib/supabaseClient";
+
+const LandingPage = lazy(() => import("./nautilus/LandingPage"));
+const AboutPage = lazy(() => import("./nautilus/AboutPage"));
 
 // A reset link arrives as #...type=recovery. Supabase reads that hash as soon
 // as the client is built, so PASSWORD_RECOVERY can fire -- and the hash be
@@ -22,6 +23,11 @@ function App() {
   // Without Supabase there is no session to wait for, so start off resolved.
   const [checkedSession, setCheckedSession] = useState(!supabase);
   const [path, setPath] = useState(window.location.pathname);
+  // Public pages support Om's dark preview without changing the auth/editor theme.
+  // Keep the choice when navigating between the two public pages.
+  const [publicTheme] = useState(() =>
+    new URLSearchParams(window.location.search).get("theme") === "dark" ? "Dark" : "Light",
+  );
   // What the sign-in and sign-up pages show while a request is out.
   const [authError, setAuthError] = useState("");
   const [authNotice, setAuthNotice] = useState("");
@@ -66,7 +72,8 @@ function App() {
     setPath(window.location.pathname);
     setAuthError("");
     setAuthNotice("");
-    window.scrollTo({ top: 0, behavior: "instant" });
+    // Public pages scroll to incoming section anchors when they mount.
+    if (!window.location.hash) window.scrollTo({ top: 0, behavior: "instant" });
   }
 
   async function logOut() {
@@ -188,17 +195,17 @@ function App() {
     );
   }
 
-  // Everything else is the public team page.
+  const publicProps = {
+    theme: publicTheme,
+    email,
+    onNavigate: navigate,
+    onLogOut: logOut,
+  };
+
   return (
-    <>
-      <SiteHeader
-        email={email}
-        onLogIn={() => navigate("/signin")}
-        onDashboard={() => navigate("/signin")}
-        onLogOut={logOut}
-      />
-      <About />
-    </>
+    <Suspense fallback={<p role="status" style={{ padding: "24px" }}>Loading Nautilus…</p>}>
+      {path === "/about" ? <AboutPage {...publicProps} /> : <LandingPage {...publicProps} />}
+    </Suspense>
   );
 }
 
