@@ -4,7 +4,18 @@ import SiteHeader from "./components/SiteHeader";
 import Prototype from "./prototype/Prototype";
 import SignInPage from "./nautilus/auth/SignInPage";
 import SignUpPage from "./nautilus/auth/SignUpPage";
+import ResetPasswordPage from "./nautilus/auth/ResetPasswordPage";
 import { supabase } from "../lib/supabaseClient";
+
+// A reset link arrives as #...type=recovery. Supabase reads that hash as soon
+// as the client is built, so PASSWORD_RECOVERY can fire -- and the hash be
+// cleared -- before the listener below is attached. A missed event dropped the
+// person on the dashboard with their password unchanged, so read the URL here
+// too, while the hash is still there. SIGNED_IN follows recovery, so this has
+// to be known before that arrives.
+const OPENED_RESET_LINK =
+  typeof window !== "undefined" &&
+  window.location.hash.includes("type=recovery");
 
 function App() {
   const [session, setSession] = useState(null);
@@ -15,6 +26,9 @@ function App() {
   const [authError, setAuthError] = useState("");
   const [authNotice, setAuthNotice] = useState("");
   const [authBusy, setAuthBusy] = useState(false);
+  // A recovery link signs the person in, so without this they would land on
+  // the dashboard and the password would never change.
+  const [recovering, setRecovering] = useState(OPENED_RESET_LINK);
 
   // Restore an existing login on page load, then follow any later changes.
   useEffect(() => {
@@ -28,7 +42,10 @@ function App() {
     });
 
     const { data: listener } = supabase.auth.onAuthStateChange(
-      (_event, nextSession) => setSession(nextSession),
+      (event, nextSession) => {
+        setSession(nextSession);
+        if (event === "PASSWORD_RECOVERY") setRecovering(true);
+      },
     );
 
     return () => listener.subscription.unsubscribe();
@@ -57,22 +74,29 @@ function App() {
     navigate("/");
   }
 
-  // One Supabase auth call, with the pages' busy / error / notice states around it.
+  // One Supabase auth call, with the pages' busy / error / notice states around
+  // it. Reports whether the call went through, so a caller can stay put on a
+  // failure rather than moving the person on.
   async function authCall(call, notice) {
     setAuthError("");
     setAuthNotice("");
 
     if (!supabase) {
       setAuthError("Sign-in is unavailable: Supabase keys are not configured.");
-      return;
+      return false;
     }
 
     setAuthBusy(true);
     const { error } = await call();
     setAuthBusy(false);
 
-    if (error) setAuthError(error.message);
-    else if (notice) setAuthNotice(notice);
+    if (error) {
+      setAuthError(error.message);
+      return false;
+    }
+
+    if (notice) setAuthNotice(notice);
+    return true;
   }
 
   const email = session?.user?.email ?? null;
@@ -82,13 +106,33 @@ function App() {
     return null;
   }
 
+  // Supabase sends people back here once Google or a reset link is done.
+  const back = `${window.location.origin}/signin`;
+
+  // A reset link was opened, so pick the new password before anything else.
+  if (recovering) {
+    return (
+      <ResetPasswordPage
+        busy={authBusy}
+        error={authError}
+        notice={authNotice}
+        onNavigate={navigate}
+        onSubmit={async ({ password }) => {
+          const saved = await authCall(() =>
+            supabase.auth.updateUser({ password }),
+          );
+          // On a failure the message stays on this page, so keep it up.
+          if (saved) setRecovering(false);
+        }}
+      />
+    );
+  }
+
   // Signed in, so both auth pages hand over to the dashboard.
   if ((path === "/signin" || path === "/signup") && session) {
     return <Prototype initialUser={email} onLogOut={logOut} />;
   }
 
-  // Supabase sends people back here once Google or an emailed link is done.
-  const back = `${window.location.origin}/signin`;
   const authProps = {
     busy: authBusy,
     error: authError,
@@ -113,16 +157,6 @@ function App() {
               email: form.email,
               password: form.password,
             }),
-          )
-        }
-        onEmailLink={(formEmail) =>
-          authCall(
-            () =>
-              supabase.auth.signInWithOtp({
-                email: formEmail,
-                options: { emailRedirectTo: back },
-              }),
-            "Check your inbox for a sign-in link.",
           )
         }
         onForgotPassword={(formEmail) =>

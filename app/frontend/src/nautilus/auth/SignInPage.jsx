@@ -83,13 +83,15 @@ export default function SignInPage({ onSubmit, onGoogle, onEmailLink, onForgotPa
             </svg>
             Continue with Google
           </button>
-          <button type="button" onClick={emailLink} disabled={busy} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", height: "46px", borderRadius: "10px", border: "1px solid #C3DADE", background: "#FFFFFF", color: "#102C33", font: "inherit", fontWeight: "500", cursor: "pointer" }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <rect x="3" y="5" width="18" height="14" rx="2" />
-              <path d="m3 7 9 6 9-6" />
-            </svg>
-            Email me a sign-in link
-          </button>
+          {onEmailLink ? (
+            <button type="button" onClick={emailLink} disabled={busy} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", height: "46px", borderRadius: "10px", border: "1px solid #C3DADE", background: "#FFFFFF", color: "#102C33", font: "inherit", fontWeight: "500", cursor: "pointer" }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="3" y="5" width="18" height="14" rx="2" />
+                <path d="m3 7 9 6 9-6" />
+              </svg>
+              Email me a sign-in link
+            </button>
+          ) : null}
         </div>
       </form>
       <p style={{ margin: "0", fontSize: "14px", color: "#3E5A60" }}>New to Nautilus? <a href={links.signUp} style={{ fontWeight: "500" }}>Create an account</a></p>
