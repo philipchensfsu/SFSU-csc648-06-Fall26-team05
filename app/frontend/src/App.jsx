@@ -1,5 +1,4 @@
 import { lazy, Suspense, useEffect, useState } from "react";
-import Prototype from "./prototype/Prototype";
 import SignInPage from "./nautilus/auth/SignInPage";
 import SignUpPage from "./nautilus/auth/SignUpPage";
 import ResetPasswordPage from "./nautilus/auth/ResetPasswordPage";
@@ -7,6 +6,7 @@ import { supabase } from "../lib/supabaseClient";
 
 const LandingPage = lazy(() => import("./nautilus/LandingPage"));
 const AboutPage = lazy(() => import("./nautilus/AboutPage"));
+const Prototype = lazy(() => import("./prototype/Prototype"));
 
 // A reset link arrives as #...type=recovery. Supabase reads that hash as soon
 // as the client is built, so PASSWORD_RECOVERY can fire -- and the hash be
@@ -135,9 +135,21 @@ function App() {
     );
   }
 
-  // Signed in, so both auth pages hand over to the dashboard.
+  // Signed in, so both auth pages hand over to the dashboard. The name comes
+  // from sign-up (full_name) or Google (full_name / name); without one the
+  // workspace falls back to the email address.
   if ((path === "/signin" || path === "/signup") && session) {
-    return <Prototype initialUser={email} onLogOut={logOut} />;
+    const profile = session.user.user_metadata ?? {};
+    return (
+      <Suspense fallback={<p role="status" style={{ padding: "24px" }}>Loading workspace…</p>}>
+        <Prototype
+          initialUser={email}
+          userId={session.user.id}
+          userName={profile.full_name || profile.name || ""}
+          onLogOut={logOut}
+        />
+      </Suspense>
+    );
   }
 
   const authProps = {

@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import "./prototype.css";
 import {
-  INITIAL_PRDS,
-  INITIAL_PROJECTS,
-  SAMPLE_ANSWERS,
+  QUESTIONS,
   draftSectionsFromAnswers,
   fromApiIntakeAnswers,
   fromApiPrd,
@@ -12,56 +10,109 @@ import {
   today,
 } from "./data";
 import { api } from "../../lib/api";
-import SignIn from "../components/SignIn";
-import Dashboard from "./screens/Dashboard";
+import Workspace from "../nautilus/app/Workspace";
 import CreatePrd from "./screens/CreatePrd";
 import Interview from "./screens/Interview";
 import Review from "./screens/Review";
 import Generating from "./screens/Generating";
 import Editor from "./screens/Editor";
 import ExportPrd from "./screens/ExportPrd";
-import ScreenJumper from "./ScreenJumper";
 
-// `initialUser` skips the sign-in screen when someone is already logged in;
-// `onLogOut` lets the app sign them out for real instead of just resetting.
-function Prototype({ initialUser = null, onLogOut }) {
-  const [user, setUser] = useState(initialUser);
-  const [screen, setScreen] = useState(initialUser ? "dashboard" : "signin");
+// App renders this workspace only after Supabase confirms a signed-in user.
+// `userName` and `userId` come from that session in App.jsx.
+function Prototype({ initialUser = null, userName = "", userId = null, onLogOut }) {
+  const user = initialUser;
+  const [screen, setScreen] = useState("dashboard");
+  // Which workspace page the "dashboard" screen shows: { page: "dashboard" },
+  // { page: "projects", projectId } or { page: "search", query }. Kept here,
+  // so leaving a flow (Cancel, Save & exit) returns to where it started.
+  const [home, setHome] = useState({ page: "dashboard", visit: 0 });
   // Start empty rather than with mock data, so a real user never sees (or
   // clicks) placeholder PRDs before the API responds.
   const [prds, setPrds] = useState([]);
+  const [prdsLoaded, setPrdsLoaded] = useState(false);
   const [projects, setProjects] = useState([]);
+  const [projectsLoaded, setProjectsLoaded] = useState(false);
   const [activePrdId, setActivePrdId] = useState(null);
-  const [failGeneration, setFailGeneration] = useState(false);
+  // The project a new PRD goes into when started from a project page.
+  const [newPrdProjectId, setNewPrdProjectId] = useState(null);
   const [projectsError, setProjectsError] = useState(null);
   const [prdsError, setPrdsError] = useState(null);
-  const latestSearch = useRef(0);
+  const latestLoad = useRef(0);
+  const visits = useRef(0);
+  const answersRequested = useRef(new Set());
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
 
-  // PRDs aren't loaded here: the Dashboard runs a search (empty = all) every
-  // time it's shown, which also keeps the list fresh after editing.
-  useEffect(() => {
-    if (!user) return;
+  const loadProjects = useCallback(() => {
+    setProjectsError(null);
     api
       .listProjects()
-      .then((real) => setProjects(real))
-      .catch((error) => setProjectsError(error.message));
-  }, [user]);
-
-  // Stable identity (only touches setters and a ref), so Dashboard can list
-  // it as an effect dependency without re-fetching on every render.
-  const searchPrds = useCallback((query) => {
-    // Ignore responses that arrive after a newer search was started, so a
-    // slow early request can't overwrite the results of a later one.
-    const requestId = ++latestSearch.current;
-    api
-      .listPrds(query)
       .then((real) => {
-        if (requestId === latestSearch.current) setPrds(real.map(fromApiPrd));
+        setProjects(real);
+        setProjectsLoaded(true);
       })
-      .catch((error) => setPrdsError(error.message));
+      .catch((error) => setProjectsError(error.message));
   }, []);
+
+  // The workspace reloads the full list every time it is shown, which also
+  // keeps it fresh after editing. Interview answers already fetched for a
+  // PRD are kept, so progress bars don't flicker.
+  const loadPrds = useCallback(() => {
+    // Ignore responses that arrive after a newer load was started, so a slow
+    // early request can't overwrite the results of a later one.
+    const requestId = ++latestLoad.current;
+    setPrdsError(null);
+    api
+      .listPrds()
+      .then((rows) => {
+        if (requestId !== latestLoad.current) return;
+        setPrds((current) => {
+          const known = new Map(current.map((prd) => [prd.id, prd]));
+          return rows.map((row) => {
+            const prd = fromApiPrd(row);
+            const before = known.get(prd.id);
+            return before?.answersLoaded
+              ? { ...prd, answers: before.answers, answersLoaded: true }
+              : prd;
+          });
+        });
+        setPrdsLoaded(true);
+      })
+      .catch((error) => {
+        if (requestId === latestLoad.current) setPrdsError(error.message);
+      });
+  }, []);
+
+  const refresh = useCallback(() => {
+    loadProjects();
+    loadPrds();
+  }, [loadProjects, loadPrds]);
+
+  // Saved answers for drafts whose interview progress the workspace shows.
+  // Each PRD is fetched once; after that its answers live in `prds`.
+  const loadAnswers = useCallback((ids) => {
+    ids.forEach((id) => {
+      if (answersRequested.current.has(id)) return;
+      answersRequested.current.add(id);
+      api
+        .listIntakeAnswers(id)
+        .then((rows) => {
+          const answers = fromApiIntakeAnswers(rows);
+          setPrds((current) =>
+            current.map((prd) => (prd.id === id ? { ...prd, answers, answersLoaded: true } : prd)),
+          );
+        })
+        .catch(() => answersRequested.current.delete(id));
+    });
+  }, []);
+
+  // Search runs on the server (title + content_text, GET /api/prds?search=)
+  // and doesn't touch `prds`, so the dashboard's counts stay whole.
+  const searchPrds = useCallback(
+    (term) => api.listPrds(term).then((rows) => rows.map(fromApiPrd)),
+    [],
+  );
 
   function go(nextScreen, prdId = activePrdId) {
     setActivePrdId(prdId);
@@ -69,33 +120,42 @@ function Prototype({ initialUser = null, onLogOut }) {
     window.scrollTo(0, 0);
   }
 
+  // Shows a workspace page: the dashboard, a project or search.
+  const showHome = useCallback((next) => {
+    visits.current += 1;
+    setHome({ ...next, visit: visits.current });
+    setActivePrdId(null);
+    setScreen("dashboard");
+  }, []);
+
+  const setSearchQuery = useCallback((query) => {
+    setHome((current) => ({ ...current, query }));
+  }, []);
+
   function updatePrd(id, changes) {
     setPrds((current) =>
       current.map((prd) =>
-        prd.id === id ? { ...prd, ...changes, modified: today() } : prd,
+        prd.id === id
+          ? { ...prd, ...changes, modified: today(), updatedAt: new Date().toISOString() }
+          : prd,
       ),
     );
   }
 
-  function signIn(email) {
-    setUser(email);
-    go("dashboard", null);
+  function signOut() {
+    onLogOut?.();
   }
 
-  function signOut() {
-    if (onLogOut) {
-      onLogOut();
-      return;
-    }
-    setUser(null);
-    go("signin", null);
+  function startNewPrd(projectId = null) {
+    setNewPrdProjectId(projectId);
+    go("create", null);
   }
 
   function createPrd({ title, projectId }) {
     api
       .createPrd(title, projectId)
       .then((created) => {
-        const prd = fromApiPrd(created);
+        const prd = { ...fromApiPrd(created), answersLoaded: true };
         setPrds((current) => [prd, ...current]);
         go("interview", prd.id);
       })
@@ -103,22 +163,77 @@ function Prototype({ initialUser = null, onLogOut }) {
   }
 
   function openPrd(prd) {
+    // A PRD opened from search may not be in the list yet.
+    setPrds((current) => (current.some((p) => p.id === prd.id) ? current : [prd, ...current]));
     if (prd.sections) {
       go("editor", prd.id);
       return;
     }
     // Load saved answers *before* showing the wizard: Interview picks its
-    // starting question from `answers` once, on mount.
+    // starting question from `answers` once, on mount. A finished interview
+    // goes straight to the review screen.
     api
       .listIntakeAnswers(prd.id)
       .then((rows) => {
         const answers = fromApiIntakeAnswers(rows);
         setPrds((current) =>
-          current.map((p) => (p.id === prd.id ? { ...p, answers } : p)),
+          current.map((p) => (p.id === prd.id ? { ...p, answers, answersLoaded: true } : p)),
+        );
+        const finished = QUESTIONS.every((question) => question.id in answers);
+        go(finished ? "review" : "interview", prd.id);
+      })
+      .catch((error) => setPrdsError(error.message));
+  }
+
+  // Renaming uses the same optimistic-concurrency check as saving content;
+  // on a 409 the list is reloaded so trying again works.
+  function renamePrd(prd, title) {
+    return api
+      .updatePrd(prd.id, { revision: prd.revision, title })
+      .then((saved) => {
+        setPrds((current) =>
+          current.map((p) =>
+            p.id === prd.id
+              ? { ...fromApiPrd(saved), answers: p.answers, answersLoaded: p.answersLoaded }
+              : p,
+          ),
         );
       })
-      .catch((error) => setPrdsError(error.message))
-      .finally(() => go("interview", prd.id));
+      .catch((error) => {
+        loadPrds();
+        throw error;
+      });
+  }
+
+  function deletePrd(prd) {
+    return api
+      .deletePrd(prd.id)
+      .then(() => setPrds((current) => current.filter((p) => p.id !== prd.id)));
+  }
+
+  function createProject(name) {
+    return api.createProject(name).then((created) => {
+      setProjects((current) => [created, ...current]);
+      return created;
+    });
+  }
+
+  function renameProject(id, name) {
+    return api.renameProject(id, name).then((updated) => {
+      setProjects((current) => current.map((project) => (project.id === id ? updated : project)));
+    });
+  }
+
+  function deleteProject(id) {
+    return api.deleteProject(id).then(() => {
+      setProjects((current) => current.filter((project) => project.id !== id));
+      setPrds((current) => current.filter((prd) => prd.projectId !== id));
+    });
+  }
+
+  // Counted on the server, so the "this deletes N PRDs" warning is current.
+  function countProjectPrds(id) {
+    return api.listPrds().then((rows) => rows.filter((row) => row.project_id === id).length);
   }
 
   // Interview and Review both hand back the full answers object with one
@@ -128,7 +243,7 @@ function Prototype({ initialUser = null, onLogOut }) {
     const changed = Object.keys(nextAnswers).filter(
       (key) => nextAnswers[key] !== prd.answers[key],
     );
-    updatePrd(prd.id, { answers: nextAnswers });
+    updatePrd(prd.id, { answers: nextAnswers, answersLoaded: true });
     changed.forEach((key) =>
       api
         .saveIntakeAnswer(prd.id, key, nextAnswers[key])
@@ -153,7 +268,9 @@ function Prototype({ initialUser = null, onLogOut }) {
       .then((saved) => {
         setPrds((current) =>
           current.map((p) =>
-            p.id === id ? { ...fromApiPrd(saved), answers: p.answers } : p,
+            p.id === id
+              ? { ...fromApiPrd(saved), answers: p.answers, answersLoaded: p.answersLoaded }
+              : p,
           ),
         );
       });
@@ -171,47 +288,12 @@ function Prototype({ initialUser = null, onLogOut }) {
     go("ready");
   }
 
-  function jumpTo(target) {
-    const email = user ?? "student@sfsu.edu";
-    if (target === "signin") {
-      setUser(null);
-      go(target, null);
-      return;
-    }
-    setUser(email);
-    if (target === "dashboard-empty") {
-      setPrds([]);
-      go("dashboard", null);
-      return;
-    }
-    if (target === "reset") {
-      setPrds(INITIAL_PRDS);
-      setProjects(INITIAL_PROJECTS);
-      go("dashboard", null);
-      return;
-    }
-    if (target === "dashboard" || target === "create") {
-      go(target, null);
-      return;
-    }
-    // Everything else needs a PRD; use the sample one.
-    const sample = prds.find((prd) => prd.sections) ?? INITIAL_PRDS[0];
-    if (!prds.some((prd) => prd.id === sample.id)) {
-      setPrds((current) => [sample, ...current]);
-    }
-    if (target === "interview" || target === "review") {
-      updatePrd(sample.id, { answers: SAMPLE_ANSWERS });
-    }
-    go(target, sample.id);
-  }
-
-  let content;
-  if (!user) {
-    content = <SignIn onSignIn={signIn} />;
-  } else if (screen === "create") {
+  let content = null;
+  if (screen === "create") {
     content = (
       <CreatePrd
         projects={projects}
+        initialProjectId={newPrdProjectId}
         onCreate={createPrd}
         onCancel={() => go("dashboard", null)}
       />
@@ -240,7 +322,7 @@ function Prototype({ initialUser = null, onLogOut }) {
         key={screen}
         prd={activePrd}
         done={screen === "ready"}
-        shouldFail={failGeneration}
+        shouldFail={false}
         onFinish={finishGeneration}
         onCancel={() => go("review")}
         onBackToReview={() => go("review")}
@@ -255,50 +337,47 @@ function Prototype({ initialUser = null, onLogOut }) {
         // this prototype yet. Returns the save promise so the Editor can
         // show real saving/error state instead of assuming success.
         onSave={(sections) => savePrdContent(activePrd.id, sections, "in_review")}
-        onDashboard={() => go("dashboard", null)}
+        onDashboard={() => showHome({ page: "dashboard" })}
         onExport={() => go("export")}
       />
     );
   } else if (screen === "export" && activePrd?.sections) {
     content = <ExportPrd prd={activePrd} onBack={() => go("editor")} />;
-  } else {
-    content = (
-      <Dashboard
+  }
+
+  // Everything that isn't one of the flows above is the workspace: the
+  // sidebar with the dashboard, a project or search (src/nautilus/app).
+  if (!content) {
+    return (
+      <Workspace
+        view={home}
+        account={{ email: user, name: userName }}
+        userId={userId}
         prds={prds}
-        projects={projects}
-        onCreatePrd={() => go("create", null)}
-        onSearch={searchPrds}
-        onOpen={openPrd}
-        onDelete={(id) =>
-          api
-            .deletePrd(id)
-            .then(() =>
-              setPrds((current) => current.filter((prd) => prd.id !== id)),
-            )
-            .catch((error) => setPrdsError(error.message))
-        }
-        projectsError={projectsError}
+        prdsLoaded={prdsLoaded}
         prdsError={prdsError}
-        onCreateProject={(name) =>
-          api
-            .createProject(name)
-            .then((created) => setProjects((current) => [...current, created]))
-            .catch((error) => setProjectsError(error.message))
-        }
-        onRenameProject={(id, name) =>
-          api.renameProject(id, name).then((updated) => {
-            setProjects((current) =>
-              current.map((project) => (project.id === id ? updated : project)),
-            );
-          })
-        }
-        onDeleteProject={(id) =>
-          api.deleteProject(id).then(() => {
-            setProjects((current) => current.filter((project) => project.id !== id));
-            setPrds((current) => current.filter((prd) => prd.projectId !== id));
-          })
-        }
-        onCountProjectPrds={() => api.listPrds()}
+        projects={projects}
+        projectsLoaded={projectsLoaded}
+        projectsError={projectsError}
+        questions={QUESTIONS}
+        onRefresh={refresh}
+        onNavigate={showHome}
+        onQueryChange={setSearchQuery}
+        onCreatePrd={startNewPrd}
+        onOpenPrd={openPrd}
+        onRenamePrd={renamePrd}
+        onDeletePrd={deletePrd}
+        onCreateProject={createProject}
+        onRenameProject={renameProject}
+        onDeleteProject={deleteProject}
+        onCountProjectPrds={countProjectPrds}
+        onSearchPrds={searchPrds}
+        onLoadAnswers={loadAnswers}
+        onDismissError={() => {
+          setPrdsError(null);
+          setProjectsError(null);
+        }}
+        onSignOut={signOut}
       />
     );
   }
@@ -310,7 +389,7 @@ function Prototype({ initialUser = null, onLogOut }) {
           <button
             type="button"
             className="nt-logo nt-link-button"
-            onClick={() => go("dashboard", null)}
+            onClick={() => showHome({ page: "dashboard" })}
           >
             Nautilus
           </button>
@@ -323,14 +402,6 @@ function Prototype({ initialUser = null, onLogOut }) {
         </header>
       ) : null}
       {content}
-      {/* Development-only shortcut panel; stripped from production builds. */}
-      {import.meta.env.DEV ? (
-        <ScreenJumper
-          failGeneration={failGeneration}
-          onToggleFail={setFailGeneration}
-          onJump={jumpTo}
-        />
-      ) : null}
     </div>
   );
 }
