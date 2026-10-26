@@ -1,9 +1,5 @@
-// Mock data for the UI prototype. Nothing here is persisted.
-
-export const INITIAL_PROJECTS = [
-  { id: "p1", name: "Student Apps", description: "Apps for campus life" },
-  { id: "p2", name: "Capstone", description: "Senior capstone work" },
-];
+// The interview questions and the helpers that map API rows onto the shape
+// the screens use.
 
 export const QUESTIONS = [
   {
@@ -51,16 +47,6 @@ export const QUESTIONS = [
     required: false,
   },
 ];
-
-export const SAMPLE_ANSWERS = {
-  problem: "Students struggle to find study groups for their classes.",
-  target_users: "Undergraduates at one university, mostly first and second year.",
-  goals: "Help students join a group within one day of searching.",
-  scope: "In: group search, join requests. Out: video calls.",
-  constraints: "Web only, one semester, team of five.",
-  success_metrics: "",
-  notes: "",
-};
 
 // Section `id`s match the fixed section-type vocabulary from Section 1.5 of
 // the M2 report exactly, so these map directly onto content_json's
@@ -115,48 +101,6 @@ const CAMPUS_SECTIONS = [
   },
 ];
 
-// UI status labels now match the real schema's status enum exactly
-// (Section 1.4: draft | in_review | final | assigned) instead of an
-// invented vocabulary, so there's nothing to translate at the API boundary.
-export const INITIAL_PRDS = [
-  {
-    id: "d1",
-    title: "CampusConnect PRD",
-    projectId: "p1",
-    status: "in_review",
-    modified: "2026-10-12",
-    answers: SAMPLE_ANSWERS,
-    sections: CAMPUS_SECTIONS,
-  },
-  {
-    id: "d2",
-    title: "Study Group Finder",
-    projectId: "p1",
-    status: "in_review",
-    modified: "2026-10-09",
-    answers: SAMPLE_ANSWERS,
-    sections: CAMPUS_SECTIONS,
-  },
-  {
-    id: "d3",
-    title: "Capstone Scheduler",
-    projectId: "p2",
-    status: "draft",
-    modified: "2026-10-05",
-    answers: {},
-    sections: null,
-  },
-  {
-    id: "d4",
-    title: "Notes App Idea",
-    projectId: null,
-    status: "draft",
-    modified: "2026-09-28",
-    answers: {},
-    sections: null,
-  },
-];
-
 // Status enum values, in the order they appear in Section 1.4, with the
 // label shown in the UI for each.
 export const STATUS_LABELS = {
@@ -202,18 +146,27 @@ export function sectionsToText(sections) {
 }
 
 // Maps a real `prd` row (snake_case, from GET/POST/PUT /api/prds) onto the
-// shape every screen in this prototype expects. Intake answers live in a
-// separate table, so `answers` starts empty and is filled in by
-// fromApiIntakeAnswers when the PRD is opened.
+// shape every screen expects. Intake answers live in a separate table, so
+// `answers` starts empty and is filled in by fromApiIntakeAnswers when the
+// PRD is opened (or when the workspace shows its interview progress).
 export function fromApiPrd(row) {
   return {
     id: row.id,
     title: row.title,
     projectId: row.project_id,
+    ownerId: row.owner_id,
     status: row.status,
     modified: row.updated_at.slice(0, 10),
+    // Full timestamps, for "Today, 9:12 AM" in the workspace.
+    updatedAt: row.updated_at,
+    createdAt: row.created_at,
     revision: row.revision,
+    // Not a column yet; shown wherever the API starts returning it.
+    description: row.description ?? "",
+    contentText: row.content_text ?? "",
     answers: {},
+    // False until this PRD's intake answers have been fetched.
+    answersLoaded: false,
     sections: contentJsonToSections(row.content_json),
   };
 }

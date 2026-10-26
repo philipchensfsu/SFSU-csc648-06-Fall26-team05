@@ -35,6 +35,8 @@ and the app generates a structured PRD draft they can review, edit, and save.
 
 ## Team Members
 
+Meet Our Team is on the public [About page](https://csc648-team05.vercel.app/about) at `/about`. The `/` route now shows the Nautilus landing page. You can also use the site's “About us” navigation link.
+
 | Team Member       | GitHub Username  | Roles                          |
 |--------------------|-------------------|----------------------------------|
 | Aksh Patel         | AkshPatel63       | Front-End Lead, GitHub Co-Lead   |

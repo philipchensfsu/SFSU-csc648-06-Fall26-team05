@@ -1,4 +1,4 @@
-function CreatePrd({ projects, onCreate, onCancel }) {
+function CreatePrd({ projects, initialProjectId = null, onCreate, onCancel }) {
   function handleSubmit(event) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
@@ -26,7 +26,12 @@ function CreatePrd({ projects, onCreate, onCancel }) {
             <label htmlFor="project">
               Project <span className="nt-req">(Optional)</span>
             </label>
-            <select id="project" name="project" aria-describedby="project-help">
+            <select
+              id="project"
+              name="project"
+              defaultValue={initialProjectId ?? ""}
+              aria-describedby="project-help"
+            >
               <option value="">No project</option>
               {projects.map((project) => (
                 <option key={project.id} value={project.id}>
