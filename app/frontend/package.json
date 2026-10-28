@@ -7,7 +7,6 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
-    "test:flow": "node --test tests/part2.test.js",
     "preview": "vite preview"
   },
   "dependencies": {
