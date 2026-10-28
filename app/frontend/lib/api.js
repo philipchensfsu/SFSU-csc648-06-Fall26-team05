@@ -23,7 +23,9 @@ async function request(path, options = {}) {
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed: ${response.status}`);
+    const error = new Error(body.detail || `Request failed: ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
 
   if (response.status === 204) return null;
@@ -51,9 +53,9 @@ export const api = {
   deletePrd: (id) => request(`/prds/${id}`, { method: "DELETE" }),
 
   listIntakeAnswers: (prdId) => request(`/prds/${prdId}/intake`),
-  saveIntakeAnswer: (prdId, questionKey, answerText) =>
+  saveIntakeAnswer: (prdId, questionKey, answerText, skipped) =>
     request(`/prds/${prdId}/intake/${questionKey}`, {
       method: "PUT",
-      body: JSON.stringify({ answer_text: answerText, skipped: !answerText }),
+      body: JSON.stringify({ answer_text: answerText, skipped }),
     }),
 };

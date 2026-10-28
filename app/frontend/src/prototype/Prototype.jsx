@@ -238,7 +238,11 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
   // The interview keeps unsaved edits locally. Publish answers to the rest
   // of the app only after the API confirms them; failures stay in the flow.
   async function saveAnswer(prdId, key, text) {
-    const saved = await api.saveIntakeAnswer(prdId, key, text);
+    const question = QUESTIONS.find((item) => item.id === key);
+    // A required question may be temporarily blank, but it is never skipped.
+    // Only an empty optional answer carries the skipped flag.
+    const skipped = Boolean(question && !question.required && !text.trim());
+    const saved = await api.saveIntakeAnswer(prdId, key, text, skipped);
     setPrds((current) => current.map((prd) => prd.id === prdId
       ? { ...prd, answers: { ...prd.answers, ...fromApiIntakeAnswers([saved]) }, answersLoaded: true }
       : prd));
@@ -256,12 +260,39 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
   function savePrdContent(id, sections, status) {
     const prd = prds.find((p) => p.id === id);
     if (!prd) return Promise.resolve();
+    const contentJson = sectionsToContentJson(sections, prd.description);
+    const contentText = sectionsToText(sections, prd.description);
+
+    function matchesRequestedSave(row) {
+      const savedSections = row.content_json?.sections;
+      return row.status === status
+        && row.content_text === contentText
+        && row.content_json?.description === contentJson.description
+        && Array.isArray(savedSections)
+        && savedSections.length === contentJson.sections.length
+        && savedSections.every((saved, index) => {
+          const requested = contentJson.sections[index];
+          return saved.type === requested.type
+            && saved.title === requested.title
+            && saved.html === requested.html;
+        });
+    }
+
     return api
       .updatePrd(id, {
         revision: prd.revision,
-        content_json: sectionsToContentJson(sections, prd.description),
-        content_text: sectionsToText(sections, prd.description),
+        content_json: contentJson,
+        content_text: contentText,
         status,
+      })
+      .catch(async (error) => {
+        if (error.status !== 409) throw error;
+
+        // The first save may have succeeded even if its response was lost.
+        // Reload and accept it only when the server has the exact requested content.
+        const latest = await api.getPrd(id);
+        if (!matchesRequestedSave(latest)) throw error;
+        return latest;
       })
       .then((saved) => {
         setPrds((current) =>

@@ -5,7 +5,7 @@ import { FlowBar } from "./FlowBar";
 import { IconArrowRight, IconFolder, IconX } from "../icons";
 import { QUESTIONS } from "../questions";
 
-const DESCRIPTION_MAX = 160;
+const DESCRIPTION_MAX = 2000;
 
 function ChevronDown() {
   return (

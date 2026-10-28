@@ -18,7 +18,7 @@ export function createDraftCreator(api, onSaved) {
         onSaved(row, answers);
       }
       if (notes && answers.notes !== notes) {
-        await api.saveIntakeAnswer(row.id, "notes", notes);
+        await api.saveIntakeAnswer(row.id, "notes", notes, false);
         answers = { notes };
         onSaved(row, answers);
       }
