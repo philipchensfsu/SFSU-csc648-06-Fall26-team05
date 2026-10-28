@@ -152,6 +152,9 @@ cd SFSU-csc648-06-Fall26-team05
 ```
 
 ## Branching Strategy
+
+For the full workflow (branch rules, who reviews what, and the release process), see the [Team 5 GitHub Workflow guide](.github/team5-github-workflow.pdf).
+
 - `main` — stable, production-ready code; only updated from `develop` at milestones
 - `develop` — default branch; all finished features merge here first
 - Create a new branch from `develop` for each task:
@@ -164,7 +167,7 @@ cd SFSU-csc648-06-Fall26-team05
 2. Open a Pull Request into `develop` (not `main`)
 3. At least one teammate must review and approve the Pull Request before it can be merged
 4. Resolve any merge conflicts before merging
-5. Delete the feature branch after merging
+5. The feature branch is deleted automatically after merging
 
 ## Tech Stack
 - Frontend: React + Vite, hosted on Vercel
