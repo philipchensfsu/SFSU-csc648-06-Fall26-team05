@@ -1,16 +1,15 @@
-/* Nautilus workspace: the signed-in sidebar, dashboard, projects and search.
-   Every rule is scoped to .nw-app, or to .nw-menu / .nw-modal (which can sit
-   outside it), so the older prototype screens are untouched. Base element
-   rules use :where() so any class rule below wins over them. */
+/* Nautilus app styles: the signed-in workspace (sidebar, dashboard, projects,
+   search) and the PRD flow screens. Every rule is scoped to .nw-root (the
+   root of each screen), or to .nw-menu (menus render into <body>), so the
+   older prototype screens are untouched. Base element rules use :where()
+   so any class rule below wins over them. */
 
-body:has(.nw-app) {
+body:has(.nw-root) {
   background: #F1F7F8;
 }
 
-.nw-app {
+.nw-root {
   min-height: 100vh;
-  display: flex;
-  align-items: flex-start;
   background: #F1F7F8;
   color: #102C33;
   font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -19,42 +18,53 @@ body:has(.nw-app) {
   -webkit-font-smoothing: antialiased;
 }
 
-.nw-app *,
-.nw-app *::before,
-.nw-app *::after,
+/* The workspace: sidebar beside the page. */
+.nw-app {
+  display: flex;
+  align-items: flex-start;
+}
+
+.nw-root *,
+.nw-root *::before,
+.nw-root *::after,
 .nw-menu,
 .nw-menu * {
   box-sizing: border-box;
 }
 
-:where(.nw-app) :where(h1, h2, h3, p, ol, ul, figure) {
+:where(.nw-root) :where(h1, h2, h3, p, ol, ul, figure, fieldset) {
   margin: 0;
 }
-:where(.nw-app) :where(ol, ul) {
+:where(.nw-root) :where(ol, ul) {
   padding: 0;
   list-style: none;
 }
-:where(.nw-app, .nw-menu) :where(button, input, select, textarea) {
+:where(.nw-root) fieldset {
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+:where(.nw-root, .nw-menu) :where(button, input, select, textarea) {
   font: inherit;
   color: inherit;
 }
-:where(.nw-app, .nw-menu) :where(button) {
+:where(.nw-root, .nw-menu) :where(button) {
   cursor: pointer;
 }
-:where(.nw-app, .nw-menu) :where(button:disabled) {
+:where(.nw-root, .nw-menu) :where(button:disabled) {
   cursor: default;
 }
-:where(.nw-app) a {
+:where(.nw-root) a {
   color: #1D6F7A;
 }
-:where(.nw-app) a:hover {
+:where(.nw-root) a:hover {
   color: #102C33;
 }
-:where(.nw-app, .nw-menu) :focus-visible {
+:where(.nw-root, .nw-menu) :focus-visible {
   outline: 2px solid #1D6F7A;
   outline-offset: 2px;
 }
-:where(.nw-app) mark {
+:where(.nw-root) mark {
   background: #B3EBF2;
   color: #102C33;
   border-radius: 2px;

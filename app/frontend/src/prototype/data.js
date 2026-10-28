@@ -1,52 +1,8 @@
 // The interview questions and the helpers that map API rows onto the shape
 // the screens use.
 
-export const QUESTIONS = [
-  {
-    id: "problem",
-    label: "Problem",
-    prompt: "Hi! I'll ask a few questions to build your PRD. First: what problem are you solving?",
-    required: true,
-  },
-  {
-    id: "target_users",
-    label: "Target users",
-    prompt: "Who will use this product?",
-    required: true,
-  },
-  {
-    id: "goals",
-    label: "Goals",
-    prompt: "What do you want to accomplish?",
-    hint: "Example: help students join a group within one day of searching.",
-    required: true,
-  },
-  {
-    id: "scope",
-    label: "Scope",
-    prompt: "What is in scope, and what is out of scope?",
-    hint: "Example: In: group search, join requests. Out: video calls.",
-    required: false,
-  },
-  {
-    id: "constraints",
-    label: "Constraints",
-    prompt: "Are there any constraints, like platform, time, or team size?",
-    required: false,
-  },
-  {
-    id: "success_metrics",
-    label: "Success metrics",
-    prompt: "How will you know the product is successful?",
-    required: false,
-  },
-  {
-    id: "notes",
-    label: "Additional notes",
-    prompt: "Anything else? Links or research notes are welcome.",
-    required: false,
-  },
-];
+// The questions themselves (labels, parts, copy) live with the new screens.
+export { QUESTIONS } from "../nautilus/app/questions.js";
 
 // Section `id`s match the fixed section-type vocabulary from Section 1.5 of
 // the M2 report exactly, so these map directly onto content_json's
@@ -117,8 +73,12 @@ export const STATUS_LABELS = {
 // using the spec's exact section-type vocabulary, so it's a direct,
 // low-cost upgrade path once Tiptap is actually wired up.
 
-export function sectionsToContentJson(sections) {
+// The PRD's one-line description (from "Create a PRD") is kept in
+// content_json too, as `description`, until the prd table has a column for
+// it -- so every save of the sections has to carry it along.
+export function sectionsToContentJson(sections, description = "") {
   return {
+    ...(description ? { description } : {}),
     sections: (sections ?? []).map(({ id, title, html }) => ({
       type: id,
       title,
@@ -129,20 +89,19 @@ export function sectionsToContentJson(sections) {
 
 export function contentJsonToSections(contentJson) {
   const sections = contentJson?.sections;
-  if (!sections) return null;
+  if (!Array.isArray(sections) || !sections.length) return null;
   return sections.map(({ type, title, html }) => ({ id: type, title, html }));
 }
 
 // Plain-text derived from the section HTML, for content_text (search/AI
 // input). Strips tags with the browser's own parser rather than regex.
-export function sectionsToText(sections) {
-  return (sections ?? [])
-    .map((section) => {
-      const div = document.createElement("div");
-      div.innerHTML = section.html;
-      return `${section.title}\n${div.textContent.trim()}`;
-    })
-    .join("\n\n");
+export function sectionsToText(sections, description = "") {
+  const parts = (sections ?? []).map((section) => {
+    const div = document.createElement("div");
+    div.innerHTML = section.html;
+    return `${section.title}\n${div.textContent.trim()}`;
+  });
+  return (description ? [description, ...parts] : parts).join("\n\n");
 }
 
 // Maps a real `prd` row (snake_case, from GET/POST/PUT /api/prds) onto the
@@ -161,8 +120,8 @@ export function fromApiPrd(row) {
     updatedAt: row.updated_at,
     createdAt: row.created_at,
     revision: row.revision,
-    // Not a column yet; shown wherever the API starts returning it.
-    description: row.description ?? "",
+    // Kept in content_json until the table has a description column.
+    description: row.description ?? row.content_json?.description ?? "",
     contentText: row.content_text ?? "",
     answers: {},
     // False until this PRD's intake answers have been fetched.
