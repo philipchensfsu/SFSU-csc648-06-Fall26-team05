@@ -4,14 +4,22 @@ async function request(path, options = {}) {
   const { data } = (await supabase?.auth.getSession()) ?? { data: {} };
   const token = data.session?.access_token;
 
-  const response = await fetch(`/api${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+  let response;
+  try {
+    response = await fetch(`/api${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("Couldn’t reach the server. Check your connection and try again.");
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
