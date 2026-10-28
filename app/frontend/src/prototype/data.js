@@ -2,7 +2,9 @@
 // the screens use.
 
 // The questions themselves (labels, parts, copy) live with the new screens.
-export { QUESTIONS } from "../nautilus/app/questions.js";
+import { QUESTIONS, parseAnswer } from "../nautilus/app/questions.js";
+
+export { QUESTIONS };
 
 // Section `id`s match the fixed section-type vocabulary from Section 1.5 of
 // the M2 report exactly, so these map directly onto content_json's
@@ -145,11 +147,36 @@ function escapeHtml(text) {
     .replace(/>/g, "&gt;");
 }
 
+// Stored multi-part answers include labels so the interview can reconstruct
+// each field. The simulated draft needs only the answer values.
+function answerWithoutLabels(key, text) {
+  const question = QUESTIONS.find((item) => item.id === key);
+  if (!question) return text.trim();
+
+  const values = parseAnswer(question, text);
+  const parts = [];
+  if (values.groups.length) parts.push(values.groups.join("; "));
+  question.parts.forEach((part) => {
+    if (values[part.key]) parts.push(values[part.key]);
+  });
+  return parts.join("\n\n");
+}
+
+function answerToHtml(key, text) {
+  const clean = answerWithoutLabels(key, text);
+  if (!clean) return null;
+  return clean
+    .split(/\n{2,}/)
+    .map((paragraph) => `<p>${escapeHtml(paragraph).replace(/\n/g, "<br>")}</p>`)
+    .join("");
+}
+
 // Fakes the AI draft: uses the interview answers where we have them and
-// sample text everywhere else.
+// sample text everywhere else. Stored part labels stay in the intake data
+// but are omitted from the draft, search text and exports.
 export function draftSectionsFromAnswers(answers) {
   const fromAnswer = (key) =>
-    answers[key] ? `<p>${escapeHtml(answers[key])}</p>` : null;
+    answers[key] ? answerToHtml(key, answers[key]) : null;
 
   return CAMPUS_SECTIONS.map((section) => {
     const override =
@@ -159,7 +186,7 @@ export function draftSectionsFromAnswers(answers) {
     if (section.id === "target_users" && answers.target_users) {
       return {
         ...section,
-        html: `<p>${escapeHtml(answers.target_users)} <mark class="nt-assumption" data-assumption="1">Most users are likely on mobile phones between classes.</mark></p>`,
+        html: `${fromAnswer("target_users")}<p><mark class="nt-assumption" data-assumption="1">Most users are likely on mobile phones between classes.</mark></p>`,
       };
     }
     return override ? { ...section, html: override, assumptions: 0 } : section;
