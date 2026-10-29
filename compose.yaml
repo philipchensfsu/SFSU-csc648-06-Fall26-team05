@@ -1,0 +1,53 @@
+# Local development: the FastAPI backend and the Vite frontend.
+# The database, auth and Data API come from the Supabase CLI, so start it
+# first:
+#
+#   supabase start
+#   docker compose up
+#
+# Then open http://localhost:5173. See docs/local-development.md.
+name: nautilus
+
+# These are the Supabase CLI's public default keys for a local stack. They
+# are the same on every machine, are published in Supabase's docs, and only
+# work against the local stack on 127.0.0.1. They are not production keys.
+x-local-supabase:
+  anon-key: &anon-key eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
+  service-role-key: &service-role-key eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+
+services:
+  backend:
+    build:
+      context: ./app/backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    environment:
+      # The container reaches the Supabase CLI's ports on the host.
+      SUPABASE_URL: http://host.docker.internal:54321
+      SUPABASE_ANON_KEY: *anon-key
+      SUPABASE_SERVICE_ROLE_KEY: *service-role-key
+      WATCHFILES_FORCE_POLLING: ${DOCKER_POLLING:-false}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./app/backend:/app
+      - /app/venv # hide a host venv from the container
+
+  frontend:
+    build:
+      context: ./app/frontend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "5173:5173"
+    environment:
+      API_PROXY_TARGET: http://backend:8000
+      # The browser talks to Supabase directly, so this is the host address.
+      VITE_SUPABASE_URL: http://127.0.0.1:54321
+      VITE_SUPABASE_ANON_KEY: *anon-key
+      VITE_USE_POLLING: ${DOCKER_POLLING:-false}
+    volumes:
+      - ./app/frontend:/app
+      - /app/node_modules # keep the container's own install
+    depends_on:
+      - backend
