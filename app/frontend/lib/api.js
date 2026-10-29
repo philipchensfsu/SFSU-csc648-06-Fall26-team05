@@ -4,18 +4,28 @@ async function request(path, options = {}) {
   const { data } = (await supabase?.auth.getSession()) ?? { data: {} };
   const token = data.session?.access_token;
 
-  const response = await fetch(`/api${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+  let response;
+  try {
+    response = await fetch(`/api${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("Couldn’t reach the server. Check your connection and try again.");
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed: ${response.status}`);
+    const error = new Error(body.detail || `Request failed: ${response.status}`);
+    error.status = response.status;
+    throw error;
   }
 
   if (response.status === 204) return null;
@@ -43,9 +53,9 @@ export const api = {
   deletePrd: (id) => request(`/prds/${id}`, { method: "DELETE" }),
 
   listIntakeAnswers: (prdId) => request(`/prds/${prdId}/intake`),
-  saveIntakeAnswer: (prdId, questionKey, answerText) =>
+  saveIntakeAnswer: (prdId, questionKey, answerText, skipped) =>
     request(`/prds/${prdId}/intake/${questionKey}`, {
       method: "PUT",
-      body: JSON.stringify({ answer_text: answerText, skipped: !answerText }),
+      body: JSON.stringify({ answer_text: answerText, skipped }),
     }),
 };

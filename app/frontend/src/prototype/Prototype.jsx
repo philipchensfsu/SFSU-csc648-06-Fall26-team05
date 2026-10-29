@@ -7,13 +7,14 @@ import {
   fromApiPrd,
   sectionsToContentJson,
   sectionsToText,
-  today,
 } from "./data";
 import { api } from "../../lib/api";
 import Workspace from "../nautilus/app/Workspace";
-import CreatePrd from "./screens/CreatePrd";
-import Interview from "./screens/Interview";
-import Review from "./screens/Review";
+import CreatePrdPage from "../nautilus/app/flow/CreatePrdPage";
+import InterviewPage from "../nautilus/app/flow/InterviewPage";
+import ReviewPage from "../nautilus/app/flow/ReviewPage";
+import { isAnswered } from "../nautilus/app/questions";
+import { createDraftCreator } from "../nautilus/app/flow/draftCreation";
 import Generating from "./screens/Generating";
 import Editor from "./screens/Editor";
 import ExportPrd from "./screens/ExportPrd";
@@ -36,6 +37,8 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
   const [activePrdId, setActivePrdId] = useState(null);
   // The project a new PRD goes into when started from a project page.
   const [newPrdProjectId, setNewPrdProjectId] = useState(null);
+  const [interviewStart, setInterviewStart] = useState(null);
+  const draftCreator = useRef(null);
   const [projectsError, setProjectsError] = useState(null);
   const [prdsError, setPrdsError] = useState(null);
   const latestLoad = useRef(0);
@@ -100,7 +103,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
         .then((rows) => {
           const answers = fromApiIntakeAnswers(rows);
           setPrds((current) =>
-            current.map((prd) => (prd.id === id ? { ...prd, answers, answersLoaded: true } : prd)),
+            current.map((prd) => (prd.id === id && !prd.answersLoaded ? { ...prd, answers, answersLoaded: true } : prd)),
           );
         })
         .catch(() => answersRequested.current.delete(id));
@@ -115,6 +118,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
   );
 
   function go(nextScreen, prdId = activePrdId) {
+    if (nextScreen !== "dashboard") latestLoad.current += 1;
     setActivePrdId(prdId);
     setScreen(nextScreen);
     window.scrollTo(0, 0);
@@ -132,34 +136,28 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
     setHome((current) => ({ ...current, query }));
   }, []);
 
-  function updatePrd(id, changes) {
-    setPrds((current) =>
-      current.map((prd) =>
-        prd.id === id
-          ? { ...prd, ...changes, modified: today(), updatedAt: new Date().toISOString() }
-          : prd,
-      ),
-    );
-  }
-
   function signOut() {
     onLogOut?.();
   }
 
   function startNewPrd(projectId = null) {
+    draftCreator.current = null;
     setNewPrdProjectId(projectId);
     go("create", null);
   }
 
-  function createPrd({ title, projectId }) {
-    api
-      .createPrd(title, projectId)
-      .then((created) => {
-        const prd = { ...fromApiPrd(created), answersLoaded: true };
-        setPrds((current) => [prd, ...current]);
-        go("interview", prd.id);
-      })
-      .catch((error) => setPrdsError(error.message));
+  // Retain a partially created draft so retrying its description/notes never
+  // creates a second PRD. Each callback reflects only server-confirmed data.
+  async function createPrd(payload) {
+    if (!draftCreator.current) {
+      draftCreator.current = createDraftCreator(api, (row, answers) => {
+        const prd = { ...fromApiPrd(row), answers, answersLoaded: true };
+        setPrds((current) => [prd, ...current.filter((p) => p.id !== prd.id)]);
+      });
+    }
+    const row = await draftCreator.current(payload);
+    setInterviewStart(null);
+    go("interview", row.id);
   }
 
   function openPrd(prd) {
@@ -179,7 +177,8 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
         setPrds((current) =>
           current.map((p) => (p.id === prd.id ? { ...p, answers, answersLoaded: true } : p)),
         );
-        const finished = QUESTIONS.every((question) => question.id in answers);
+        const finished = QUESTIONS.every((question) => isAnswered(question, answers));
+        setInterviewStart(null);
         go(finished ? "review" : "interview", prd.id);
       })
       .catch((error) => setPrdsError(error.message));
@@ -236,19 +235,22 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
     return api.listPrds().then((rows) => rows.filter((row) => row.project_id === id).length);
   }
 
-  // Interview and Review both hand back the full answers object with one
-  // key changed; persist just the keys that differ (Section 1.6: "each
-  // answer is saved as soon as it is submitted").
-  function saveAnswers(prd, nextAnswers) {
-    const changed = Object.keys(nextAnswers).filter(
-      (key) => nextAnswers[key] !== prd.answers[key],
-    );
-    updatePrd(prd.id, { answers: nextAnswers, answersLoaded: true });
-    changed.forEach((key) =>
-      api
-        .saveIntakeAnswer(prd.id, key, nextAnswers[key])
-        .catch((error) => setPrdsError(error.message)),
-    );
+  // The interview keeps unsaved edits locally. Publish answers to the rest
+  // of the app only after the API confirms them; failures stay in the flow.
+  async function saveAnswer(prdId, key, text) {
+    const question = QUESTIONS.find((item) => item.id === key);
+    // A required question may be temporarily blank, but it is never skipped.
+    // Only an empty optional answer carries the skipped flag.
+    const skipped = Boolean(question && !question.required && !text.trim());
+    const saved = await api.saveIntakeAnswer(prdId, key, text, skipped);
+    setPrds((current) => current.map((prd) => prd.id === prdId
+      ? { ...prd, answers: { ...prd.answers, ...fromApiIntakeAnswers([saved]) }, answersLoaded: true }
+      : prd));
+  }
+
+  function openInterview(questionId = null) {
+    setInterviewStart(questionId);
+    go("interview");
   }
 
   // Shared by the Editor's Save button and finishGeneration below: persists
@@ -258,12 +260,39 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
   function savePrdContent(id, sections, status) {
     const prd = prds.find((p) => p.id === id);
     if (!prd) return Promise.resolve();
+    const contentJson = sectionsToContentJson(sections, prd.description);
+    const contentText = sectionsToText(sections, prd.description);
+
+    function matchesRequestedSave(row) {
+      const savedSections = row.content_json?.sections;
+      return row.status === status
+        && row.content_text === contentText
+        && row.content_json?.description === contentJson.description
+        && Array.isArray(savedSections)
+        && savedSections.length === contentJson.sections.length
+        && savedSections.every((saved, index) => {
+          const requested = contentJson.sections[index];
+          return saved.type === requested.type
+            && saved.title === requested.title
+            && saved.html === requested.html;
+        });
+    }
+
     return api
       .updatePrd(id, {
         revision: prd.revision,
-        content_json: sectionsToContentJson(sections),
-        content_text: sectionsToText(sections),
+        content_json: contentJson,
+        content_text: contentText,
         status,
+      })
+      .catch(async (error) => {
+        if (error.status !== 409) throw error;
+
+        // The first save may have succeeded even if its response was lost.
+        // Reload and accept it only when the server has the exact requested content.
+        const latest = await api.getPrd(id);
+        if (!matchesRequestedSave(latest)) throw error;
+        return latest;
       })
       .then((saved) => {
         setPrds((current) =>
@@ -276,47 +305,47 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
       });
   }
 
-  function finishGeneration() {
+  async function finishGeneration() {
     const sections = draftSectionsFromAnswers(activePrd.answers);
-    // Update the UI immediately rather than waiting on the network, then
-    // persist in the background; a failure surfaces via prdsError without
-    // blocking the screen transition.
-    updatePrd(activePrd.id, { status: "in_review", sections });
-    savePrdContent(activePrd.id, sections, "in_review").catch((error) =>
-      setPrdsError(error.message),
-    );
+    await savePrdContent(activePrd.id, sections, "in_review");
     go("ready");
   }
 
-  let content = null;
+  // These screens include their own top bar; auth remains owned by App.
   if (screen === "create") {
-    content = (
-      <CreatePrd
-        projects={projects}
-        initialProjectId={newPrdProjectId}
-        onCreate={createPrd}
-        onCancel={() => go("dashboard", null)}
-      />
-    );
-  } else if (screen === "interview" && activePrd) {
-    content = (
-      <Interview
-        prd={activePrd}
-        onChange={(answers) => saveAnswers(activePrd, answers)}
-        onDone={() => go("review")}
-        onSaveForLater={() => go("dashboard", null)}
-      />
-    );
-  } else if (screen === "review" && activePrd) {
-    content = (
-      <Review
-        prd={activePrd}
-        onChange={(answers) => saveAnswers(activePrd, answers)}
-        onBack={() => go("interview")}
-        onGenerate={() => go("generating")}
-      />
-    );
-  } else if ((screen === "generating" || screen === "ready") && activePrd) {
+    return <CreatePrdPage
+      projects={projects}
+      initialProjectId={newPrdProjectId}
+      onCreate={createPrd}
+      onCancel={() => go("dashboard", null)}
+      onHome={() => showHome({ page: "dashboard" })}
+    />;
+  }
+  if (screen === "interview" && activePrd) {
+    return <InterviewPage
+      key={activePrd.id}
+      prd={activePrd}
+      questions={QUESTIONS}
+      startAt={interviewStart}
+      onSaveAnswer={(key, text) => saveAnswer(activePrd.id, key, text)}
+      onExit={() => go("dashboard", null)}
+      onHome={() => showHome({ page: "dashboard" })}
+      onReview={() => go("review")}
+    />;
+  }
+  if (screen === "review" && activePrd) {
+    return <ReviewPage
+      prd={activePrd}
+      questions={QUESTIONS}
+      onEdit={openInterview}
+      onGenerate={() => go("generating")}
+      onExit={() => go("dashboard", null)}
+      onHome={() => showHome({ page: "dashboard" })}
+    />;
+  }
+
+  let content = null;
+  if ((screen === "generating" || screen === "ready") && activePrd) {
     content = (
       <Generating
         key={screen}
@@ -389,13 +418,14 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
           <button
             type="button"
             className="nt-logo nt-link-button"
+            disabled={screen === "generating"}
             onClick={() => showHome({ page: "dashboard" })}
           >
             Nautilus
           </button>
           <div className="nt-header-user">
             <span>{user}</span>
-            <button type="button" className="nt-btn nt-btn-ghost" onClick={signOut}>
+            <button type="button" className="nt-btn nt-btn-ghost" disabled={screen === "generating"} onClick={signOut}>
               Sign out
             </button>
           </div>

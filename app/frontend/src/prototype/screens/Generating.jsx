@@ -5,6 +5,7 @@ const LABELS = { done: "Done", active: "In progress", waiting: "Waiting", failed
 function Generating({ prd, done, shouldFail, onFinish, onCancel, onBackToReview, onOpen }) {
   // phase: 0 sending, 1 drafting, 2 saving, "failed"
   const [phase, setPhase] = useState(0);
+  const [saveError, setSaveError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const onFinishRef = useRef(onFinish);
 
@@ -14,12 +15,19 @@ function Generating({ prd, done, shouldFail, onFinish, onCancel, onBackToReview,
 
   useEffect(() => {
     if (done) return undefined;
+    let active = true;
     const timers = [
       setTimeout(() => setPhase(1), 700),
       setTimeout(() => setPhase(shouldFail ? "failed" : 2), 2600),
     ];
-    if (!shouldFail) timers.push(setTimeout(() => onFinishRef.current(), 3600));
-    return () => timers.forEach(clearTimeout);
+    if (!shouldFail) timers.push(setTimeout(() => {
+      Promise.resolve().then(() => onFinishRef.current()).catch((error) => {
+        if (!active) return;
+        setSaveError(error?.message || "Couldn’t save your PRD. Try again.");
+        setPhase("failed");
+      });
+    }, 3600));
+    return () => { active = false; timers.forEach(clearTimeout); };
   }, [attempt, done, shouldFail]);
 
   if (done) {
@@ -69,7 +77,7 @@ function Generating({ prd, done, shouldFail, onFinish, onCancel, onBackToReview,
         <h1>Generating your PRD</h1>
         {failed ? (
           <p className="nt-error" role="alert">
-            Error: we couldn&apos;t generate your PRD. Your answers are saved.
+            {saveError || "We couldn’t generate your PRD. Your answers are saved."}
           </p>
         ) : (
           <p className="nt-muted">Your answers are saved. You can stay on this page.</p>
@@ -92,6 +100,7 @@ function Generating({ prd, done, shouldFail, onFinish, onCancel, onBackToReview,
                 type="button"
                 className="nt-btn nt-btn-primary"
                 onClick={() => {
+                  setSaveError("");
                   setPhase(0);
                   setAttempt((count) => count + 1);
                 }}
@@ -103,7 +112,7 @@ function Generating({ prd, done, shouldFail, onFinish, onCancel, onBackToReview,
               </button>
             </>
           ) : (
-            <button type="button" className="nt-btn nt-btn-secondary" onClick={onCancel}>
+            <button type="button" className="nt-btn nt-btn-secondary" disabled={phase === 2} onClick={onCancel}>
               Cancel
             </button>
           )}

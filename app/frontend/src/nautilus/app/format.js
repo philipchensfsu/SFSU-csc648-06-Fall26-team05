@@ -1,6 +1,8 @@
 // Formatting helpers for the signed-in workspace. Everything here works on
 // real data only: dates come from the API rows, names from the Supabase user.
 
+import { isAnswered } from "./questions.js";
+
 // The four values of the prd.status column (schema.sql), in workflow order.
 export const STATUS_ORDER = ["draft", "in_review", "final", "assigned"];
 
@@ -160,14 +162,14 @@ export function assumptionCount(prd) {
 }
 
 // Where a draft's interview stands, or null until its answers are loaded.
-// A skipped question counts as answered, as it does in the interview itself.
+// A skipped optional question counts as answered, as in the interview itself.
 export function interviewProgress(prd, questions) {
   if (!prd.answersLoaded) return null;
-  const answered = questions.filter((question) => question.id in prd.answers).length;
+  const answered = questions.filter((question) => isAnswered(question, prd.answers)).length;
   return {
     answered,
     total: questions.length,
-    next: questions.find((question) => !(question.id in prd.answers)) ?? null,
+    next: questions.find((question) => !isAnswered(question, prd.answers)) ?? null,
   };
 }
 

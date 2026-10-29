@@ -156,7 +156,7 @@ function Workspace({
   const error = prdsError || projectsError;
 
   return (
-    <div className="nw-app">
+    <div className="nw-root nw-app">
       <button
         type="button"
         className="nw-skip"
