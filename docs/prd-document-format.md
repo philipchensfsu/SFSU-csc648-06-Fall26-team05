@@ -147,6 +147,21 @@ and the expected `content_text`.
 | Complete initial generation | `ai.generation_output.validate_generated_document(doc)` | Gemini's full-document output (A01/A03). Runs the saved-document rules first and returns only those errors if any fail. Then requires all nine sections (`missing_section`), no `ai_generated` marks (`provenance_mark_not_allowed`), text in every section (`empty_section`, proposed) and no leading heading repeating a section's label (`duplicate_section_heading`). |
 | Review readiness | not built | Later, with the review workflow. |
 
+### Nonempty structure is not content completeness
+
+The generation profile checks **structure only**: all nine sections are present, and (proposed) each one
+contains some visible text. It does not judge whether that text is complete, correct or supported by the
+intake answers, and it must never push the model to invent facts to fill a section.
+
+- When the intake gives nothing to say for a section, an honest statement is acceptable output, for example
+  "No non-goals were identified in the intake." or "To be decided; see Open Questions."
+- `empty_section` fires only for a section with no visible text at all (missing, empty or whitespace-only). A
+  short "not yet known" sentence passes.
+- How the model is told to handle missing information (prompt wording, whether gaps go to Open Questions) is
+  AI-team work in A03, not a validator rule.
+- Whether a PRD has enough real content to submit belongs to the later review-readiness check, which a human
+  decision drives, not this package.
+
 Each error is `{code, path, message}`. `path` is a JSON Pointer into the document (`""` is the root). Messages
 name types and attributes but never echo long submitted values. Document error codes: `invalid_type`,
 `legacy_format_v1`, `too_large`, `invalid_root`, `unknown_node`, `node_not_allowed`, `too_deep`, `unknown_key`,
@@ -166,6 +181,22 @@ stop sending it). It raises `InvalidDocument` for an invalid document.
 - The description isn't included; it becomes its own column.
 
 This keeps paragraph boundaries, which v1's `sectionsToText` loses ("Faster checkoutMore orders").
+
+Separators inside a section (checked on 2026-10-29; the `every_node_type` fixture pins most of them):
+
+| Content | Becomes |
+|---|---|
+| Two paragraphs | Two lines |
+| Two list items | Two lines, each with its marker |
+| A second paragraph in one list item | Its own line, indented two spaces |
+| Two table cells | `C1 \| C2` |
+| Two paragraphs in one table cell | Joined with a space (`C2a C2b`) |
+| Two text nodes in one paragraph (for example bold then plain) | Joined with nothing, because they are one run of text |
+
+**Known gap (not fixed in this package):** a hard break inside a table cell or inside a list item's first
+paragraph produces a bare newline. A table row then splits across two lines, and the continuation of a list item
+isn't indented. Proposed fix when the format is agreed: a space inside table cells, and an indented continuation
+line inside list items, with fixtures for both.
 
 ## 7. Assumption highlights: current state and proposed mapping
 
@@ -196,6 +227,23 @@ HTML.
 Until this is decided, the conversion (DB07) must not run on documents that contain `nt-assumption`, and the
 validator keeps rejecting `assumption`. Enabling option A later means setting `enabled: true` in the spec,
 moving its fixture from `invalid/` to `valid/`, and agreeing the editor interaction.
+
+**What this package does today (no behavior changed):**
+- v1 saves are untouched, so today's `nt-assumption` highlights keep working exactly as before.
+- The v2 validator rejects an `assumption` mark with `mark_disabled`, in saved documents and in generated output.
+- Nothing in this package creates, converts or removes assumption highlights.
+
+**How option A would work, if chosen:**
+
+| Stage | Proposal |
+|---|---|
+| **Created** | By a user, with an editor command that marks the selected text as "to check". By the DB07 conversion, from each v1 `nt-assumption` span. By the model **only if** the team separately decides model output may contain it. Until then the generation check keeps rejecting it. |
+| **Preserved** | Stored in Tiptap JSON as `{ "type": "assumption" }` with no attributes. Not inclusive at its edges. Typing inside may inherit it (same as `ai_generated`). It can sit on the same text as `ai_generated` and other marks, and neither one replaces the other. The server never strips or adds it on save. Copy and paste inside the editor keeps it. |
+| **Removed** | Only by a user: a "confirm" action that unsets the mark, or by deleting the text. |
+| **Emitted** | Editor HTML: `<mark class="nt-assumption">`, so today's styling and "Review next assumption" carry over. Parse HTML from `mark.nt-assumption` too, so pasted v1 content keeps the flag. Counts ("N assumptions to check") are derived from the marks, never stored. `content_text`: plain text, no marker (proposed). Export: to be decided with the export work. |
+
+**Separate decision:** whether the model may mark assumptions in generated output (A03). Enabling the mark for
+users doesn't enable it for the model, and nothing here changes today's simulated-draft behavior.
 
 ## 8. Notes for later work (not done in this package)
 
@@ -269,6 +317,29 @@ order by 2 desc;
    `python prd_document.py path/to/output.json` prints `valid` and the derived text, or each error with its path.
 6. Run the backend tests: `python -m pytest tests/test_prd_document.py tests/test_generation_output.py`
    (or `docker compose exec backend python -m pytest` once the #49 setup and the mount above are in place).
+
+### Exact attribute shapes to compare
+
+These are every attribute shape the valid fixtures use. `getJSON()` should give back exactly these. Anything
+extra (a new attribute, a different default, `attrs` added where there were none) is a finding to report, not
+something to work around. The spec still marks these attributes **proposed** until you confirm them.
+
+| Node or mark | Shapes in the fixtures | Fixture |
+|---|---|---|
+| `section` | `{"type": "problem"}` (one of the nine) | all |
+| `heading` | `{"level": 1}`, `{"level": 2}`, `{"level": 3}` | `every_node_type` |
+| `orderedList` | `{"start": 1}`, `{"start": 3}` | `every_node_type`, `tiptap_null_defaults` |
+| `paragraph` | no `attrs`, or `{}` | `tiptap_null_defaults` |
+| `tableCell` | `{"colspan": 1, "rowspan": 1, "colwidth": null}`, `{"colspan": 2, "rowspan": 1, "colwidth": null}` | `every_node_type` |
+| `tableHeader` | `{"colspan": 1, "rowspan": 1, "colwidth": null}`, `{"colspan": 1, "rowspan": 1, "colwidth": [240]}` | `every_node_type` |
+| `link` | `{"href": "https://example.com"}`; `{"href": "...", "target": null, "rel": null, "class": null}`; `{"href": "...", "target": "_blank", "rel": "noopener noreferrer nofollow", "class": null}`; also `mailto:` | `marks`, `tiptap_null_defaults` |
+| `ai_generated` | `{"generation_record_id": "3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01"}` | `marks`, `generation_rejects_ai_mark` |
+| `bold`, `italic`, `underline` | no `attrs` | `marks` |
+
+Things most likely to differ, depending on the Tiptap version and extensions:
+- newer `orderedList` versions may also write a `type` attribute;
+- TextAlign, ids or colour extensions add attributes to paragraphs and headings;
+- the Link extension's `target`/`rel` defaults depend on its config.
 
 ## 10. Open questions
 
