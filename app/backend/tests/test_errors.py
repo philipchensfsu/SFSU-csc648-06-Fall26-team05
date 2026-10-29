@@ -93,9 +93,16 @@ def test_route_raised_error_gets_default_code():
 
 def test_stale_revision_is_409_with_specific_code():
     # The update matches nothing, but the PRD is visible: it moved on.
-    sign_in_with(FakeQuery(results=[[], [{"id": PRD_ID}]]))
+    sign_in_with(FakeQuery(results=[[], [{"id": PRD_ID, "revision": 4}]]))
     response = client.put(f"/api/prds/{PRD_ID}", json={"revision": 3, "title": "New"})
     assert_error(response, 409, "stale_revision")
+
+
+def test_update_by_reader_without_edit_rights_is_403():
+    # The update matches nothing, yet the PRD is visible at the sent revision.
+    sign_in_with(FakeQuery(results=[[], [{"id": PRD_ID, "revision": 3}]]))
+    response = client.put(f"/api/prds/{PRD_ID}", json={"revision": 3, "title": "New"})
+    assert_error(response, 403, "forbidden")
 
 
 def test_update_of_missing_or_hidden_prd_is_404():

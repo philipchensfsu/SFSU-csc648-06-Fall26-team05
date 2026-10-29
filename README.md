@@ -101,8 +101,8 @@ report) for the full PRD-authoring flow: guided intake, AI generation, editing, 
 - **`generation_record`** — an audit log of AI generation attempts (not chat memory)
 
 All tables have Row Level Security enabled. Access follows the role table in the M2 report: PMs and
-admins create/edit/delete their own projects and PRDs, engineers can view PRDs with status `final` or
-`assigned`, and admins can see and manage everything. `project`/`prd` deletes cascade to their child
+admins create/edit/delete their own projects and PRDs, and admins can see and manage everything.
+PRD status does not grant visibility; sharing with other people comes with the organization features. `project`/`prd` deletes cascade to their child
 rows at the database level; Storage files do not cascade and must be cleaned up by the backend
 separately.
 
