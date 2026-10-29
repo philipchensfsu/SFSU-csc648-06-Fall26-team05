@@ -80,9 +80,23 @@ timestamp order:
 3. Run `supabase db reset` and check the app.
 4. Never edit a migration after it has merged; add a new one.
 
-The **hosted** database is shared with production. Migrations are applied
-there by hand, coordinated by Marco, after review. Never run `supabase db
-push` or point local tools at the hosted project.
+After pulling someone else's migrations, update your local database with
+`supabase migration up` (keeps your data) or `supabase db reset` (rebuilds
+from migrations + seed).
+
+### Applying a migration to the hosted database
+
+The **hosted** database is shared with production. Migrations reach it only
+by hand, after the PR merges, and Marco coordinates it:
+
+1. Run any pre-check queries listed in the migration's header.
+2. Paste the migration file into the Supabase SQL Editor and run it.
+3. Run the checks the PR lists for afterwards (e.g. `pg_policies`).
+4. **Comment on the migration's PR**, for example: "Applied to production
+   2026-10-30, pre-check 0 rows, pg_policies verified." The PR history is
+   our record of which migrations the hosted database has.
+
+Never run `supabase db push` or point local tools at the hosted project.
 `20261028000000_baseline.sql` is the schema the hosted database already has:
 it exists only so local databases can be built from scratch.
 
