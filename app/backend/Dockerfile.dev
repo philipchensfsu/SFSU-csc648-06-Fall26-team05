@@ -1,0 +1,14 @@
+# Local development only (docker compose). Vercel deploys from vercel.json
+# and never uses this file. Python 3.12 matches Vercel's default runtime.
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1
+
+WORKDIR /app
+# requirements-dev.txt adds the test tools on top of requirements.txt.
+COPY requirements.txt requirements-dev.txt ./
+RUN pip install --no-cache-dir -r requirements-dev.txt
+
+# The source is mounted over /app by compose.yaml, so edits reload live.
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
