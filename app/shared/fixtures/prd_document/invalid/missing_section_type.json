@@ -1,0 +1,30 @@
+{
+  "description": "A section needs attrs.type.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "missing_attr",
+        "path": "/content/0/attrs/type"
+      }
+    ]
+  }
+}

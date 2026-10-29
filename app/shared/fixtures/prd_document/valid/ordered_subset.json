@@ -1,0 +1,89 @@
+{
+  "description": "A saved draft may hold any subset of sections, in standard order, without duplicates (agreed).",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "goals"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Ship faster."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "section",
+        "attrs": {
+          "type": "risks"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Scope creep."
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "section",
+        "attrs": {
+          "type": "open_questions"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Who approves?"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [],
+    "generation_errors": [
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      }
+    ],
+    "content_text": "Goals\nShip faster.\n\nRisks\nScope creep.\n\nOpen Questions\nWho approves?"
+  }
+}
