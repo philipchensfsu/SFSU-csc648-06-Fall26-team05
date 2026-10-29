@@ -185,6 +185,18 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
     client = auth["client"]
     insert_fields = {"title": payload.title, "owner_id": auth["user"].id}
     if payload.project_id:
+        # RLS also enforces this; checking here gives a 404 like the project
+        # routes. owner_id is filtered explicitly because admins can see
+        # every project, but may still only file PRDs in their own.
+        project = (
+            client.table("project")
+            .select("id")
+            .eq("id", str(payload.project_id))
+            .eq("owner_id", auth["user"].id)
+            .execute()
+        )
+        if not project.data:
+            raise HTTPException(status_code=404, detail="Project not found or not allowed")
         insert_fields["project_id"] = str(payload.project_id)
     response = client.table("prd").insert(insert_fields).execute()
     if not response.data:
