@@ -1,0 +1,97 @@
+{
+  "description": "Optional attributes written as null or empty, the way Tiptap serialises defaults.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "risks"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "attrs": {},
+            "content": [
+              {
+                "type": "text",
+                "text": "Link",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com",
+                      "target": null,
+                      "rel": null,
+                      "class": null
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "type": "orderedList",
+            "attrs": {
+              "start": 1
+            },
+            "content": [
+              {
+                "type": "listItem",
+                "content": [
+                  {
+                    "type": "paragraph",
+                    "content": [
+                      {
+                        "type": "text",
+                        "text": "One"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [],
+    "generation_errors": [
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      }
+    ],
+    "content_text": "Risks\nLink\n1. One"
+  }
+}

@@ -1,0 +1,197 @@
+{
+  "$comment": [
+    "Nautilus PRD document format, doc_schema_version 2: Tiptap/ProseMirror JSON stored in prd.content_json.",
+    "Shared by the backend validator (app/backend/prd_document.py) and, later, the frontend's Tiptap setup.",
+    "Human-readable notes, examples and open questions: docs/prd-document-format.md.",
+    "status: agreed = settled in Backend Tasks v1.2 S03, M2 1.5, the frontend guide section 8, or confirmed with frontend (2026-10-29);",
+    "proposed = written down here so it can be reviewed, NOT settled; reserved = defined but rejected until enabled.",
+    "DRAFT: nothing reads this file in production yet, and saves do not use it."
+  ],
+  "doc_schema_version": 2,
+  "spec_status": "draft",
+
+  "limits": {
+    "max_document_bytes": { "value": 1048576, "status": "agreed", "note": "UTF-8 size of the compact JSON encoding. The database also caps pg_column_size(content_json) at 1 MB." },
+    "max_title_chars": { "value": 200, "status": "agreed", "note": "PRD title, which is a column, not part of the document." },
+    "max_description_chars": { "value": 2000, "status": "agreed", "note": "PRD description column (S03/E05). Not part of the document." },
+    "max_depth": { "value": 32, "status": "proposed", "note": "Nesting depth of nodes, counting doc as 1. Guards the validator against pathological input." },
+    "max_link_href_chars": { "value": 2048, "status": "proposed" },
+    "max_errors": { "value": 100, "status": "proposed", "note": "The validator stops collecting after this many errors." }
+  },
+
+  "section_types": {
+    "status": "agreed",
+    "note": "The nine allowed section types, in standard order. Titles are the display names used by the current frontend and seed data.",
+    "values": [
+      { "type": "problem", "title": "Problem Statement" },
+      { "type": "goals", "title": "Goals" },
+      { "type": "non_goals", "title": "Non-Goals" },
+      { "type": "target_users", "title": "Target Users" },
+      { "type": "user_stories", "title": "User Stories" },
+      { "type": "requirements", "title": "Requirements" },
+      { "type": "success_metrics", "title": "Success Metrics" },
+      { "type": "risks", "title": "Risks" },
+      { "type": "open_questions", "title": "Open Questions" }
+    ]
+  },
+
+  "nodes": {
+    "doc": {
+      "status": "agreed",
+      "content": ["section"],
+      "min_content": 0,
+      "min_content_status": "agreed",
+      "attrs": {},
+      "note": "A saved draft may have zero sections: {\"type\": \"doc\", \"content\": []}."
+    },
+    "section": {
+      "status": "agreed",
+      "content": ["paragraph", "heading", "bulletList", "orderedList", "blockquote", "table"],
+      "content_status": "proposed",
+      "min_content": 1,
+      "attrs": {
+        "type": { "kind": "section_type", "required": true, "status": "agreed" }
+      },
+      "note": "The visible section label is derived from attrs.type (agreed) and is not repeated inside content."
+    },
+    "paragraph": {
+      "status": "proposed",
+      "content": ["text", "hardBreak"],
+      "min_content": 0,
+      "attrs": {}
+    },
+    "heading": {
+      "status": "proposed",
+      "content": ["text", "hardBreak"],
+      "min_content": 0,
+      "attrs": {
+        "level": { "kind": "integer", "required": true, "min": 1, "max": 3, "status": "proposed" }
+      }
+    },
+    "bulletList": {
+      "status": "proposed",
+      "content": ["listItem"],
+      "min_content": 1,
+      "attrs": {}
+    },
+    "orderedList": {
+      "status": "proposed",
+      "content": ["listItem"],
+      "min_content": 1,
+      "attrs": {
+        "start": { "kind": "integer", "required": false, "min": 1, "max": 100000, "status": "proposed" }
+      }
+    },
+    "listItem": {
+      "status": "proposed",
+      "content": ["paragraph", "bulletList", "orderedList"],
+      "first_child": "paragraph",
+      "min_content": 1,
+      "attrs": {}
+    },
+    "blockquote": {
+      "status": "proposed",
+      "content": ["paragraph", "bulletList", "orderedList"],
+      "min_content": 1,
+      "attrs": {}
+    },
+    "table": {
+      "status": "proposed",
+      "content": ["tableRow"],
+      "min_content": 1,
+      "attrs": {}
+    },
+    "tableRow": {
+      "status": "proposed",
+      "content": ["tableCell", "tableHeader"],
+      "min_content": 1,
+      "attrs": {}
+    },
+    "tableCell": {
+      "status": "proposed",
+      "content": ["paragraph", "bulletList", "orderedList"],
+      "min_content": 1,
+      "attrs": {
+        "colspan": { "kind": "integer", "required": false, "min": 1, "max": 100, "status": "proposed" },
+        "rowspan": { "kind": "integer", "required": false, "min": 1, "max": 100, "status": "proposed" },
+        "colwidth": { "kind": "colwidth", "required": false, "status": "proposed" }
+      }
+    },
+    "tableHeader": {
+      "status": "proposed",
+      "content": ["paragraph", "bulletList", "orderedList"],
+      "min_content": 1,
+      "attrs": {
+        "colspan": { "kind": "integer", "required": false, "min": 1, "max": 100, "status": "proposed" },
+        "rowspan": { "kind": "integer", "required": false, "min": 1, "max": 100, "status": "proposed" },
+        "colwidth": { "kind": "colwidth", "required": false, "status": "proposed" }
+      }
+    },
+    "hardBreak": {
+      "status": "proposed",
+      "inline": true,
+      "content": [],
+      "min_content": 0,
+      "attrs": {}
+    },
+    "text": {
+      "status": "agreed",
+      "inline": true,
+      "text": true,
+      "note": "Non-empty string. The only node that may carry marks."
+    }
+  },
+
+  "marks": {
+    "bold": { "status": "agreed", "enabled": true, "attrs": {} },
+    "italic": { "status": "agreed", "enabled": true, "attrs": {} },
+    "underline": { "status": "agreed", "enabled": true, "attrs": {} },
+    "link": {
+      "status": "agreed",
+      "enabled": true,
+      "attrs": {
+        "href": { "kind": "href", "required": true, "schemes": ["http", "https", "mailto"], "status": "agreed" },
+        "target": { "kind": "enum", "required": false, "values": [null, "_blank"], "status": "proposed" },
+        "rel": { "kind": "enum", "required": false, "values": [null, "noopener noreferrer nofollow"], "status": "proposed" },
+        "class": { "kind": "enum", "required": false, "values": [null], "status": "proposed" }
+      },
+      "note": "target/rel/class are accepted only because Tiptap's Link extension writes them by default."
+    },
+    "ai_generated": {
+      "status": "agreed",
+      "enabled": true,
+      "inclusive": false,
+      "attrs": {
+        "generation_record_id": { "kind": "uuid", "required": true, "status": "agreed" }
+      },
+      "note": "Provenance hint. Applied by the backend to accepted AI text, never by the model. Not inclusive at its edges; typing inside it may inherit it (agreed with frontend). This package checks only the attribute's shape; checking that the id names a successful generation_record for the same PRD needs the database and comes with S03 integration."
+    },
+    "citation": {
+      "status": "reserved",
+      "enabled": false,
+      "attrs": {},
+      "note": "Reserved until sources are developed (A09 stores sources at PRD level only). Rejected."
+    },
+    "assumption": {
+      "status": "proposed",
+      "enabled": false,
+      "inclusive": false,
+      "attrs": {},
+      "note": "CANDIDATE ONLY, not agreed: a possible v2 home for the current <mark class=\"nt-assumption\"> highlights. Rejected until frontend agrees on it. It is not provenance and must never be merged with ai_generated."
+    }
+  },
+
+  "rules": {
+    "unique_section_types": { "status": "agreed", "enforced": true, "note": "Each section type appears at most once." },
+    "standard_section_order": { "status": "agreed", "enforced": true, "note": "Sections that are present appear in standard order. Saved drafts may hold any ordered subset, including none." },
+    "no_input_repair": { "status": "agreed", "note": "Invalid input is rejected with errors, never fixed silently." }
+  },
+
+  "generation": {
+    "note": "Extra checks for complete initial-generation output (A01/A03), on top of every document rule above. Implemented in app/backend/ai/generation_output.py. Review readiness is a separate, later check: structural validity alone does not make a PRD ready for review.",
+    "require_all_sections": { "status": "agreed", "note": "All nine sections, in standard order." },
+    "forbid_marks": { "values": ["ai_generated"], "status": "agreed", "note": "Model output cannot set provenance; the backend adds ai_generated after validation." },
+    "require_text_in_every_section": { "status": "proposed" },
+    "forbid_leading_section_title_heading": { "status": "agreed", "note": "Section labels are derived from attrs.type, so generated content must not start with a heading that repeats the label. Saved drafts are not checked for this, since users may type any heading." }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "description": "The current version 1 shape gets its own code.",
+  "document": {
+    "description": "Short summary",
+    "sections": [
+      {
+        "type": "problem",
+        "title": "Problem Statement",
+        "html": "<p>Old format</p>"
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "legacy_format_v1",
+        "path": ""
+      }
+    ]
+  }
+}
