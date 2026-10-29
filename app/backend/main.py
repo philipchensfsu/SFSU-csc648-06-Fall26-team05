@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from errors import ApiError, register_error_handlers
 from supabase_client import supabase, user_client
@@ -58,7 +58,13 @@ def get_current_user(authorization: Optional[str] = Header(default=None)):
     return {"user": user_response.user, "client": user_client(token)}
 
 
-class ProjectCreate(BaseModel):
+# Request bodies reject unknown fields with a 422 instead of silently
+# dropping them, so a typo or an unsupported field is caught early (S01).
+class RequestModel(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
+class ProjectCreate(RequestModel):
     name: str = Field(..., max_length=200)
 
 
@@ -70,12 +76,12 @@ class ProjectOut(BaseModel):
     updated_at: datetime
 
 
-class PRDCreate(BaseModel):
+class PRDCreate(RequestModel):
     title: str = Field(..., max_length=200)
     project_id: Optional[UUID] = None
 
 
-class PRDUpdate(BaseModel):
+class PRDUpdate(RequestModel):
     # The client's last-known revision; the update is rejected with 409 if
     # the row has moved on since (see Section 1.4 of the M2 report).
     revision: int
@@ -99,7 +105,7 @@ class PRDOut(BaseModel):
     updated_at: datetime
 
 
-class IntakeAnswerIn(BaseModel):
+class IntakeAnswerIn(RequestModel):
     answer_text: str = Field(default="", max_length=5000)
     skipped: bool = False
 
