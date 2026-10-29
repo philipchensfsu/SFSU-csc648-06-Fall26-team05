@@ -5,8 +5,9 @@
 -- (or move one into) someone else's project. Foreign-key checks don't apply
 -- RLS, so the project being invisible to them didn't stop it.
 --
--- Run once in the Supabase SQL Editor. Safe to rerun; changes no rows.
--- schema.sql carries the same definitions for fresh setups.
+-- Applied to the hosted database by hand (docs/local-development.md,
+-- "Applying a migration to the hosted database"). Safe to rerun; changes no
+-- rows. schema.sql carries the same definitions.
 --
 -- Before applying (coordinated by Marco; the database is shared with
 -- production, so this takes effect there immediately):
