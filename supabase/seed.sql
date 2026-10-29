@@ -3,7 +3,7 @@
 -- Test accounts (sign in at http://localhost:5173):
 --   email                      password   role      data
 --   alice.pm@example.com       password1  pm        two projects, three PRDs
---   ben.pm@example.com         password2  pm        one PRD, for cross-owner tests
+--   ben.pm@example.com         password2  pm        one project, one PRD, for cross-owner tests
 --   erin.engineer@example.com  password3  engineer
 --   ada.admin@example.com      password4  admin     legacy global admin
 --
@@ -41,7 +41,8 @@ update public.profile set role = 'admin' where email = 'ada.admin@example.com';
 
 insert into public.project (id, name, owner_id) values
   ('00000000-0000-0000-0000-0000000000c1', 'Campus Life', '00000000-0000-0000-0000-00000000a11c'),
-  ('00000000-0000-0000-0000-0000000000c2', 'Internal Tools', '00000000-0000-0000-0000-00000000a11c');
+  ('00000000-0000-0000-0000-0000000000c2', 'Internal Tools', '00000000-0000-0000-0000-00000000a11c'),
+  ('00000000-0000-0000-0000-0000000000c3', 'Community', '00000000-0000-0000-0000-000000000be4');
 
 insert into public.prd (title, owner_id, project_id, status, content_text) values
   ('Campus Study Group Finder', '00000000-0000-0000-0000-00000000a11c',
@@ -49,7 +50,22 @@ insert into public.prd (title, owner_id, project_id, status, content_text) value
   ('Library Room Booking', '00000000-0000-0000-0000-00000000a11c',
    '00000000-0000-0000-0000-0000000000c1', 'in_review', 'Book library rooms online.'),
   ('Expense Report Tool', '00000000-0000-0000-0000-00000000a11c', null, 'final', 'Submit expenses in one place.'),
-  ('Neighborhood Lost Pet Board', '00000000-0000-0000-0000-000000000be4', null, 'draft', 'Post and find lost pets.');
+  ('Neighborhood Lost Pet Board', '00000000-0000-0000-0000-000000000be4',
+   '00000000-0000-0000-0000-0000000000c3', 'draft', 'Post and find lost pets.');
+
+-- One PRD with sections so the editor has something to open. This uses the
+-- frontend's current section shape; it is not the editor contract, which is
+-- still being agreed (Tiptap JSON, S03).
+update public.prd set content_json = '{
+  "description": "Help students find study groups.",
+  "sections": [
+    {"type": "problem", "title": "Problem Statement",
+     "html": "<p>Students struggle to find study groups for their classes.</p>"},
+    {"type": "goals", "title": "Goals",
+     "html": "<ul><li>Join a group within one day of searching</li></ul>"}
+  ]
+}'::jsonb
+where title = 'Campus Study Group Finder';
 
 insert into public.intake_answer (prd_id, question_key, answer_text)
 select id, 'problem', content_text from public.prd;
