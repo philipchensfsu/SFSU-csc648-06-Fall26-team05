@@ -186,6 +186,25 @@ create trigger prd_set_updated_at
 alter table prd enable row level security;
 grant select, insert, update, delete on prd to authenticated, service_role;
 
+-- A PRD may only sit in a project owned by the PRD's own owner. FK checks
+-- skip RLS, so without this anyone could link a PRD to another user's project.
+-- SECURITY INVOKER (the default) so it can't be called to probe project owners.
+create or replace function project_matches_owner(target_project_id uuid, target_owner_id uuid)
+returns boolean
+language sql
+stable
+set search_path = public
+as $$
+  select target_project_id is null
+    or exists (
+      select 1 from project
+      where id = target_project_id and owner_id = target_owner_id
+    )
+$$;
+
+revoke execute on function project_matches_owner(uuid, uuid) from public, anon;
+grant execute on function project_matches_owner(uuid, uuid) to authenticated, service_role;
+
 create policy "view accessible prds"
   on prd for select
   using (
@@ -196,13 +215,26 @@ create policy "view accessible prds"
 
 create policy "pm admin create prds"
   on prd for insert
-  with check (owner_id = auth.uid() and current_profile_role() in ('pm', 'admin'));
+  with check (
+    owner_id = auth.uid()
+    and current_profile_role() in ('pm', 'admin')
+    and project_matches_owner(project_id, owner_id)
+  );
 
+-- WITH CHECK tests the PRD's owner, not the caller, so an admin can still
+-- edit someone else's PRD that sits in that person's project.
 create policy "pm admin update own prds"
   on prd for update
   using (
     (owner_id = auth.uid() and current_profile_role() = 'pm')
     or current_profile_role() = 'admin'
+  )
+  with check (
+    (
+      (owner_id = auth.uid() and current_profile_role() = 'pm')
+      or current_profile_role() = 'admin'
+    )
+    and project_matches_owner(project_id, owner_id)
   );
 
 create policy "pm admin delete own prds"
