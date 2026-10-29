@@ -177,7 +177,8 @@ stop sending it). It raises `InvalidDocument` for an invalid document.
 - Sections are separated by a blank line and start with their derived label.
 - Each paragraph or heading is its own line; empty ones are skipped. A hard break becomes a newline.
 - Bullet items start with `- `, numbered items with `1. ` (from `start`); nested content is indented two spaces.
-- Blockquote lines start with `> `. Table rows become `cell | cell`; empty rows are skipped.
+- Blockquote lines start with `> `. Table rows become `cell | cell`, with a `|` inside a cell written as `\|`;
+  empty rows are skipped.
 - The description isn't included; it becomes its own column.
 
 This keeps paragraph boundaries, which v1's `sectionsToText` loses ("Faster checkoutMore orders").

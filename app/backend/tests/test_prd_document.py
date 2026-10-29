@@ -273,6 +273,22 @@ def test_content_text_keeps_paragraph_boundaries():
     assert derive_content_text(document) == "Problem Statement\nFaster checkout\nMore orders"
 
 
+def test_lone_surrogate_is_an_error_not_a_crash():
+    # Valid JSON that json.loads accepts, but it can't be encoded or stored.
+    document = json.loads('{"type": "doc", "content": [{"type": "section", "attrs": {"type": "problem"}, '
+                          '"content": [{"type": "paragraph", "content": [{"type": "text", "text": "\\ud800"}]}]}]}')
+    assert codes(validate_document(document)) == [{"code": "invalid_type", "path": ""}]
+    with pytest.raises(InvalidDocument):
+        derive_content_text(document)
+
+
+def test_pipes_inside_table_cells_are_escaped():
+    def cell(text):
+        return {"type": "tableCell", "content": [paragraph(text)]}
+    table = {"type": "table", "content": [{"type": "tableRow", "content": [cell("a | b"), cell("c")]}]}
+    assert derive_content_text(doc(table)) == "Problem Statement\na \\| b | c"
+
+
 def test_messages_do_not_echo_long_values():
     long_type = "x" * 500
     errors = validate_document(doc({"type": long_type}))

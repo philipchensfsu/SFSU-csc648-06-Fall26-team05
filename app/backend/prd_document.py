@@ -110,7 +110,13 @@ class _Checker:
         except (TypeError, ValueError):
             self.add("invalid_type", "", "The document must contain only JSON values.")
             return
-        size = len(encoded.encode("utf-8"))
+        try:
+            size = len(encoded.encode("utf-8"))
+        except UnicodeEncodeError:
+            # A lone surrogate such as "\ud800": valid JSON that json.loads
+            # accepts, but not storable text (Postgres jsonb rejects it too).
+            self.add("invalid_type", "", "The document contains text that isn't valid Unicode.")
+            return
         if size > _limit("max_document_bytes"):
             self.add("too_large", "",
                      f"The document is {size} bytes; the limit is {_limit('max_document_bytes')}.")
@@ -399,7 +405,8 @@ def _block_lines(node: dict) -> list[str]:
     if node_type == "table":
         rows = []
         for row in node["content"]:
-            cells = [" ".join(line for block in cell["content"] for line in _block_lines(block))
+            # Escape "|" so a cell containing "a | b" doesn't read as two cells.
+            cells = [" ".join(line for block in cell["content"] for line in _block_lines(block)).replace("|", "\\|")
                      for cell in row["content"]]
             if any(cell.strip() for cell in cells):
                 rows.append(" | ".join(cells))
