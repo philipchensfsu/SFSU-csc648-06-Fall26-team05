@@ -4,6 +4,10 @@
 # working directory name when running `supabase init`.
 project_id = "nautilus"
 
+# The CLI publishes these ports on every network interface, not just
+# localhost, and can't be configured otherwise. Outside a trusted personal
+# network, stop the stack or block Docker with a firewall: see "Safety" in
+# docs/local-development.md.
 [api]
 enabled = true
 # Port to use for the API URL.
