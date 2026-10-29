@@ -4,6 +4,9 @@
 stable machine-readable value. Validation errors also carry an `errors` list.
 """
 
+import logging
+
+import httpx
 from fastapi import HTTPException
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
@@ -19,9 +22,14 @@ DEFAULT_CODES = {
     405: "method_not_allowed",
     409: "conflict",
     422: "validation_error",
-    500: "database_error",
+    500: "internal_error",
     503: "service_unavailable",
 }
+
+# Logs name the route and the error type or Postgres code only: never
+# headers, tokens, request bodies or Postgres messages/details, which can
+# contain submitted values.
+logger = logging.getLogger("nautilus.errors")
 
 
 class ApiError(HTTPException):
@@ -65,12 +73,27 @@ async def postgrest_error_handler(request, exc: APIError):
         return error_response(403, "Not allowed")
     if pg_code == "23503":
         return error_response(404, "Related record not found")
+    # Postgres messages name tables and constraints and can echo the
+    # submitted value, so clients get a fixed message instead.
     if pg_code.startswith(("22", "23")):
-        return error_response(400, exc.message or "Invalid value")
-    return error_response(500, "Database error")
+        logger.info("Rejected value on %s %s: postgres %s", request.method, request.url.path, pg_code)
+        return error_response(400, "Invalid value")
+    logger.error("Database error on %s %s: postgres %s", request.method, request.url.path, pg_code or "unknown")
+    return error_response(500, "Database error", code="database_error")
+
+
+async def unexpected_error_handler(request, exc: Exception):
+    # A transport failure reaching Supabase is an outage (503); anything
+    # else is a bug (500), so real bugs aren't reported as outages.
+    if isinstance(exc, httpx.TransportError):
+        logger.error("Upstream unavailable on %s %s: %s", request.method, request.url.path, type(exc).__name__)
+        return error_response(503, "Service temporarily unavailable. Try again shortly.")
+    logger.error("Unexpected %s on %s %s", type(exc).__name__, request.method, request.url.path)
+    return error_response(500, "Something went wrong")
 
 
 def register_error_handlers(app):
     app.add_exception_handler(StarletteHTTPException, http_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(APIError, postgrest_error_handler)
+    app.add_exception_handler(Exception, unexpected_error_handler)
