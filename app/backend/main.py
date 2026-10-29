@@ -223,6 +223,11 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
         .execute()
     )
     if not response.data:
+        # No row matched: either the PRD is missing or hidden from this
+        # user (404), or it exists but its revision has moved on (409).
+        visible = client.table("prd").select("id").eq("id", str(prd_id)).execute()
+        if not visible.data:
+            raise ApiError(404, "PRD not found")
         raise ApiError(
             409,
             "This PRD changed since you last loaded it. Refresh and try again.",
