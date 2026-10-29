@@ -7,8 +7,31 @@
 --
 -- Run once in the Supabase SQL Editor. Safe to rerun; changes no rows.
 -- schema.sql carries the same definitions for fresh setups.
+--
+-- Before applying (coordinated by Marco; the database is shared with
+-- production, so this takes effect there immediately):
+--   1. Rerun this query right before applying. It must return 0 rows:
+--        select prd.id, prd.owner_id, project.owner_id as project_owner
+--        from prd join project on project.id = prd.project_id
+--        where prd.owner_id <> project.owner_id;
+--   2. If it returns any rows, stop. A PRD already linked to another
+--      owner's project would become uneditable by anyone (even a title
+--      change fails) until its project_id is cleared, and the API can't
+--      clear it. Agree a fix for those rows first.
+-- The guard below also aborts the whole migration if such rows exist.
 
 begin;
+
+do $$
+begin
+  if exists (
+    select 1 from prd join project on project.id = prd.project_id
+    where prd.owner_id <> project.owner_id
+  ) then
+    raise exception 'Some PRDs are linked to another owner''s project; fix them before applying (see header).';
+  end if;
+end
+$$;
 
 -- SECURITY INVOKER (the default) on purpose: it runs under the caller's own
 -- project RLS, so it can't be called directly to probe who owns a project.
