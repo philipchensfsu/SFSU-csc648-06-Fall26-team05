@@ -102,6 +102,12 @@ it exists only so local databases can be built from scratch.
 
 ## 5. Running without Docker (optional)
 
+> **Check your env files first.** Your existing `app/backend/.env` and `app/frontend/.env.local`
+> probably point at the hosted project, which is **production**. Replace them with the local values
+> from `supabase status` (keep a copy outside the repo if you need the old ones), and check that
+> `SUPABASE_URL` and `VITE_SUPABASE_URL` are `http://127.0.0.1:54321` before starting.
+> The Docker path above isn't affected: `compose.yaml`'s values override these files.
+
 Run Supabase with `supabase start` as above. Then:
 
 ```
@@ -131,6 +137,40 @@ npm run dev
 | Frontend shows old dependencies | `docker compose up --build -V` |
 
 ## Safety
+
+### Use a firewall outside a trusted personal network
+
+The Supabase CLI publishes its ports (54321 API, 54322 Postgres, 54323 Studio,
+54324 Mailpit) on **every network interface**, not just localhost, and we
+can't change that. While Supabase is running, anyone on the same Wi-Fi can
+reach them: Postgres accepts the default `postgres` / `postgres` login, and
+Studio gives full control of your local database. (The backend and frontend
+ports, 8000 and 5173, are bound to localhost in `compose.yaml`, so they're safe.)
+
+Only seed and test data is at risk, never production. Still, on campus,
+café or any shared Wi-Fi, either run `supabase stop` or block Docker with a
+firewall. At home on your own Wi-Fi this is optional.
+
+**macOS** (tested): System Settings → Network → **Firewall** → on. Then
+**Options…** → set **Docker** to **Block incoming connections** (add it with
+**+** from Applications if it isn't listed). Turning the firewall on is not
+enough by itself: Docker is signed software, so macOS lets it accept
+connections unless you block it. Local development keeps working, because the
+firewall doesn't affect connections from your own machine.
+
+**Windows (WSL 2)** (not yet tested): in Windows Defender Firewall, make sure
+Docker Desktop isn't allowed on Public networks, and mark campus Wi-Fi as a
+Public network.
+
+**Linux** (not yet tested): block incoming connections to ports 54321–54324
+with your firewall (e.g. `ufw`), or bind Docker to localhost with
+`"ip": "127.0.0.1"` in `/etc/docker/daemon.json`. That setting has **no
+effect on Docker Desktop for Mac**, which we tested.
+
+To check from another device on the same Wi-Fi: open
+`http://<your computer's IP>:54323`. It should not load.
+
+### Other rules
 
 - Local tools and tests must only ever point at `127.0.0.1`.
 - The shared develop site (https://csc648-team05-develop.vercel.app) uses the
