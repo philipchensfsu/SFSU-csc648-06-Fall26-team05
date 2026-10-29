@@ -9,13 +9,13 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
-from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
+from errors import ApiError, register_error_handlers
 from supabase_client import supabase, user_client
 
 app = FastAPI()
+register_error_handlers(app)
 
 # Fixed in application code, not the DB (Section 1.6 of the M2 report).
 INTAKE_QUESTION_KEYS = {
@@ -29,20 +29,6 @@ INTAKE_QUESTION_KEYS = {
 }
 
 
-# When RLS rejects a write, or a constraint fails, the Supabase client raises
-# instead of returning empty data -- so without this, those cases surface as
-# a bare 500 rather than the 403/400 the sequence diagrams describe.
-@app.exception_handler(APIError)
-async def postgrest_error_handler(request, exc: APIError):
-    code = exc.code or ""
-    if code == "42501":
-        return JSONResponse(status_code=403, content={"detail": "Not allowed"})
-    if code == "23503":
-        return JSONResponse(status_code=404, content={"detail": "Related record not found"})
-    if code.startswith(("22", "23")):
-        return JSONResponse(status_code=400, content={"detail": exc.message})
-    return JSONResponse(status_code=500, content={"detail": "Database error"})
-
 # Only needed for local dev, where the Vite dev server (5173) and uvicorn
 # (8000) are different origins. In production they're served from the same
 # Vercel domain via vercel.json, so this never comes into play there.
@@ -55,8 +41,9 @@ app.add_middleware(
 )
 
 
-def get_current_user(authorization: str = Header(...)):
-    if not authorization.startswith("Bearer "):
+# Optional so a missing header is a 401, not FastAPI's default 422.
+def get_current_user(authorization: Optional[str] = Header(default=None)):
+    if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
 
     token = authorization.removeprefix("Bearer ").strip()
@@ -230,9 +217,10 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
         .execute()
     )
     if not response.data:
-        raise HTTPException(
-            status_code=409,
-            detail="This PRD changed since you last loaded it. Refresh and try again.",
+        raise ApiError(
+            409,
+            "This PRD changed since you last loaded it. Refresh and try again.",
+            code="stale_revision",
         )
     return response.data[0]
 
