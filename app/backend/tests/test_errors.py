@@ -1,29 +1,38 @@
 """S01 error contract: every error is {"detail": str, "code": str}."""
 
+import logging
 from types import SimpleNamespace
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from postgrest.exceptions import APIError
 
 import main
 
-client = TestClient(main.app)
+# Unexpected errors should become JSON responses, not test failures.
+client = TestClient(main.app, raise_server_exceptions=False)
 PRD_ID = "00000000-0000-0000-0000-000000000001"
 
 
 class FakeQuery:
     """Stands in for the chained Supabase query builder."""
 
-    def __init__(self, result=None, error=None):
+    def __init__(self, result=None, error=None, results=None):
+        # `results` gives one result per execute() call, in order.
+        self.results = list(results) if results is not None else None
         self.result, self.error = result, error
 
     def __getattr__(self, name):
         return lambda *args, **kwargs: self
 
     def execute(self):
+        if isinstance(self.error, Exception):
+            raise self.error
         if self.error:
             raise APIError(self.error)
+        if self.results is not None:
+            return SimpleNamespace(data=self.results.pop(0))
         return SimpleNamespace(data=self.result)
 
 
@@ -83,9 +92,16 @@ def test_route_raised_error_gets_default_code():
 
 
 def test_stale_revision_is_409_with_specific_code():
-    sign_in_with(FakeQuery(result=[]))
+    # The update matches nothing, but the PRD is visible: it moved on.
+    sign_in_with(FakeQuery(results=[[], [{"id": PRD_ID}]]))
     response = client.put(f"/api/prds/{PRD_ID}", json={"revision": 3, "title": "New"})
     assert_error(response, 409, "stale_revision")
+
+
+def test_update_of_missing_or_hidden_prd_is_404():
+    sign_in_with(FakeQuery(results=[[], []]))
+    response = client.put(f"/api/prds/{PRD_ID}", json={"revision": 3, "title": "New"})
+    assert_error(response, 404, "not_found")
 
 
 @pytest.mark.parametrize(
@@ -116,3 +132,35 @@ def test_known_fields_are_still_accepted():
            "created_at": "2026-10-28T00:00:00Z", "updated_at": "2026-10-28T00:00:00Z"}
     sign_in_with(FakeQuery(result=[row]))
     assert client.post("/api/projects", json={"name": "P"}).status_code == 201
+
+
+def test_database_messages_are_not_returned():
+    message = 'null value in column "title" of relation "prd" violates not-null constraint'
+    sign_in_with(FakeQuery(error={"code": "23502", "message": message, "details": "Failing row contains (secret)"}))
+    response = client.put(f"/api/prds/{PRD_ID}", json={"revision": 1, "title": "T"})
+    body = assert_error(response, 400, "bad_request")
+    assert body["detail"] == "Invalid value"
+    assert "prd" not in response.text and "secret" not in response.text
+
+
+@pytest.mark.parametrize(
+    "error, status, code",
+    [(RuntimeError("bug"), 500, "internal_error"),
+     (httpx.ConnectError("connection refused"), 503, "service_unavailable"),
+     (httpx.ReadTimeout("timed out"), 503, "service_unavailable")],
+)
+def test_unexpected_errors_use_the_json_shape(error, status, code):
+    sign_in_with(FakeQuery(error=error))
+    assert_error(client.get("/api/projects"), status, code)
+
+
+def test_error_logs_leave_out_tokens_bodies_and_db_details(caplog):
+    caplog.set_level(logging.INFO, logger="nautilus.errors")
+    sign_in_with(FakeQuery(error={"code": "22P02", "message": 'invalid input: "my-secret-title"',
+                                  "details": "row (my-secret-title)"}))
+    client.put(f"/api/prds/{PRD_ID}", headers={"Authorization": "Bearer my-secret-token"},
+               json={"revision": 1, "title": "my-secret-title"})
+    sign_in_with(FakeQuery(error=RuntimeError("my-secret-title")))
+    client.get("/api/projects", headers={"Authorization": "Bearer my-secret-token"})
+    assert caplog.records, "expected the errors to be logged"
+    assert "my-secret" not in caplog.text
