@@ -1,0 +1,5 @@
+# Local development and tests only; Vercel installs requirements.txt.
+-r requirements.txt
+pytest
+# TestClient needs httpx; supabase pulls it in today, but list it explicitly.
+httpx

@@ -70,29 +70,18 @@ SFSU-csc648-06-Fall26-team05/
 
 ## Initial Setup
 
-### Required Software
-- [Node.js](https://nodejs.org/) 18 or newer (with npm)
-- [Python](https://www.python.org/) 3.11 or newer (with pip)
-- Git
+Everything runs locally in Docker: Supabase, the FastAPI backend and the Vite frontend.
+You need **Git, Docker Desktop and the Supabase CLI** (no local Python or Node).
 
-### Backend (FastAPI)
 ```
-cd app/backend
-python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env   # fill in your Supabase project URL + service_role key
-uvicorn main:app --reload
+supabase start        # database, auth and Data API
+docker compose up     # backend on :8000, frontend on :5173
 ```
 
-### Frontend (React + Vite)
-```
-cd app/frontend
-cp .env.local.example .env.local   # fill in your Supabase project URL + anon key
-npm install
-npm run dev
-```
+Open http://localhost:5173 and sign in as `alice.pm@example.com` / `password1` (a local test account).
 
-Supabase credentials come from your project's **Settings > API** page. Never commit `.env` / `.env.local` files — they're covered by `.gitignore`.
+See **[docs/local-development.md](docs/local-development.md)** for installing the tools (including Windows),
+test accounts, database migrations, running without Docker and troubleshooting.
 
 ## Database
 
