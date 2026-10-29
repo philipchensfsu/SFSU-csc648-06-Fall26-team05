@@ -21,7 +21,7 @@ services:
       context: ./app/backend
       dockerfile: Dockerfile.dev
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000" # localhost only, not the network
     environment:
       # The container reaches the Supabase CLI's ports on the host.
       SUPABASE_URL: http://host.docker.internal:54321
@@ -39,7 +39,7 @@ services:
       context: ./app/frontend
       dockerfile: Dockerfile.dev
     ports:
-      - "5173:5173"
+      - "127.0.0.1:5173:5173" # localhost only, not the network
     environment:
       API_PROXY_TARGET: http://backend:8000
       # The browser talks to Supabase directly, so this is the host address.
