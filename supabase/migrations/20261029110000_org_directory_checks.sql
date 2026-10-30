@@ -129,3 +129,21 @@ $$;
 -- Internal: called only by the triggers below, never by clients.
 revoke execute on function lock_org_directory(), check_org_directory(uuid), check_org_directory_trigger()
   from public, anon, authenticated;
+
+create trigger organization_member_directory_lock before insert or update or delete on organization_member
+  for each row execute function lock_org_directory();
+create trigger department_directory_lock before insert or update or delete on department
+  for each row execute function lock_org_directory();
+create trigger team_directory_lock before insert or update or delete on team
+  for each row execute function lock_org_directory();
+create trigger team_member_directory_lock before insert or update or delete on team_member
+  for each row execute function lock_org_directory();
+
+create constraint trigger organization_member_directory_check after insert or update or delete on organization_member
+  deferrable initially deferred for each row execute function check_org_directory_trigger();
+create constraint trigger department_directory_check after insert or update on department
+  deferrable initially deferred for each row execute function check_org_directory_trigger();
+create constraint trigger team_directory_check after insert or update on team
+  deferrable initially deferred for each row execute function check_org_directory_trigger();
+create constraint trigger team_member_directory_check after insert or update or delete on team_member
+  deferrable initially deferred for each row execute function check_org_directory_trigger();
