@@ -133,19 +133,13 @@ Each org has a join code that only its admins can see. A member sign-up: create 
 | `GET /api/organizations/{id}/join-code` | | 200 `{ join_code }` (admins only) | 403 members; 404 others |
 | `POST /api/organizations/{id}/join-code` | | 200 `{ join_code }`: a **new** code; the old one stops working | 403 members; 404 others |
 
-## Coming in open PRs
+## Organization directory
 
-Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
+Everything the org chart needs in one call. Only active members of the organization can read it.
 
-### Organizations (Vineela)
-
-See [Organizations](#organizations) for the rules (one org per account).
-
-| PR | Route | Body | Response | Errors |
-|---|---|---|---|---|
-| #64 | `GET /api/organizations/{id}/directory` | | 200 `{ organization, departments, teams, members }` (below) | 404 not a member |
-
-Directory (#64), everything the org chart needs in one call:
+| Route | Response | Errors |
+|---|---|---|
+| `GET /api/organizations/{id}/directory` | 200 `{ organization, departments, teams, members }` | 404 if you're not an active member (or it doesn't exist) |
 
 ```json
 {
@@ -162,6 +156,12 @@ Directory (#64), everything the org chart needs in one call:
 
 Members are active members only, sorted by name. Archived departments and teams are included with `archived: true`
 so the chart can grey them out.
+
+## Coming in open PRs
+
+Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
+
+### Organizations (Vineela)
 
 Next: per-PRD roles (E03) add `my_role` to PRDs, a "Shared with me" list (`GET /api/prds?view=owned|shared`) and
 invites; admin routes for members, departments and teams (E02).
