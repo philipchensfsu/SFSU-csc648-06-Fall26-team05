@@ -2,7 +2,7 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
 from uuid import UUID, uuid4
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -10,7 +10,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from postgrest import ReturnMethod
-from pydantic import BaseModel, ConfigDict, Field
+from postgrest.exceptions import APIError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from supabase_auth.errors import AuthError, AuthRetryableError
 
@@ -310,3 +311,65 @@ def save_intake_answer(
         .execute()
     )
     return response.data[0]
+
+
+class OrganizationCreate(RequestModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class OrganizationCreated(BaseModel):
+    organization_id: UUID
+
+
+@app.post("/api/organizations", response_model=OrganizationCreated, status_code=201)
+def create_organization(payload: OrganizationCreate, auth=Depends(get_current_user)):
+    # Called by the sign-up screen right after the account is created: the
+    # new account becomes the organization's admin (E01). No department or
+    # team is created; admins add whatever structure their org uses.
+    client = auth["client"]
+    try:
+        response = client.rpc("create_organization", {"org_name": payload.name}).execute()
+    except APIError as exc:
+        if exc.message == "already_in_organization":
+            raise ApiError(409, "This account already belongs to an organization. Use another account to start a new one.",
+                           code="already_in_organization")
+        raise
+    return {"organization_id": response.data}
+
+
+class Membership(BaseModel):
+    organization_id: UUID
+    name: str
+    access_role: str
+
+
+class MeOut(BaseModel):
+    id: UUID
+    email: Optional[str]
+    full_name: Optional[str]
+    organization: Optional[Membership]
+
+
+@app.get("/api/me", response_model=MeOut)
+def get_me(auth=Depends(get_current_user)):
+    # Identity plus the account's organization (one per account). null means
+    # it has none yet, so the frontend shows "Create your organization".
+    client = auth["client"]
+    user = auth["user"]
+    profile = client.table("profile").select("full_name").eq("id", user.id).execute().data
+    rows = (
+        client.table("organization_member")
+        .select("organization_id, access_role, organization(name)")
+        .eq("user_id", user.id).eq("active", True).execute().data
+    )
+    organization = None
+    if rows:
+        row = rows[0]
+        organization = {"organization_id": row["organization_id"], "name": row["organization"]["name"],
+                        "access_role": row["access_role"]}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": profile[0]["full_name"] if profile else None,
+        "organization": organization,
+    }
