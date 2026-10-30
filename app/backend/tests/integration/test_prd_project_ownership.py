@@ -3,7 +3,7 @@ the API and directly through the Data API, for creates and for updates."""
 
 import httpx
 
-from conftest import ANON_KEY, SUPABASE_URL
+from conftest import ANON_KEY, SUPABASE_URL, org_prd
 
 MISSING = "00000000-0000-0000-0000-000000000000"
 
@@ -46,7 +46,7 @@ def test_missing_project_is_404(make_user, db):
 def test_cannot_move_a_prd_into_someone_elses_project(make_user, db):
     alice, ben = make_user(), make_user()
     alices_project = project(alice)
-    bens_prd = ben.rest("POST", "prd", json={"title": "Ben's", "owner_id": ben.id}).json()[0]["id"]
+    bens_prd = ben.api("POST", "/prds", json={"title": "Ben's"}).json()["id"]
     assert ben.rest("PATCH", f"prd?id=eq.{bens_prd}", json={"project_id": alices_project}).status_code == 403
     assert db.execute("select project_id from prd where id = %s", (bens_prd,)).fetchone()[0] is None
 
@@ -59,10 +59,11 @@ def test_owner_moves_a_prd_between_own_projects(make_user):
     assert r.status_code == 200 and r.json()
 
 
-def test_admin_edits_but_cannot_move_or_take_over_a_prd(make_user):
-    alice, admin = make_user(), make_user("admin")
+def test_org_admin_edits_but_cannot_move_or_take_over_a_prd(make_user, make_org, db):
+    alice, admin = make_user(), make_user()
+    org = make_org(admin, alice)
     alices_project, admins_project = project(alice), project(admin)
-    prd = alice.api("POST", "/prds", json={"title": "Alice's", "project_id": alices_project}).json()["id"]
+    prd = org_prd(db, org, alice, "Alice's", alices_project)
     r = admin.rest("PATCH", f"prd?id=eq.{prd}", json={"title": "Edited by admin"})
     assert r.status_code == 200 and r.json()
     assert admin.rest("PATCH", f"prd?id=eq.{prd}", json={"project_id": admins_project}).status_code == 403

@@ -54,7 +54,7 @@ here when the AI routes merge.
 
 ## Projects
 
-A project groups a user's PRDs. Projects are private to their owner.
+A project groups a user's PRDs. Projects are private to their owner, and any signed-in user can create them.
 
 `Project`: `{ id, name, owner_id, created_at, updated_at }`
 
@@ -79,16 +79,27 @@ A project groups a user's PRDs. Projects are private to their owner.
 }
 ```
 
-**Who sees what (today):** a PRD is visible only to its owner (and legacy admin accounts). Status grants no visibility.
-Sharing comes with per-PRD roles (E03): owner, editor, viewer.
+**Who can do what.** Access comes from the person's role on that PRD, or from being an admin of the PRD's organization.
+Status and the old profile role (`pm`, `engineer`, `admin`) grant nothing.
+
+| | View | Edit (title, content, intake answers) | Delete |
+|---|---|---|---|
+| Owner | yes | yes | yes |
+| Editor | yes | yes | no |
+| Viewer | yes | no (403) | no (404) |
+| Org admin (any PRD in their org) | yes | yes | yes |
+| Anyone else | no (404) | no (404) | no (404) |
+
+The creator becomes the PRD's owner, and a PRD can have several owners. Roles stop counting if the person is
+deactivated in the organization. Inviting people comes with E04.
 
 | Route | Body / query | Response | Errors |
 |---|---|---|---|
-| `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1) | 403 if the account can't create PRDs (legacy engineer accounts); 404 if `project_id` isn't one of **your** projects; 422 |
+| `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1) | 404 if `project_id` isn't one of **your** projects; 422 |
 | `GET /api/prds` | optional `?search=text` (matches title and content text) | 200 `PRD[]`, most recently updated first | |
 | `GET /api/prds/{id}` | | 200 `PRD` | 404 |
 | `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 |
-| `DELETE /api/prds/{id}` | | 204 | 404 |
+| `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
 
 - **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). The backend
   still accepts it for now and will reject it with 422 once #62 is live.
@@ -108,25 +119,28 @@ Question keys: `problem`, `target_users`, `goals`, `scope`, `constraints`, `succ
 | `GET /api/prds/{id}/intake` | | 200 `IntakeAnswer[]` (empty if the PRD isn't visible) | |
 | `PUT /api/prds/{id}/intake/{question_key}` | `{ "answer_text": string ≤ 5000, "skipped": bool }` | 200 `IntakeAnswer` (saving again overwrites) | 400 unknown question key; 422 |
 
-## Coming in open PRs
-
-Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
-
-### Organizations (Vineela)
+## Organizations
 
 **One organization per account.** A normal sign-up names an org and becomes its admin; members join with the org's
 code from a "member sign-up" tab. Someone in two orgs uses two accounts. Orgs start with no departments or teams.
+The backend finds the caller's org from their token, so routes for your own org never need an org id from you.
 
-| PR | Route | Body | Response | Errors |
-|---|---|---|---|---|
-| #71 | `POST /api/organizations` | `{ "name": string, 1–200 }` | 201 `{ organization_id }`; caller becomes **admin** | 409 `already_in_organization`; 422 |
-| #71 | `GET /api/me` | | 200 `{ id, email, full_name, organization }` where `organization` is `{ organization_id, name, access_role: "admin" \| "member" }` or **`null`** (show "Create your organization") | |
-| #72 | `POST /api/organizations/join` | `{ "code": "K7QX-M2PA-9DZR" }` (any case, dashes and spaces optional) | 200 `{ organization_id }`; caller becomes a **member** | 404 `invalid_join_code`; 403 `membership_inactive` (ask an admin); 409 `already_in_organization` |
-| #72 | `GET /api/organizations/{id}/join-code` | | 200 `{ join_code }` (admins only) | 403 members; 404 others |
-| #72 | `POST /api/organizations/{id}/join-code` | | 200 `{ join_code }`: a **new** code; the old one stops working | 403 members; 404 others |
-| #64 | `GET /api/organizations/{id}/directory` | | 200 `{ organization, departments, teams, members }` (below) | 404 not a member |
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `POST /api/organizations` | `{ "name": string, 1–200 }` | 201 `{ organization_id }`; caller becomes **admin** | 409 `already_in_organization`; 422 |
+| `GET /api/me` | | 200 `{ id, email, full_name, organization }` | |
 
-Directory (#64), everything the org chart needs in one call:
+`organization` in `GET /api/me` is `{ organization_id, name, access_role: "admin" | "member" }`, or **`null`** when the
+account has no organization yet: show the "Create your organization" step. Call it after sign-in to decide which
+screens to show (admin screens only for `access_role: "admin"`).
+
+## Organization directory
+
+Everything the org chart needs in one call. Only active members of the organization can read it.
+
+| Route | Response | Errors |
+|---|---|---|
+| `GET /api/organizations/{id}/directory` | 200 `{ organization, departments, teams, members }` | 404 if you're not an active member (or it doesn't exist) |
 
 ```json
 {
@@ -143,6 +157,20 @@ Directory (#64), everything the org chart needs in one call:
 
 Members are active members only, sorted by name. Archived departments and teams are included with `archived: true`
 so the chart can grey them out.
+
+## Coming in open PRs
+
+Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
+
+### Organizations (Vineela)
+
+See [Organizations](#organizations) for the rules (one org per account).
+
+| PR | Route | Body | Response | Errors |
+|---|---|---|---|---|
+| #72 | `POST /api/organizations/join` | `{ "code": "K7QX-M2PA-9DZR" }` (any case, dashes and spaces optional) | 200 `{ organization_id }`; caller becomes a **member** | 404 `invalid_join_code`; 403 `membership_inactive` (ask an admin); 409 `already_in_organization` |
+| #72 | `GET /api/organizations/{id}/join-code` | | 200 `{ join_code }` (admins only) | 403 members; 404 others |
+| #72 | `POST /api/organizations/{id}/join-code` | | 200 `{ join_code }`: a **new** code; the old one stops working | 403 members; 404 others |
 
 Next: per-PRD roles (E03) add `my_role` to PRDs, a "Shared with me" list (`GET /api/prds?view=owned|shared`) and
 invites; admin routes for members, departments and teams (E02).
