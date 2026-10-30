@@ -184,7 +184,7 @@ change in review. AI also needs migrations that aren't applied to the hosted dat
 |---|---|---|---|---|
 | #69 (+ #74) | `POST /api/prds/{id}/generate` | `{ "revision": int }` | 200 `{ proposal: { title, description, content_json, doc_schema_version: 2, sources: [] }, base_revision, generation_record_id }`. A preview only: nothing is saved | Can edit the PRD |
 | #70 (+ #55) | `PUT /api/prds/{id}` | adds optional `generation_record_id` to accept a proposal (edited or not) | the saved PRD. **Not wired yet:** waits for the #55 review | Can edit |
-| #75 | `POST /api/prds/{id}/ai/chat` | `{ "revision": int, "message": "1–2000 chars", "history": [ { "role": "user" \| "assistant", "content": "1–2000 chars" } ] }` (at most 20 history items) | 200 `{ kind: "answer" \| "blocked" \| "clarification", message, base_revision, generation_record_id }`. Answers only; never changes the PRD | Can view the PRD |
+| #75 | `POST /api/prds/{id}/ai/chat` | `{ "revision": int, "message": "1–2000 chars", "history": [ { "role": "user" \| "assistant", "content": "1–8000 chars" } ] }` (at most 20 history items; earlier answers can be up to 8000 characters) | 200 `{ kind: "answer" \| "blocked" \| "clarification", message, base_revision, generation_record_id }`. Answers only; never changes the PRD | Can view the PRD |
 
 - **Generate:** needs answers to `problem`, `target_users` and `goals`. It uses the PRD's title, description, answers
   and saved AI context.

@@ -137,7 +137,9 @@ class GenerateRequest(RequestModel):
 
 class ChatMessage(RequestModel):
     role: Literal["user", "assistant"]
-    content: str = Field(..., min_length=1, max_length=chat.MAX_MESSAGE_CHARS)
+    # Earlier assistant replies can be up to MAX_ANSWER_CHARS, so history
+    # items allow that; a new message is still capped at MAX_MESSAGE_CHARS.
+    content: str = Field(..., min_length=1, max_length=chat.MAX_ANSWER_CHARS)
 
 
 class ChatRequest(RequestModel):
