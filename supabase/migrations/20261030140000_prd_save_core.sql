@@ -22,19 +22,59 @@ alter table prd
 
 -- A version is the full saved state at one revision, so an approval can be
 -- tied to exactly what the reviewer saw (title, description and content all
--- count as edits under D9).
+-- count as edits under D9). Metadata for GET /versions (v1.2 S03/S04):
+--   version_no       1, 2, 3 ... per PRD, in save order;
+--   saved_revision   the PRD revision this snapshot is;
+--   created_by       the human who saved, also for accepted AI proposals;
+--   changed_sections section types whose node changed, in document order;
+--   change_summary   a short server-written line (wording is provisional).
 alter table prd_version
-  add column revision integer,
+  add column version_no integer check (version_no >= 1),
+  add column saved_revision integer check (saved_revision >= 1),
   add column title text,
   add column description text,
-  add column generation_record_id uuid references generation_record(id) on delete set null;
+  add column generation_record_id uuid references generation_record(id) on delete set null,
+  add column changed_sections text[] not null default '{}',
+  add column change_summary text check (char_length(change_summary) <= 300);
 
 -- A PRD that has never had content saved still gets versions when its title
 -- or description changes.
 alter table prd_version alter column content_json drop not null;
 
 create unique index prd_version_prd_revision_key
-  on prd_version (prd_id, revision) where revision is not null;
+  on prd_version (prd_id, saved_revision) where saved_revision is not null;
+create unique index prd_version_prd_version_no_key
+  on prd_version (prd_id, version_no) where version_no is not null;
+
+-- Section types whose node differs between two documents, in the new
+-- document's order, then removed ones. jsonb equality ignores key order, so
+-- this compares canonical JSON. A legacy (v1) document counts as having no
+-- sections, so every section of its first v2 save is "changed".
+create or replace function prd_changed_sections(old_doc jsonb, new_doc jsonb)
+returns text[]
+language sql
+immutable
+set search_path = public
+as $$
+  with old_sections as (
+    select s -> 'attrs' ->> 'type' as section_type, s as node, n
+    from jsonb_array_elements(case when old_doc ->> 'type' = 'doc'
+                                   then coalesce(old_doc -> 'content', '[]') else '[]' end)
+         with ordinality as e(s, n)
+  ), new_sections as (
+    select s -> 'attrs' ->> 'type' as section_type, s as node, n
+    from jsonb_array_elements(case when new_doc ->> 'type' = 'doc'
+                                   then coalesce(new_doc -> 'content', '[]') else '[]' end)
+         with ordinality as e(s, n)
+  )
+  select coalesce(array_agg(section_type order by position), '{}')
+  from (
+    select coalesce(new_sections.section_type, old_sections.section_type) as section_type,
+           coalesce(new_sections.n, 1000 + old_sections.n) as position
+    from old_sections full join new_sections using (section_type)
+    where old_sections.node is distinct from new_sections.node
+  ) changed;
+$$;
 
 -- -------------------------------------------------------------------------
 -- Server-only history and AI records
@@ -42,14 +82,15 @@ create unique index prd_version_prd_revision_key
 
 -- Versions are permanent and written only by save_prd. Nothing in the app
 -- writes prd_version today, so this changes no current behavior.
-drop policy "write prd versions" on prd_version;
-drop policy "delete prd versions" on prd_version;
+drop policy if exists "write prd versions" on prd_version;
+drop policy if exists "delete prd versions" on prd_version;
 revoke insert, update, delete on prd_version from authenticated;
 
 -- generation_record proves AI text came from a real generation, so browsers
 -- must not be able to insert their own (A02). Nothing in the app writes it
--- today; the AI routes will write it on the server.
-drop policy "write generation records" on generation_record;
+-- today; the AI routes will write it on the server. A02 (#67) drops the same
+-- policy, so either migration can run first.
+drop policy if exists "write generation records" on generation_record;
 revoke insert, update, delete on generation_record from authenticated;
 
 -- -------------------------------------------------------------------------
@@ -100,6 +141,9 @@ declare
   new_content_text text;
   new_schema_version integer;
   new_version_id uuid;
+  next_version_no integer;
+  sections_changed text[];
+  summary_parts text[] := '{}';
 begin
   if p_actor is null or p_prd_id is null or p_base_revision is null then
     raise exception 'Missing actor, PRD or base revision' using errcode = 'NT422';
@@ -164,10 +208,44 @@ begin
     return current_row;
   end if;
 
-  insert into prd_version (prd_id, revision, title, description, content_json,
-                           doc_schema_version, created_by, origin, generation_record_id)
-  values (p_prd_id, current_row.revision + 1, new_title, new_description, new_content,
-          new_schema_version, p_actor, p_origin, p_generation_record_id)
+  select coalesce(max(version_no), 0) + 1 into next_version_no from prd_version where prd_id = p_prd_id;
+
+  -- Content saved before this history existed (the legacy PUT writes no
+  -- versions) is kept as a baseline snapshot, so the first save here never
+  -- loses what was there.
+  if current_row.content_json is not null or current_row.description is not null then
+    if not exists (select 1 from prd_version
+                   where prd_id = p_prd_id and saved_revision = current_row.revision) then
+      insert into prd_version (prd_id, version_no, saved_revision, title, description, content_json,
+                               doc_schema_version, created_by, origin, change_summary)
+      values (p_prd_id, next_version_no, current_row.revision, current_row.title, current_row.description,
+              current_row.content_json, current_row.doc_schema_version, null, 'checkpoint',
+              'Saved before version history started');
+      next_version_no := next_version_no + 1;
+    end if;
+  end if;
+
+  sections_changed := case when p_set_content
+                           then prd_changed_sections(current_row.content_json, new_content)
+                           else '{}' end;
+  if new_title is distinct from current_row.title then
+    summary_parts := summary_parts || 'title'::text;
+  end if;
+  if new_description is distinct from current_row.description then
+    summary_parts := summary_parts || 'description'::text;
+  end if;
+  if cardinality(sections_changed) > 0 then
+    summary_parts := summary_parts || (cardinality(sections_changed)
+                     || case when cardinality(sections_changed) = 1 then ' section' else ' sections' end);
+  end if;
+
+  insert into prd_version (prd_id, version_no, saved_revision, title, description, content_json,
+                           doc_schema_version, created_by, origin, generation_record_id,
+                           changed_sections, change_summary)
+  values (p_prd_id, next_version_no, current_row.revision + 1, new_title, new_description, new_content,
+          new_schema_version, p_actor, p_origin, p_generation_record_id, sections_changed,
+          case when p_origin = 'ai_generated' then 'Accepted AI proposal: ' else 'Edited ' end
+          || coalesce(nullif(array_to_string(summary_parts, ', '), ''), 'content'))
   returning id into new_version_id;
 
   update prd
