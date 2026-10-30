@@ -14,7 +14,7 @@ from supabase import create_client
 
 from ai import chat, usage_gate
 from ai.gemini_client import GeminiResult
-from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL
+from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL, add_to_prd, org_prd
 from errors import ApiError
 
 REQUIRED = {"problem": "Students miss campus events", "target_users": "Students", "goals": "Higher turnout"}
@@ -112,14 +112,16 @@ def test_blocked_question_skips_the_answer_and_is_recorded(make_user, db):
     assert records(db, prd["id"]) == [(alice.id, "chat_request", "failed", "out_of_scope", 7, 3)]
 
 
-def test_viewers_can_ask_and_outsiders_get_404(make_user, db):
-    alice, ben, admin = make_user(), make_user(), make_user("admin")  # legacy admin = can view
-    prd = new_prd(alice)
-    assert ask(admin, prd, doubles()[0])["kind"] == "answer"
+def test_viewers_can_ask_and_outsiders_get_404(make_user, make_org, db):
+    alice, viewer, ben = make_user(), make_user(), make_user()
+    prd_id = org_prd(db, make_org(alice, viewer), alice, "Shared PRD")
+    add_to_prd(db, prd_id, viewer, "viewer")  # can read, can't edit
+    prd = alice.api("GET", f"/prds/{prd_id}").json()
+    assert ask(viewer, prd, doubles()[0])["kind"] == "answer"
     with pytest.raises(ApiError) as info:
         ask(ben, prd, doubles()[0])
     assert info.value.status_code == 404
-    assert [r[0] for r in records(db, prd["id"])] == [admin.id]
+    assert [r[0] for r in records(db, prd_id)] == [viewer.id]
 
 
 def test_only_the_open_prd_reaches_the_model(make_user, db):
