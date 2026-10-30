@@ -104,6 +104,15 @@ grant execute on function ai_context_shape_ok(jsonb, boolean) to authenticated, 
 alter table prd_context
   add constraint prd_context_shape check (ai_context_shape_ok(context_json, false));
 
+-- Durable context changes only through the server: accepted proposals
+-- (ai_apply_context_patch) and saves. Browsers keep read access to the
+-- context of PRDs they can see, but can't write it directly, so it can't
+-- drift from the proposals and generation records that refer to its version.
+drop policy if exists "write prd context" on prd_context;
+drop policy if exists "update prd context" on prd_context;
+drop policy if exists "delete prd context" on prd_context;
+revoke insert, update, delete on prd_context from authenticated;
+
 -- -------------------------------------------------------------------------
 -- 3. ai_proposal
 -- -------------------------------------------------------------------------
@@ -387,6 +396,13 @@ revoke execute on function
   ai_take_proposal(uuid, uuid, uuid, integer),
   ai_apply_context_patch(uuid, jsonb)
 from public, anon, authenticated;
+-- Default privileges (#58) give service_role EXECUTE on new functions. These
+-- two run only inside save_prd (a definer function), so no API role, the
+-- service role included, may call them directly.
+revoke execute on function
+  ai_take_proposal(uuid, uuid, uuid, integer),
+  ai_apply_context_patch(uuid, jsonb)
+from service_role;
 grant execute on function
   ai_record_generation(uuid, uuid, integer, text, text, text, text, text, text, integer, integer,
                        text, jsonb, jsonb, integer),

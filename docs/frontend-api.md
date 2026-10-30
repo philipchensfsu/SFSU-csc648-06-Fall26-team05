@@ -134,6 +134,16 @@ The backend finds the caller's org from their token, so routes for your own org 
 account has no organization yet: show the "Create your organization" step. Call it after sign-in to decide which
 screens to show (admin screens only for `access_role: "admin"`).
 
+### Joining with a code
+
+Each org has a join code that only its admins can see. A member sign-up: create the account, then send the code.
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `POST /api/organizations/join` | `{ "code": "K7QX-M2PA-9DZR" }` (any case; dashes and spaces optional) | 200 `{ organization_id }`; caller becomes a **member** with no department or team | 404 `invalid_join_code`; 403 `membership_inactive` (deactivated there: ask an admin); 409 `already_in_organization` |
+| `GET /api/organizations/{id}/join-code` | | 200 `{ join_code }` (admins only) | 403 members; 404 others |
+| `POST /api/organizations/{id}/join-code` | | 200 `{ join_code }`: a **new** code; the old one stops working | 403 members; 404 others |
+
 ## Organization directory
 
 Everything the org chart needs in one call. Only active members of the organization can read it.
@@ -163,14 +173,6 @@ so the chart can grey them out.
 Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
 
 ### Organizations (Vineela)
-
-See [Organizations](#organizations) for the rules (one org per account).
-
-| PR | Route | Body | Response | Errors |
-|---|---|---|---|---|
-| #72 | `POST /api/organizations/join` | `{ "code": "K7QX-M2PA-9DZR" }` (any case, dashes and spaces optional) | 200 `{ organization_id }`; caller becomes a **member** | 404 `invalid_join_code`; 403 `membership_inactive` (ask an admin); 409 `already_in_organization` |
-| #72 | `GET /api/organizations/{id}/join-code` | | 200 `{ join_code }` (admins only) | 403 members; 404 others |
-| #72 | `POST /api/organizations/{id}/join-code` | | 200 `{ join_code }`: a **new** code; the old one stops working | 403 members; 404 others |
 
 Next: per-PRD roles (E03) add `my_role` to PRDs, a "Shared with me" list (`GET /api/prds?view=owned|shared`) and
 invites; admin routes for members, departments and teams (E02).
