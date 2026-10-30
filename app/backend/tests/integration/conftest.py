@@ -107,5 +107,7 @@ def make_user(db):
 
     yield make
     for user_id in created:
+        # Organizations outlive their creator, so remove the test ones first.
+        db.execute("delete from organization where created_by = %s", (user_id,))
         # Cascades to the user's profile, projects, PRDs and their child rows.
         httpx.delete(f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}", headers=admin)
