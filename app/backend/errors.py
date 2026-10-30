@@ -47,7 +47,9 @@ def error_response(status_code: int, detail: str, code: str | None = None, heade
 async def http_error_handler(request, exc: StarletteHTTPException):
     # Also covers FastAPI's own 404/405 for unknown routes and methods.
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
-    return error_response(exc.status_code, detail, getattr(exc, "code", None), exc.headers)
+    # Extra body fields a route error defines, such as retry_after on AI 429s.
+    extra = getattr(exc, "extra", None) or {}
+    return error_response(exc.status_code, detail, getattr(exc, "code", None), exc.headers, **extra)
 
 
 async def validation_error_handler(request, exc: RequestValidationError):
