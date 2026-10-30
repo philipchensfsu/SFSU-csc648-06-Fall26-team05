@@ -2,7 +2,7 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
-from typing import Annotated, Optional
+from typing import Annotated, Literal, Optional
 from uuid import UUID, uuid4
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -107,7 +107,11 @@ class PRDOut(BaseModel):
     id: UUID
     title: str
     owner_id: UUID
+    organization_id: UUID
     project_id: Optional[UUID]
+    # The caller's access: their role on the PRD, or org_admin when they only
+    # see it as an admin of its organization.
+    my_role: Literal["owner", "editor", "viewer", "org_admin"]
     status: str
     content_json: Optional[dict]
     content_text: Optional[str]
@@ -185,10 +189,33 @@ def delete_project(project_id: UUID, auth=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Project not found or not allowed")
 
 
+def with_my_role(client, user_id, rows):
+    """Adds my_role to each visible PRD row."""
+    ids = [row["id"] for row in rows]
+    roles = {}
+    if ids:
+        members = client.table("prd_member").select("prd_id, role").eq("user_id", user_id).in_("prd_id", ids).execute()
+        roles = {m["prd_id"]: m["role"] for m in members.data}
+    # Visible without a role on it means the caller is an admin of its org.
+    return [{**row, "my_role": roles.get(row["id"], "org_admin")} for row in rows]
+
+
 @app.post("/api/prds", response_model=PRDOut, status_code=201)
 def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
     client = auth["client"]
-    insert_fields = {"id": str(uuid4()), "title": payload.title, "owner_id": auth["user"].id}
+    # A new PRD belongs to the creator's organization (one per account).
+    membership = (
+        client.table("organization_member").select("organization_id")
+        .eq("user_id", auth["user"].id).eq("active", True).execute().data
+    )
+    if not membership:
+        raise ApiError(403, "You need to be in an organization to create a PRD.", code="no_organization")
+    insert_fields = {
+        "id": str(uuid4()),
+        "title": payload.title,
+        "owner_id": auth["user"].id,
+        "organization_id": membership[0]["organization_id"],
+    }
     if payload.project_id:
         # RLS also enforces this; checking here gives a 404 like the project
         # routes. Projects are private to their owner.
@@ -209,11 +236,18 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
     response = client.table("prd").select("*").eq("id", insert_fields["id"]).execute()
     if not response.data:
         raise HTTPException(status_code=403, detail="Not allowed to create a PRD")
-    return response.data[0]
+    return with_my_role(client, auth["user"].id, response.data)[0]
 
 
 @app.get("/api/prds", response_model=list[PRDOut])
-def list_prds(search: Optional[str] = None, auth=Depends(get_current_user)):
+def list_prds(
+    search: Optional[str] = None,
+    view: Optional[Literal["owned", "shared"]] = None,
+    auth=Depends(get_current_user),
+):
+    # view=owned: PRDs the caller owns. view=shared: PRDs they were invited
+    # to as an editor or viewer ("Shared with me"). No view: everything
+    # they can see, including any PRD in their org if they're its admin.
     client = auth["client"]
     query = client.table("prd").select("*")
 
@@ -224,7 +258,12 @@ def list_prds(search: Optional[str] = None, auth=Depends(get_current_user)):
         query = query.or_(f"title.ilike.*{term}*,content_text.ilike.*{term}*")
 
     response = query.order("updated_at", desc=True).execute()
-    return response.data
+    prds = with_my_role(client, auth["user"].id, response.data)
+    if view == "owned":
+        prds = [prd for prd in prds if prd["my_role"] == "owner"]
+    elif view == "shared":
+        prds = [prd for prd in prds if prd["my_role"] in ("editor", "viewer")]
+    return prds
 
 
 @app.get("/api/prds/{prd_id}", response_model=PRDOut)
@@ -233,7 +272,7 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
     response = client.table("prd").select("*").eq("id", str(prd_id)).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
-    return response.data[0]
+    return with_my_role(client, auth["user"].id, response.data)[0]
 
 
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
@@ -263,7 +302,7 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
             "This PRD changed since you last loaded it. Refresh and try again.",
             code="stale_revision",
         )
-    return response.data[0]
+    return with_my_role(client, auth["user"].id, response.data)[0]
 
 
 @app.delete("/api/prds/{prd_id}", status_code=204)
