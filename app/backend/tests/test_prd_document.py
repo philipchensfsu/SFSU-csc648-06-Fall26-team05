@@ -130,9 +130,10 @@ def test_spec_is_internally_consistent():
     assert spec["nodes"]["doc"]["min_content"] == 0
 
 
-def test_disabled_marks_are_the_reserved_citation_and_the_unagreed_assumption():
+def test_the_only_disabled_mark_is_the_reserved_citation():
     marks = load_spec()["marks"]
-    assert {name for name, mark in marks.items() if not mark["enabled"]} == {"citation", "assumption"}
+    assert {name for name, mark in marks.items() if not mark["enabled"]} == {"citation"}
+    assert marks["assumption"]["inclusive"] is False and marks["assumption"]["attrs"] == {}
     assert marks["ai_generated"]["inclusive"] is False
     assert marks["ai_generated"]["attrs"]["generation_record_id"]["required"] is True
 
@@ -222,9 +223,14 @@ def test_generation_record_id_shape(value, ok):
 
 
 @pytest.mark.parametrize("attrs, ok", [
-    ({"colspan": 2, "rowspan": 1, "colwidth": [100, 120]}, True),
+    ({"colspan": 1, "rowspan": 1, "colwidth": [240]}, True),
     ({"colspan": 1, "rowspan": 1, "colwidth": None}, True),
     ({}, True),
+    # Simple tables only: no merged cells, so one width per cell.
+    ({"colspan": 2, "rowspan": 1, "colwidth": [100, 120]}, False),
+    ({"colspan": 1, "rowspan": 2}, False),
+    ({"colwidth": [100, 120]}, False),
+    ({"colwidth": []}, False),
     ({"colspan": 0}, False),
     ({"colspan": "2"}, False),
     ({"colwidth": [0]}, False),
@@ -235,6 +241,22 @@ def test_table_cell_attributes(attrs, ok):
     table = {"type": "table", "content": [{"type": "tableRow", "content": [
         {"type": "tableCell", "attrs": attrs, "content": [paragraph("x")]}]}]}
     assert (validate_document(doc(table)) == []) is ok
+
+
+@pytest.mark.parametrize("cell_type", ["tableCell", "tableHeader"])
+def test_header_cells_follow_the_same_no_merge_rule(cell_type):
+    def table(attrs):
+        return doc({"type": "table", "content": [{"type": "tableRow", "content": [
+            {"type": cell_type, "attrs": attrs, "content": [paragraph("x")]}]}]})
+    assert validate_document(table({"colspan": 1, "rowspan": 1, "colwidth": [150]})) == []
+    assert [error.code for error in validate_document(table({"colspan": 3}))] == ["invalid_attr"]
+
+
+def test_assumption_mark_is_accepted_alongside_other_marks():
+    marked = paragraph("Mostly on mobile", {"type": "bold"}, {"type": "assumption"})
+    assert validate_document(doc(marked)) == []
+    with_attrs = paragraph("x", {"type": "assumption", "attrs": {"confirmed": True}})
+    assert [error.code for error in validate_document(doc(with_attrs))] == ["unknown_attr"]
 
 
 def test_ordered_list_start_must_be_a_positive_whole_number():

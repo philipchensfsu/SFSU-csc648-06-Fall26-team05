@@ -77,3 +77,11 @@ def test_generation_check_never_changes_its_input():
     before = copy.deepcopy(document)
     validate_generated_document(document)
     assert document == before
+
+
+def test_model_output_cannot_add_assumption_marks():
+    document = load("full_generated_draft")
+    text = document["content"][0]["content"][0]["content"][0]
+    text["marks"] = [{"type": "assumption"}]
+    errors = validate_generated_document(document)
+    assert codes(errors) == [{"code": "assumption_mark_not_allowed", "path": "/content/0/content/0/content/0/marks/0"}]

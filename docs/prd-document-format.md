@@ -20,8 +20,9 @@
 |---|---|
 | **Agreed with frontend** (Aksh, 2026-10-29) | Tiptap JSON v2. Root `doc` holds only `section` nodes; `section.attrs.type` is one of the nine types below. The visible section label is **derived from `attrs.type`**, not stored in the content. Sections that are present keep the **standard order**; a saved draft may hold **any ordered subset, including none** (`{"type":"doc","content":[]}`), with **no duplicate types**. `ai_generated` is a visual hint carrying `generation_record_id`, **not inclusive at its edges**, and may be inherited when typing inside marked text. **Assumption highlights stay separate from `ai_generated`.** Aksh configures the editor and tests round trips against these files. The v1→v2 conversion and the API/description changes are coordinated before saves switch. |
 | **Agreed** (v1.2 S03/A01, M2 §1.5, frontend guide §8) | Marks `bold`, `italic`, `underline`, `link` (http, https, mailto only) and `ai_generated`. `citation` is reserved and rejected. About 1 MB per document; 200-character title; 2,000-character description (a column, not in the document). Invalid input is rejected, never repaired. Complete initial generation needs **all nine sections**; model output may not contain `ai_generated` (the backend adds it after validation). |
-| **Proposed, needs frontend confirmation** | The node list inside sections and its exact content rules (§3). Link `target`/`rel`/`class` values. Table cell attributes. Text in every generated section. Limits: nesting depth 32, link length 2,048, 100 errors per response. Non-blank titles (today's API accepts an empty title). The `content_text` format (§6). |
-| **Open** | How assumption highlights are represented (§7). A candidate `assumption` mark is in the spec but **disabled**, so the validator rejects it until it's agreed. |
+| **Editor compatibility confirmed by frontend** (Aksh, Discord DM to Marco, 2026-10-30) | The section children and these nodes are workable in Tiptap: `heading` levels 1-3, nested `bulletList`/`orderedList`/`listItem`, `blockquote` and table-cell content, `table`/`tableRow`/`tableCell`/`tableHeader`, the custom `section` node, and the empty document. **Assumptions use option A** (§7): a separate `assumption` mark that users or the v1 conversion can add, and AI output never can. This is a design confirmation. **Round-trip test results (§9) haven't been reported yet.** |
+| **Finalized by Marco** (2026-10-30, for the editor configuration) | **Links:** absolute `http`, `https` or `mailto`, at most 2,048 characters; `target` only `null` or `"_blank"`, `rel` only `null` or `"noopener noreferrer nofollow"`, `class` only `null` (Tiptap's defaults). **Tables: simple tables, no merged cells** (an implementation choice): `colspan` and `rowspan` absent, `null` or `1`; `colwidth` `null` or one whole-number width, so column resizing still works. |
+| **Proposed, still to confirm** | `paragraph`, `hardBreak` and `orderedList.start` details. Text in every generated section. Limits: nesting depth 32, 100 errors per response. Non-blank titles (today's API accepts an empty title). The `content_text` format (§6). |
 
 **Review readiness is a separate, later check.** A structurally valid document, even an empty one, isn't
 necessarily ready to submit for review. That rule belongs with the review workflow, not this validator.
@@ -51,16 +52,16 @@ Tiptap writes defaults such as `colwidth: null`.
 | Node | Allowed children | Attributes | Status |
 |---|---|---|---|
 | `doc` | `section` (0 or more) | none | agreed |
-| `section` | `paragraph`, `heading`, `bulletList`, `orderedList`, `blockquote`, `table` (at least 1) | `type` (required, one of the nine) | node agreed; children proposed |
+| `section` | `paragraph`, `heading`, `bulletList`, `orderedList`, `blockquote`, `table` (at least 1) | `type` (required, one of the nine) | agreed |
 | `paragraph` | `text`, `hardBreak` (may be empty) | none | proposed |
-| `heading` | `text`, `hardBreak` (may be empty) | `level` (required, whole number 1-3) | proposed |
-| `bulletList` | `listItem` (at least 1) | none | proposed |
-| `orderedList` | `listItem` (at least 1) | `start` (optional, whole number 1-100000) | proposed |
-| `listItem` | first a `paragraph`, then `paragraph`, `bulletList`, `orderedList` | none | proposed |
-| `blockquote` | `paragraph`, `bulletList`, `orderedList` (at least 1) | none | proposed |
-| `table` | `tableRow` (at least 1) | none | proposed |
-| `tableRow` | `tableCell`, `tableHeader` (at least 1) | none | proposed |
-| `tableCell`, `tableHeader` | `paragraph`, `bulletList`, `orderedList` (at least 1) | `colspan`, `rowspan` (optional, 1-100), `colwidth` (optional, `null` or a list of whole-number widths) | proposed |
+| `heading` | `text`, `hardBreak` (may be empty) | `level` (required, whole number 1-3) | agreed |
+| `bulletList` | `listItem` (at least 1) | none | agreed |
+| `orderedList` | `listItem` (at least 1) | `start` (optional, whole number 1-100000) | agreed; `start` range proposed |
+| `listItem` | first a `paragraph`, then `paragraph`, `bulletList`, `orderedList` | none | agreed |
+| `blockquote` | `paragraph`, `bulletList`, `orderedList` (at least 1) | none | agreed |
+| `table` | `tableRow` (at least 1) | none | agreed |
+| `tableRow` | `tableCell`, `tableHeader` (at least 1) | none | agreed |
+| `tableCell`, `tableHeader` | `paragraph`, `bulletList`, `orderedList` (at least 1) | `colspan`, `rowspan` (optional, only `1`: no merged cells), `colwidth` (optional, `null` or a list with one whole-number width) | agreed (no merged cells: Marco's choice) |
 | `hardBreak` | none | none (and no marks) | proposed |
 | `text` | none | `text` must be a non-empty string; the only node that carries marks | agreed |
 
@@ -73,10 +74,10 @@ A mark object may contain only `type` and `attrs`, and the same mark can't appea
 | Mark | Attributes | Notes | Status |
 |---|---|---|---|
 | `bold`, `italic`, `underline` | none | | agreed |
-| `link` | `href` (required): absolute `http`, `https` or `mailto`, no spaces or control characters. `target` (optional): `null` or `"_blank"`. `rel` (optional): `null` or `"noopener noreferrer nofollow"`. `class` (optional): `null`. | `target`/`rel`/`class` are accepted only because Tiptap's Link extension writes them. | href agreed; the rest proposed |
+| `link` | `href` (required): absolute `http`, `https` or `mailto`, at most 2,048 characters, no spaces or control characters. `target` (optional): `null` or `"_blank"`. `rel` (optional): `null` or `"noopener noreferrer nofollow"`. `class` (optional): `null`. | `target`/`rel`/`class` are accepted only because Tiptap's Link extension writes them. | agreed (settings finalized 2026-10-30) |
 | `ai_generated` | `generation_record_id` (required): UUID in lowercase hyphenated form | Not inclusive at its edges. The backend applies it to accepted AI text. This package checks only the id's shape; whether it names a successful generation record for the same PRD is checked against the database when saves are wired up. | agreed |
 | `citation` | none | Reserved, **rejected** (sources are PRD-level for now, A09). | reserved |
-| `assumption` | none | **Candidate only, rejected** until agreed (§7). | proposed |
+| `assumption` | none | Text a person should check. Not inclusive at its edges. Added by users or the v1 conversion; **never by AI output** (§7). | agreed |
 
 Not allowed: `strike`, `code`, `textStyle`, `highlight`, colours, fonts.
 
@@ -131,20 +132,20 @@ The fixtures are the full set of examples. Each file has a `description`, the `d
 with the exact `document_errors` (code and JSON Pointer path), plus, for valid documents, `generation_errors`
 and the expected `content_text`.
 
-- **`valid/`** (10): `empty_draft`, `minimal_single_section`, `ordered_subset`, `full_generated_draft`,
-  `every_node_type`, `marks`, `tiptap_null_defaults`, and three that are valid drafts but fail the generation
-  checks.
-- **`invalid/`** (36): one problem each, such as the v1 shape, a stray `description` key, sections out of order
-  or repeated, images and code blocks, strike/code/textStyle, `citation`, the candidate `assumption` mark,
-  `javascript:`/relative/missing links, bad `generation_record_id`s, empty text, marks on a hard break, and one
-  with several errors at once.
+- **`valid/`** (11): `empty_draft`, `minimal_single_section`, `ordered_subset`, `full_generated_draft`,
+  `every_node_type`, `marks`, `tiptap_null_defaults`, `assumption_mark`, and three that are valid drafts but fail
+  the generation checks. `assumption_mark` is valid in a save and fails the generation checks too.
+- **`invalid/`** (37): one problem each, such as the v1 shape, a stray `description` key, sections out of order
+  or repeated, images and code blocks, strike/code/textStyle, `citation`, merged table cells, a cell with two
+  column widths, `javascript:`/relative/missing links, bad `generation_record_id`s, empty text, marks on a hard
+  break, and one with several errors at once.
 
 ## 6. Validation profiles and errors
 
 | Profile | Function | Use |
 |---|---|---|
 | Saved document | `prd_document.validate_document(doc)` | Every save (once wired). Accepts any ordered subset of sections, including none. |
-| Complete initial generation | `ai.generation_output.validate_generated_document(doc)` | Gemini's full-document output (A01/A03). Runs the saved-document rules first and returns only those errors if any fail. Then requires all nine sections (`missing_section`), no `ai_generated` marks (`provenance_mark_not_allowed`), text in every section (`empty_section`, proposed) and no leading heading repeating a section's label (`duplicate_section_heading`). |
+| Complete initial generation | `ai.generation_output.validate_generated_document(doc)` | Gemini's full-document output (A01/A03). Runs the saved-document rules first and returns only those errors if any fail. Then requires all nine sections (`missing_section`), no `ai_generated` marks (`provenance_mark_not_allowed`), no `assumption` marks (`assumption_mark_not_allowed`), text in every section (`empty_section`, proposed) and no leading heading repeating a section's label (`duplicate_section_heading`). |
 | Review readiness | not built | Later, with the review workflow. |
 
 ### Nonempty structure is not content completeness
@@ -199,7 +200,7 @@ paragraph produces a bare newline. A table row then splits across two lines, and
 isn't indented. Proposed fix when the format is agreed: a space inside table cells, and an indented continuation
 line inside list items, with fixtures for both.
 
-## 7. Assumption highlights: current state and proposed mapping
+## 7. Assumption highlights: option A (agreed 2026-10-30)
 
 **Today (v1):** an assumption is a `<mark class="nt-assumption" data-assumption="1">…</mark>` inside a section's
 HTML.
@@ -217,34 +218,31 @@ HTML.
 - `ai_generated` needs a real `generation_record_id`, and v1 assumptions come from simulated drafts and seed data,
   not real generations.
 
-**Options (needs a decision with Aksh, and the AI team for A03):**
+**Options considered.** Option A was chosen: Aksh agreed in a Discord DM to Marco, 2026-10-30.
 
 | Option | v2 representation | Conversion of v1 | Trade-off |
 |---|---|---|---|
-| **A (recommended)** | A separate `assumption` mark: no attributes, not inclusive, never merged with `ai_generated`. The candidate is already in the spec, disabled. | Each `nt-assumption` span becomes the same text with the `assumption` mark, keeping its other marks. `data-assumption` and the `assumptions` count are dropped; counts are derived from the marks. | Keeps exactly what users see today. Needs a "confirm/remove" interaction, and a decision on whether model output may contain it (unlike `ai_generated`). |
+| **A (chosen)** | A separate `assumption` mark: no attributes, not inclusive, never merged with `ai_generated`. Enabled in the spec. | Each `nt-assumption` span becomes the same text with the `assumption` mark, keeping its other marks. `data-assumption` and the `assumptions` count are dropped; counts are derived from the marks. | Keeps exactly what users see today. Needs a "confirm/remove" interaction in the editor. Model output may not contain it. |
 | B | Not stored in the document; a separate list of assumption ranges or per-section counts | Positions computed during conversion | Positions break as text is edited. Not recommended. |
 | C | Dropped | The text is kept, the highlight is lost | Loses "to check" flags users haven't reviewed. Only with an explicit team decision. |
 
-Until this is decided, the conversion (DB07) must not run on documents that contain `nt-assumption`, and the
-validator keeps rejecting `assumption`. Enabling option A later means setting `enabled: true` in the spec,
-moving its fixture from `invalid/` to `valid/`, and agreeing the editor interaction.
-
-**What this package does today (no behavior changed):**
+**What this package does now:**
+- The v2 validator **accepts** `{ "type": "assumption" }` in saved documents (fixture `valid/assumption_mark`).
+- The generation check **rejects** it in model output with `assumption_mark_not_allowed`.
 - v1 saves are untouched, so today's `nt-assumption` highlights keep working exactly as before.
-- The v2 validator rejects an `assumption` mark with `mark_disabled`, in saved documents and in generated output.
-- Nothing in this package creates, converts or removes assumption highlights.
+- Nothing here creates, converts or removes assumption highlights. The DB07 conversion is still deferred.
 
-**How option A would work, if chosen:**
+**How option A works:**
 
 | Stage | Proposal |
 |---|---|
-| **Created** | By a user, with an editor command that marks the selected text as "to check". By the DB07 conversion, from each v1 `nt-assumption` span. By the model **only if** the team separately decides model output may contain it. Until then the generation check keeps rejecting it. |
+| **Created** | By a user, with an editor command that marks the selected text as "to check". By the DB07 conversion, from each v1 `nt-assumption` span. **Never by the model:** the generation check rejects it. |
 | **Preserved** | Stored in Tiptap JSON as `{ "type": "assumption" }` with no attributes. Not inclusive at its edges. Typing inside may inherit it (same as `ai_generated`). It can sit on the same text as `ai_generated` and other marks, and neither one replaces the other. The server never strips or adds it on save. Copy and paste inside the editor keeps it. |
 | **Removed** | Only by a user: a "confirm" action that unsets the mark, or by deleting the text. |
 | **Emitted** | Editor HTML: `<mark class="nt-assumption">`, so today's styling and "Review next assumption" carry over. Parse HTML from `mark.nt-assumption` too, so pasted v1 content keeps the flag. Counts ("N assumptions to check") are derived from the marks, never stored. `content_text`: plain text, no marker (proposed). Export: to be decided with the export work. |
 
-**Separate decision:** whether the model may mark assumptions in generated output (A03). Enabling the mark for
-users doesn't enable it for the model, and nothing here changes today's simulated-draft behavior.
+**Model output:** decided, the model may not mark assumptions. Gaps go into the text and Open Questions instead
+(A01 prompt in #63). Nothing here changes today's simulated-draft behavior.
 
 ## 8. Notes for later work (not done in this package)
 
@@ -254,7 +252,7 @@ users doesn't enable it for the model, and nothing here changes today's simulate
 2. Additive backend changes: the `description` column and the S03 save transaction, with this validator,
    `derive_content_text` and the database check of `generation_record_id`.
 3. Frontend sends v2 documents and `description`, and stops sending `status` and `content_text`.
-4. One-time conversion of stored v1 content and snapshots (DB07), including the assumption decision. Then
+4. One-time conversion of stored v1 content and snapshots (DB07), mapping assumptions per §7 option A. Then
    `doc_schema_version` becomes 2.
 
 ### Proposed v1 → v2 conversion (for DB07)
@@ -271,7 +269,7 @@ users doesn't enable it for the model, and nothing here changes today's simulate
 | `<br>` | `hardBreak` |
 | `<b>`/`<strong>`, `<i>`/`<em>`, `<u>` | `bold`, `italic`, `underline` |
 | `<a href>` (http, https, mailto) | `link`; other links become plain text |
-| `mark.nt-assumption` | per §7 |
+| `mark.nt-assumption` | `assumption` mark, keeping its other marks (§7, option A) |
 | anything else (`span`, `font`, inline styles, ...) | unwrapped to its text, and counted in a report |
 
 The current editor uses `contentEditable` with `execCommand`, so stored HTML may contain tags beyond this list.
@@ -299,12 +297,17 @@ order by 2 desc;
 
 ## 9. Editor round-trip checklist (for Aksh)
 
+**Status (2026-10-30):** Aksh confirmed in a Discord DM to Marco that the design is compatible with Tiptap. The
+round-trip runs below haven't been reported yet.
+
 1. Configure the schema to match §3 and §4 exactly:
    - a custom `section` node with a `type` attribute;
    - `doc` content of zero or more sections;
    - `listItem` content of a paragraph followed by paragraphs and lists;
    - StarterKit extras disabled (code block, code, strike, horizontal rule);
-   - Link limited to http, https and mailto;
+   - Link limited to http, https and mailto, writing only Tiptap's default `target`/`rel`/`class` values (§4);
+   - tables without merged cells (no `mergeCells`/`splitCell`), with column resizing allowed;
+   - an `assumption` mark (no attributes, `inclusive: false`, HTML `<mark class="nt-assumption">`);
    - `ai_generated` with `inclusive: false`;
    - nothing that writes extra attributes (TextAlign, ids, colours).
 2. For each file in `valid/`:
@@ -323,7 +326,7 @@ order by 2 desc;
 
 These are every attribute shape the valid fixtures use. `getJSON()` should give back exactly these. Anything
 extra (a new attribute, a different default, `attrs` added where there were none) is a finding to report, not
-something to work around. The spec still marks these attributes **proposed** until you confirm them.
+something to work around.
 
 | Node or mark | Shapes in the fixtures | Fixture |
 |---|---|---|
@@ -331,11 +334,12 @@ something to work around. The spec still marks these attributes **proposed** unt
 | `heading` | `{"level": 1}`, `{"level": 2}`, `{"level": 3}` | `every_node_type` |
 | `orderedList` | `{"start": 1}`, `{"start": 3}` | `every_node_type`, `tiptap_null_defaults` |
 | `paragraph` | no `attrs`, or `{}` | `tiptap_null_defaults` |
-| `tableCell` | `{"colspan": 1, "rowspan": 1, "colwidth": null}`, `{"colspan": 2, "rowspan": 1, "colwidth": null}` | `every_node_type` |
+| `tableCell` | `{"colspan": 1, "rowspan": 1, "colwidth": null}` (`colspan` 2 is now invalid: `invalid/table_merged_cell`) | `every_node_type` |
 | `tableHeader` | `{"colspan": 1, "rowspan": 1, "colwidth": null}`, `{"colspan": 1, "rowspan": 1, "colwidth": [240]}` | `every_node_type` |
 | `link` | `{"href": "https://example.com"}`; `{"href": "...", "target": null, "rel": null, "class": null}`; `{"href": "...", "target": "_blank", "rel": "noopener noreferrer nofollow", "class": null}`; also `mailto:` | `marks`, `tiptap_null_defaults` |
 | `ai_generated` | `{"generation_record_id": "3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01"}` | `marks`, `generation_rejects_ai_mark` |
 | `bold`, `italic`, `underline` | no `attrs` | `marks` |
+| `assumption` | no `attrs` | `assumption_mark` |
 
 Things most likely to differ, depending on the Tiptap version and extensions:
 - newer `orderedList` versions may also write a `type` attribute;
@@ -344,18 +348,17 @@ Things most likely to differ, depending on the Tiptap version and extensions:
 
 ## 10. Open questions
 
-**For Aksh (editor):**
-1. Is the node list inside sections right (§3)? Given the section label is derived and shown by the editor, should
-   inner headings stay levels 1-3 or shift (for example 3-4)?
-2. Should list items, quotes and table cells hold only paragraphs and lists, as proposed?
-3. Tables: should merged cells and column resizing be allowed? If resizing is off, `colwidth` is always `null`.
-4. Which `target`/`rel` does your Link config write? The validator accepts only the values in §4.
-5. Assumptions: is option A workable, and how does a user confirm or remove one?
-6. Empty drafts: how does a user add the first section, and which sections does a new draft start with?
-7. Will the frontend import the spec file to build its schema, or hard-code it and test against the fixtures?
+Answered 2026-10-30 (Aksh's Discord DM, and Marco's settings): headings stay levels 1-3; list items, quotes and
+table cells hold paragraphs and lists; simple tables without merged cells, with column resizing; links accept
+only Tiptap's default `target`/`rel`/`class` values; assumptions use option A, and the model may not add them.
+
+**Still open for Aksh (editor):**
+1. How a user confirms or removes an assumption in the editor.
+2. Empty drafts: how does a user add the first section, and which sections does a new draft start with?
+3. Will the frontend import the spec file to build its schema, or hard-code it and test against the fixtures?
+4. Round-trip results for §9.
 
 **For the team:**
-1. The assumption representation (§7), including whether model output may mark assumptions.
-2. The proposed limits and the non-blank title rule.
-3. The `content_text` format (§6), which affects search and AI context.
-4. Whether generated output may contain links.
+1. The proposed limits and the non-blank title rule.
+2. The `content_text` format (§6), which affects search and AI context.
+3. Whether generated output may contain links.
