@@ -92,7 +92,7 @@ Status and the old profile role (`pm`, `engineer`, `admin`) grant nothing.
 | Anyone else | no (404) | no (404) | no (404) |
 
 The creator becomes the PRD's owner, and a PRD can have several owners. Roles stop counting if the person is
-deactivated in the organization. Inviting people comes with E04.
+deactivated in the organization. Owners and org admins invite people: see [People on a PRD](#people-on-a-prd).
 
 Every PRD belongs to its creator's organization. `my_role` is the caller's access: their role on the PRD, or
 `org_admin` when they only see it as an admin of its organization. Use it to decide which buttons to show.
@@ -109,6 +109,23 @@ Every PRD belongs to its creator's organization. `my_role` is the caller's acces
   still accepts it for now and will reject it with 422 once #62 is live.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
   [`docs/prd-document-format.md`](prd-document-format.md); saves switch to it with Marco's S03 work.
+
+### People on a PRD
+
+Owners and org admins invite people from the PRD's organization, change their roles and remove them. Anyone on a
+PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
+
+`PRDMember`: `{ "user_id": "uuid", "name": "string | null", "role": "owner | editor | viewer", "granted_by": "uuid | null", "added_at": "…" }`
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `GET /api/prds/{id}/members` | | 200 `PRDMember[]`, in the order they were added (the creator first) | 404 if you can't see the PRD |
+| `PUT /api/prds/{id}/members/{user_id}` | `{ "role": "owner" \| "editor" \| "viewer" }` | 200 `PRDMember[]` (the updated list): adds the person, or changes their role | 404 can't see the PRD; 403 `forbidden` not an owner or org admin; 422 `not_in_organization` (not an active member of the PRD's org); 422 `validation_error` unknown role; 409 `owner_required` (demoting the last owner) |
+| `DELETE /api/prds/{id}/members/{user_id}` | | 204, also when the person wasn't on it | 404; 403 removing someone else without managing the PRD; 409 `owner_required` (the last owner) |
+
+- To leave a PRD, `DELETE` with your own `user_id`. Afterwards it's 404 for you unless you're an org admin.
+- An owner who demotes themselves loses the right to manage people straight away.
+- Pick invitees from the [organization directory](#organization-directory) (`members[].user_id`).
 
 ## Intake answers
 
@@ -176,7 +193,7 @@ See [Organizations](#organizations) for the rules (one org per account).
 | #72 | `GET /api/organizations/{id}/join-code` | | 200 `{ join_code }` (admins only) | 403 members; 404 others |
 | #72 | `POST /api/organizations/{id}/join-code` | | 200 `{ join_code }`: a **new** code; the old one stops working | 403 members; 404 others |
 
-Next: inviting people to a PRD (E04) and admin routes for members, departments and teams (E02).
+Next: admin routes for members, departments and teams (E02).
 
 ### AI (Marco)
 
