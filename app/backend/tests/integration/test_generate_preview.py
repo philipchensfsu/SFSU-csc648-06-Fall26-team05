@@ -16,7 +16,7 @@ from supabase import create_client
 from ai import preview
 from ai.gemini_client import GeminiResult
 from ai.usage_gate import UsageLimitError
-from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL
+from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL, add_to_prd, org_prd
 from errors import ApiError
 
 FIXTURES = Path(__file__).resolve().parents[2].parent / "shared" / "fixtures" / "prd_document" / "valid"
@@ -49,6 +49,15 @@ def fake_model(during=None):
         return GeminiResult(data=data, model="fake-model", prompt_tokens=120, output_tokens=880)
     call_model.calls = calls
     return call_model
+
+
+def shared_prd(db, make_org, owner, other, role):
+    """An org PRD of owner's, with other on it as role and the required answers."""
+    prd_id = org_prd(db, make_org(owner, other), owner, "Shared PRD")
+    add_to_prd(db, prd_id, other, role)
+    for key, text in REQUIRED.items():
+        assert owner.api("PUT", f"/prds/{prd_id}/intake/{key}", json={"answer_text": text}).status_code == 200
+    return owner.api("GET", f"/prds/{prd_id}").json()
 
 
 def ready_prd(user, answers=REQUIRED):
@@ -157,12 +166,12 @@ def test_a_save_while_generating_is_a_stale_revision(make_user, db):
     assert lease(db, alice.id) == (None,)
 
 
-def test_losing_edit_access_while_generating_stages_nothing(make_user, db):
-    alice = make_user()
-    prd = ready_prd(alice)
+def test_losing_edit_access_while_generating_stages_nothing(make_user, make_org, db):
+    owner, alice = make_user(), make_user()
+    prd = shared_prd(db, make_org, owner, alice, "editor")
 
-    def demote():
-        db.execute("update profile set role = 'engineer' where id = %s", (alice.id,))
+    def demote():  # an owner makes Alice a viewer mid-call
+        db.execute("update prd_member set role = 'viewer' where prd_id = %s and user_id = %s", (prd["id"], alice.id))
     with pytest.raises(ApiError) as info:
         run(alice, prd, fake_model(during=demote))
     assert (info.value.status_code, info.value.code) == (403, "forbidden")
@@ -172,8 +181,8 @@ def test_losing_edit_access_while_generating_stages_nothing(make_user, db):
 # --- through the running API: refusals that happen before any Gemini call ----------
 
 
-def test_api_refuses_before_the_limit_or_gemini(make_user, db):
-    alice, ben = make_user(), make_user()
+def test_api_refuses_before_the_limit_or_gemini(make_user, make_org, db):
+    alice, ben, viewer = make_user(), make_user(), make_user()
     prd = ready_prd(alice)
     empty = alice.api("POST", "/prds", json={"title": "No answers"}).json()
 
@@ -186,10 +195,11 @@ def test_api_refuses_before_the_limit_or_gemini(make_user, db):
     r = alice.api("POST", f"/prds/{prd['id']}/generate", json={"revision": prd["revision"], "extra": 1})
     assert r.status_code == 422
 
-    db.execute("update profile set role = 'engineer' where id = %s", (alice.id,))  # can read, can't edit
-    r = alice.api("POST", f"/prds/{prd['id']}/generate", json={"revision": prd["revision"]})
+    shared = shared_prd(db, make_org, ben, viewer, "viewer")  # can read, can't edit
+    r = viewer.api("POST", f"/prds/{shared['id']}/generate", json={"revision": shared["revision"]})
     assert (r.status_code, r.json()["code"]) == (403, "forbidden")
 
-    assert records(db, prd["id"]) == [] and records(db, empty["id"]) == []
-    assert lease(db, alice.id) is None and lease(db, ben.id) is None  # never admitted
+    assert records(db, prd["id"]) == [] and records(db, empty["id"]) == [] and records(db, shared["id"]) == []
+    for user in (alice, ben, viewer):
+        assert lease(db, user.id) is None  # never admitted
 
