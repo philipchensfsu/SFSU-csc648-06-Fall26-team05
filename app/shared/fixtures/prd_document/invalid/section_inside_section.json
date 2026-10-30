@@ -1,0 +1,41 @@
+{
+  "description": "Sections cannot nest.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "section",
+            "attrs": {
+              "type": "goals"
+            },
+            "content": [
+              {
+                "type": "paragraph",
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "x"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "node_not_allowed",
+        "path": "/content/0/content/0"
+      }
+    ]
+  }
+}

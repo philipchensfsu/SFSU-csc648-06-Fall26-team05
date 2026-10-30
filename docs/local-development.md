@@ -64,7 +64,7 @@ Edits under `app/backend` and `app/frontend` reload automatically.
 | Rebuild the DB from migrations + seed | `supabase db reset` |
 | See URLs and keys | `supabase status` |
 | Database UI (Supabase Studio) | http://127.0.0.1:54323 |
-| Run backend tests | `docker compose exec backend python -m pytest -q` |
+| Run backend tests | `docker compose exec backend python -m pytest -q` (see section 5) |
 | Backend logs | `docker compose logs -f backend` |
 | SQL shell | `docker exec -it supabase_db_nautilus psql -U postgres` |
 | After changing requirements.txt or package.json | `docker compose up --build -V` |
@@ -104,7 +104,24 @@ Never run `supabase db push` or point local tools at the hosted project.
 `20261028000000_baseline.sql` is the schema the hosted database already has:
 it exists only so local databases can be built from scratch.
 
-## 5. Running without Docker (optional)
+## 5. Running tests
+
+```
+docker compose exec backend python -m pytest -q                    # everything
+docker compose exec backend python -m pytest tests/integration -q  # integration only
+```
+
+- **Unit tests** (`app/backend/tests/`) use fake Supabase clients and need nothing running.
+- **Integration tests** (`app/backend/tests/integration/`) use real sign-ins, Postgres RLS and the
+  running API, plus direct Data API calls that bypass the backend. They need `supabase start` and
+  `docker compose up`, and they're skipped when the stack isn't running.
+- Integration tests refuse to run against anything but `127.0.0.1`, `localhost` or
+  `host.docker.internal`, and each test deletes the throwaway users it creates.
+- A PR that changes database rules adds integration tests for them, including one that would fail
+  without the change.
+- After changing `requirements-dev.txt`, rebuild with `docker compose up --build -V`.
+
+## 6. Running without Docker (optional)
 
 > **Check your env files first.** Your existing `app/backend/.env` and `app/frontend/.env.local`
 > probably point at the hosted project, which is **production**. Replace them with the local values

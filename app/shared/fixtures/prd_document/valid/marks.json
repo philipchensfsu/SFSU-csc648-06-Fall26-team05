@@ -1,0 +1,174 @@
+{
+  "description": "Every enabled mark, stacked marks, and links with Tiptap's default attributes.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "goals"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Bold italic underline",
+                "marks": [
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "italic"
+                  },
+                  {
+                    "type": "underline"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " then "
+              },
+              {
+                "type": "text",
+                "text": "http",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "http://example.com",
+                      "target": "_blank",
+                      "rel": "noopener noreferrer nofollow",
+                      "class": null
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": ", "
+              },
+              {
+                "type": "text",
+                "text": "https",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com/path?q=1#top"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": ", "
+              },
+              {
+                "type": "text",
+                "text": "mail",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "mailto:pm@example.com"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " and "
+              },
+              {
+                "type": "text",
+                "text": "accepted AI text",
+                "marks": [
+                  {
+                    "type": "ai_generated",
+                    "attrs": {
+                      "generation_record_id": "3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": " plus "
+              },
+              {
+                "type": "text",
+                "text": "linked AI text",
+                "marks": [
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "https://example.com"
+                    }
+                  },
+                  {
+                    "type": "ai_generated",
+                    "attrs": {
+                      "generation_record_id": "3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [],
+    "generation_errors": [
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "provenance_mark_not_allowed",
+        "path": "/content/0/content/0/content/8/marks/0"
+      },
+      {
+        "code": "provenance_mark_not_allowed",
+        "path": "/content/0/content/0/content/10/marks/2"
+      }
+    ],
+    "content_text": "Goals\nBold italic underline then http, https, mail and accepted AI text plus linked AI text"
+  }
+}
