@@ -37,6 +37,14 @@ alter table prd_version
   add column changed_sections text[] not null default '{}',
   add column change_summary text check (char_length(change_summary) <= 300);
 
+-- Versions outlive the person who saved them. Without this, anyone who
+-- ever saved a version could not be deleted (the baseline FK has no ON
+-- DELETE). Their own PRDs, and those PRDs' versions, still cascade away.
+alter table prd_version
+  drop constraint prd_version_created_by_fkey,
+  add constraint prd_version_created_by_fkey
+    foreign key (created_by) references profile(id) on delete set null;
+
 -- A PRD that has never had content saved still gets versions when its title
 -- or description changes.
 alter table prd_version alter column content_json drop not null;
