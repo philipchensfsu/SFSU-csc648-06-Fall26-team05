@@ -53,8 +53,6 @@ create table organization_member (
   -- member: creates PRDs; admin: also manages the organization. Access to a
   -- PRD comes from its own roles, not from this.
   access_role text not null default 'member' check (access_role in ('member', 'admin')),
-  -- Independent of access_role and department.
-  can_approve boolean not null default false,
   -- Reporting line only; being someone's manager grants no permission.
   manager_id uuid check (manager_id is null or manager_id <> user_id),
   title text check (char_length(title) <= 100),
@@ -62,14 +60,20 @@ create table organization_member (
   updated_at timestamptz not null default now(),
   primary key (organization_id, user_id),
   foreign key (organization_id, department_id) references department(organization_id, id),
+  -- Removing a member clears only manager_id (organization_id stays), so
+  -- deleting a user doesn't fail on the people they managed. Same for
+  -- department heads and team leads below.
   foreign key (organization_id, manager_id) references organization_member(organization_id, user_id)
+    on delete set null (manager_id)
 );
 
 -- Added after organization_member exists (the references are circular).
 alter table department
-  add foreign key (organization_id, head_id) references organization_member(organization_id, user_id);
+  add foreign key (organization_id, head_id) references organization_member(organization_id, user_id)
+    on delete set null (head_id);
 alter table team
-  add foreign key (organization_id, lead_id) references organization_member(organization_id, user_id);
+  add foreign key (organization_id, lead_id) references organization_member(organization_id, user_id)
+    on delete set null (lead_id);
 
 create table team_member (
   organization_id uuid not null,
