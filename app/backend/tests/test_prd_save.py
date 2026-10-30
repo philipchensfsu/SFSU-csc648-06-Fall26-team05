@@ -24,10 +24,19 @@ def fixture(kind, name):
 
 
 class FakeService:
-    """Records the rpc call and returns a canned row, or raises a database error."""
+    """Records the rpc call and returns a canned row, or raises a database error.
+    Serves one staged proposal for AI saves."""
 
-    def __init__(self, error_code=None):
-        self.error_code, self.calls = error_code, []
+    def __init__(self, error_code=None, proposal=None):
+        self.error_code, self.calls, self.proposal = error_code, [], proposal
+
+    def table(self, name):
+        assert name == "ai_proposal"
+        rows = [self.proposal] if self.proposal else []
+        query = SimpleNamespace(execute=lambda: SimpleNamespace(data=rows))
+        query.select = lambda *_: query
+        query.eq = lambda *_: query
+        return query
 
     def rpc(self, name, params):
         self.calls.append((name, params))
@@ -68,11 +77,15 @@ def test_description_can_be_cleared():
 
 
 def test_an_ai_save_names_its_generation_record():
-    service = FakeService()
+    empty = fixture("valid", "empty_draft")["document"]
+    service = FakeService(proposal={"prd_id": PRD, "requester_id": ACTOR, "kind": "generate", "base_revision": 1,
+                                    "status": "pending", "context_patch": None,
+                                    "content": {"title": "T", "description": "", "content_json": empty}})
     save_prd(service, ACTOR, PRD, 1, content_json=fixture("valid", "empty_draft")["document"],
              origin="ai_generated", generation_record_id=RECORD)
     params = service.calls[0][1]
     assert params["p_origin"] == "ai_generated" and params["p_generation_record_id"] == RECORD
+    assert params["p_apply_context_patch"] is False
 
 
 @pytest.mark.parametrize("kwargs, code", [
@@ -121,6 +134,7 @@ def test_v1_content_is_rejected():
     ("NT409", 409, "stale_revision"),
     ("NT422", 422, "invalid_generation_record"),
     ("NTREV", 409, "review_integration_pending"),
+    ("NTPRP", 409, "proposal_unavailable"),
 ])
 def test_database_errors_map_to_api_errors(sqlstate, status, code):
     with pytest.raises(SaveError) as caught:
