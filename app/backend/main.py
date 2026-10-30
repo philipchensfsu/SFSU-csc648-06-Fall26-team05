@@ -326,8 +326,9 @@ def create_organization(payload: OrganizationCreate, auth=Depends(get_current_us
     try:
         response = client.rpc("create_organization", {"org_name": payload.name}).execute()
     except APIError as exc:
-        if exc.message == "organization_limit":
-            raise ApiError(409, "You can create at most 3 organizations.", code="organization_limit")
+        if exc.message == "already_in_organization":
+            raise ApiError(409, "This account already belongs to an organization. Use another account to start a new one.",
+                           code="already_in_organization")
         raise
     return {"organization_id": response.data}
 
@@ -342,13 +343,13 @@ class MeOut(BaseModel):
     id: UUID
     email: Optional[str]
     full_name: Optional[str]
-    memberships: list[Membership]
+    organization: Optional[Membership]
 
 
 @app.get("/api/me", response_model=MeOut)
 def get_me(auth=Depends(get_current_user)):
-    # Identity plus active memberships. An empty list means the account has
-    # no organization yet, so the frontend shows "Create your organization".
+    # Identity plus the account's organization (one per account). null means
+    # it has none yet, so the frontend shows "Create your organization".
     client = auth["client"]
     user = auth["user"]
     profile = client.table("profile").select("full_name").eq("id", user.id).execute().data
@@ -357,16 +358,16 @@ def get_me(auth=Depends(get_current_user)):
         .select("organization_id, access_role, organization(name)")
         .eq("user_id", user.id).eq("active", True).execute().data
     )
-    memberships = [
-        {"organization_id": r["organization_id"], "name": r["organization"]["name"], "access_role": r["access_role"]}
-        for r in rows
-    ]
-    memberships.sort(key=lambda m: m["name"].lower())
+    organization = None
+    if rows:
+        row = rows[0]
+        organization = {"organization_id": row["organization_id"], "name": row["organization"]["name"],
+                        "access_role": row["access_role"]}
     return {
         "id": user.id,
         "email": user.email,
         "full_name": profile[0]["full_name"] if profile else None,
-        "memberships": memberships,
+        "organization": organization,
     }
 
 
