@@ -35,7 +35,7 @@ from google import genai
 from google.genai import errors as genai_errors
 from google.genai import types
 
-DEFAULT_MODEL = "gemini-3.8-flash"
+DEFAULT_MODEL = "gemini-3-flash-preview"
 TIMEOUT_SECONDS = 60
 
 # One retry for a brief Gemini outage. Timeouts are not retried: a request
