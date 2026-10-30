@@ -262,8 +262,11 @@ class _Checker:
             if not _is_allowed_href(value, attr_spec["schemes"]):
                 return "must be an absolute " + ", ".join(attr_spec["schemes"]) + " link"
         elif kind == "colwidth":
-            if not isinstance(value, list) or not 1 <= len(value) <= 100 \
+            max_items = attr_spec.get("max_items", 100)
+            if not isinstance(value, list) or not 1 <= len(value) <= max_items \
                     or any(type(width) is not int or not 1 <= width <= 10000 for width in value):
+                if max_items == 1:
+                    return "must be null or a list with one whole-number width"
                 return "must be null or a list of whole-number widths"
         else:
             raise ValueError(f"Spec uses an unknown attribute kind: {kind}")

@@ -7,6 +7,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from postgrest.exceptions import APIError
+from supabase_auth.errors import AuthApiError, AuthRetryableError, AuthSessionMissingError
 
 import main
 
@@ -59,19 +60,57 @@ def assert_error(response, status, code):
 @pytest.mark.parametrize("headers", [{}, {"Authorization": "Token abc"}, {"Authorization": "Bearer "}])
 def test_missing_or_malformed_auth_is_401(headers, monkeypatch):
     def reject(token):
-        raise ValueError("bad token")
+        raise AuthApiError("invalid JWT", 403, "bad_jwt")
 
     monkeypatch.setattr(main.supabase.auth, "get_user", reject)
     assert_error(client.get("/api/projects", headers=headers), 401, "not_authenticated")
 
 
-def test_invalid_token_is_401(monkeypatch):
+@pytest.mark.parametrize("error", [
+    AuthApiError("invalid JWT", 403, "bad_jwt"),
+    AuthApiError("token expired", 401, None),
+    AuthSessionMissingError(),
+])
+def test_invalid_token_is_401(error, monkeypatch):
     def reject(token):
-        raise ValueError("bad token")
+        raise error
 
     monkeypatch.setattr(main.supabase.auth, "get_user", reject)
     response = client.get("/api/projects", headers={"Authorization": "Bearer nope"})
     assert_error(response, 401, "not_authenticated")
+
+
+def test_no_user_returned_is_401(monkeypatch):
+    monkeypatch.setattr(main.supabase.auth, "get_user", lambda token: SimpleNamespace(user=None))
+    response = client.get("/api/projects", headers={"Authorization": "Bearer nope"})
+    assert_error(response, 401, "not_authenticated")
+
+
+@pytest.mark.parametrize("error", [
+    httpx.ConnectError("refused"),
+    httpx.ReadTimeout("slow"),
+    AuthRetryableError("bad gateway", 502),
+    AuthApiError("too many requests", 429, "over_request_rate_limit"),
+    AuthApiError("internal error", 500, None),
+])
+def test_auth_outage_is_503_and_never_logs_the_token(error, monkeypatch, caplog):
+    def fail(token):
+        raise error
+
+    monkeypatch.setattr(main.supabase.auth, "get_user", fail)
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/api/projects", headers={"Authorization": "Bearer secret-token-value"})
+    assert_error(response, 503, "service_unavailable")
+    assert "secret-token-value" not in caplog.text
+
+
+def test_unexpected_auth_failure_is_500(monkeypatch):
+    def fail(token):
+        raise ValueError("bug")
+
+    monkeypatch.setattr(main.supabase.auth, "get_user", fail)
+    response = client.get("/api/projects", headers={"Authorization": "Bearer nope"})
+    assert_error(response, 500, "internal_error")
 
 
 def test_validation_error_has_readable_detail_and_field_list():
@@ -93,9 +132,16 @@ def test_route_raised_error_gets_default_code():
 
 def test_stale_revision_is_409_with_specific_code():
     # The update matches nothing, but the PRD is visible: it moved on.
-    sign_in_with(FakeQuery(results=[[], [{"id": PRD_ID}]]))
+    sign_in_with(FakeQuery(results=[[], [{"id": PRD_ID, "revision": 4}]]))
     response = client.put(f"/api/prds/{PRD_ID}", json={"revision": 3, "title": "New"})
     assert_error(response, 409, "stale_revision")
+
+
+def test_update_by_reader_without_edit_rights_is_403():
+    # The update matches nothing, yet the PRD is visible at the sent revision.
+    sign_in_with(FakeQuery(results=[[], [{"id": PRD_ID, "revision": 3}]]))
+    response = client.put(f"/api/prds/{PRD_ID}", json={"revision": 3, "title": "New"})
+    assert_error(response, 403, "forbidden")
 
 
 def test_update_of_missing_or_hidden_prd_is_404():

@@ -76,7 +76,11 @@ timestamp order:
 
 1. Create a file named `<YYYYMMDDHHMMSS>_<what_it_does>.sql`, e.g. with
    `supabase migration new add_comments` in a terminal.
-2. Write the SQL. Every new table needs RLS and explicit `grant`s.
+2. Write the SQL. Every new table needs RLS and explicit `grant`s. New
+   functions start with no `execute` for clients, so grant it to the roles
+   that call them. Change an existing function with `create or replace`,
+   which keeps its grants; `drop` + `create` loses them and breaks any RLS
+   policy that calls it.
 3. Run `supabase db reset` and check the app.
 4. Never edit a migration after it has merged; add a new one.
 

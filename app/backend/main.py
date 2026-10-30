@@ -11,7 +11,9 @@ from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ConfigDict, Field
 
-from errors import ApiError, register_error_handlers
+from supabase_auth.errors import AuthError, AuthRetryableError
+
+from errors import ApiError, logger, register_error_handlers
 from supabase_client import supabase, user_client
 
 app = FastAPI()
@@ -49,8 +51,16 @@ def get_current_user(authorization: Optional[str] = Header(default=None)):
     token = authorization.removeprefix("Bearer ").strip()
     try:
         user_response = supabase.auth.get_user(token)
-    except Exception:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    except AuthError as exc:
+        # A 4xx from Supabase Auth means the token was rejected. Anything else
+        # (gateway errors, rate limits, 5xx) means Auth itself is struggling.
+        # Unreachable or timed out raises httpx.TransportError, which the
+        # shared handler already turns into a 503.
+        status = getattr(exc, "status", None)
+        if not isinstance(exc, AuthRetryableError) and status and 400 <= status < 500 and status != 429:
+            raise HTTPException(status_code=401, detail="Invalid or expired token")
+        logger.error("Supabase Auth unavailable: %s %s", type(exc).__name__, status)
+        raise ApiError(503, "Sign-in service temporarily unavailable. Try again shortly.")
 
     if not user_response or not user_response.user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
@@ -178,6 +188,18 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
     client = auth["client"]
     insert_fields = {"title": payload.title, "owner_id": auth["user"].id}
     if payload.project_id:
+        # RLS also enforces this; checking here gives a 404 like the project
+        # routes. owner_id is filtered explicitly because admins can see
+        # every project, but may still only file PRDs in their own.
+        project = (
+            client.table("project")
+            .select("id")
+            .eq("id", str(payload.project_id))
+            .eq("owner_id", auth["user"].id)
+            .execute()
+        )
+        if not project.data:
+            raise HTTPException(status_code=404, detail="Project not found or not allowed")
         insert_fields["project_id"] = str(payload.project_id)
     response = client.table("prd").insert(insert_fields).execute()
     if not response.data:
@@ -223,11 +245,14 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
         .execute()
     )
     if not response.data:
-        # No row matched: either the PRD is missing or hidden from this
-        # user (404), or it exists but its revision has moved on (409).
-        visible = client.table("prd").select("id").eq("id", str(prd_id)).execute()
+        # No row matched: the PRD is missing or hidden from this user (404),
+        # visible but not editable by them (403, same revision), or its
+        # revision has moved on (409).
+        visible = client.table("prd").select("id, revision").eq("id", str(prd_id)).execute()
         if not visible.data:
             raise ApiError(404, "PRD not found")
+        if visible.data[0]["revision"] == payload.revision:
+            raise ApiError(403, "You don't have permission to edit this PRD.")
         raise ApiError(
             409,
             "This PRD changed since you last loaded it. Refresh and try again.",

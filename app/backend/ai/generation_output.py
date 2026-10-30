@@ -6,6 +6,7 @@ and also the stricter rules in the shared spec's "generation" block:
 - all nine sections, in standard order;
 - no ai_generated marks: the model cannot set provenance, so the backend adds
   the mark only after validation;
+- no assumption marks: only people (and the one-time v1 conversion) add them;
 - text in every section (proposed);
 - no leading heading that repeats a section's derived label.
 
@@ -26,6 +27,13 @@ from prd_document import (
 )
 
 
+# Error codes for marks the model may not add (spec: generation.forbid_marks).
+FORBIDDEN_MARK_CODES = {
+    "ai_generated": "provenance_mark_not_allowed",
+    "assumption": "assumption_mark_not_allowed",
+}
+
+
 def validate_generated_document(document) -> list[DocumentError]:
     """Returns the document's structural errors alone if it has any;
     otherwise the generation errors. Empty list = acceptable output."""
@@ -44,7 +52,8 @@ def validate_generated_document(document) -> list[DocumentError]:
         path = f"/content/{index}"
         for mark_path, mark_type in iter_marks(section, path):
             if mark_type in forbidden:
-                errors.append(DocumentError("provenance_mark_not_allowed", mark_path,
+                errors.append(DocumentError(FORBIDDEN_MARK_CODES.get(mark_type, "mark_not_allowed_in_output"),
+                                            mark_path,
                                             f"Generated output must not contain the {mark_type} mark."))
         if not plain_text(section).strip():
             errors.append(DocumentError("empty_section", path,

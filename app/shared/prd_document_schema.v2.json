@@ -3,7 +3,8 @@
     "Nautilus PRD document format, doc_schema_version 2: Tiptap/ProseMirror JSON stored in prd.content_json.",
     "Shared by the backend validator (app/backend/prd_document.py) and, later, the frontend's Tiptap setup.",
     "Human-readable notes, examples and open questions: docs/prd-document-format.md.",
-    "status: agreed = settled in Backend Tasks v1.2 S03, M2 1.5, the frontend guide section 8, or confirmed with frontend (2026-10-29);",
+    "status: agreed = settled in Backend Tasks v1.2 S03, M2 1.5, the frontend guide section 8, or confirmed with frontend (2026-10-29; editor compatibility confirmed by Aksh in a Discord DM to Marco, 2026-10-30);",
+    "agreed table and link settings below were finalized by Marco (2026-10-30) for the editor configuration;",
     "proposed = written down here so it can be reviewed, NOT settled; reserved = defined but rejected until enabled.",
     "DRAFT: nothing reads this file in production yet, and saves do not use it."
   ],
@@ -15,7 +16,7 @@
     "max_title_chars": { "value": 200, "status": "agreed", "note": "PRD title, which is a column, not part of the document." },
     "max_description_chars": { "value": 2000, "status": "agreed", "note": "PRD description column (S03/E05). Not part of the document." },
     "max_depth": { "value": 32, "status": "proposed", "note": "Nesting depth of nodes, counting doc as 1. Guards the validator against pathological input." },
-    "max_link_href_chars": { "value": 2048, "status": "proposed" },
+    "max_link_href_chars": { "value": 2048, "status": "agreed" },
     "max_errors": { "value": 100, "status": "proposed", "note": "The validator stops collecting after this many errors." }
   },
 
@@ -47,7 +48,7 @@
     "section": {
       "status": "agreed",
       "content": ["paragraph", "heading", "bulletList", "orderedList", "blockquote", "table"],
-      "content_status": "proposed",
+      "content_status": "agreed",
       "min_content": 1,
       "attrs": {
         "type": { "kind": "section_type", "required": true, "status": "agreed" }
@@ -61,21 +62,21 @@
       "attrs": {}
     },
     "heading": {
-      "status": "proposed",
+      "status": "agreed",
       "content": ["text", "hardBreak"],
       "min_content": 0,
       "attrs": {
-        "level": { "kind": "integer", "required": true, "min": 1, "max": 3, "status": "proposed" }
+        "level": { "kind": "integer", "required": true, "min": 1, "max": 3, "status": "agreed" }
       }
     },
     "bulletList": {
-      "status": "proposed",
+      "status": "agreed",
       "content": ["listItem"],
       "min_content": 1,
       "attrs": {}
     },
     "orderedList": {
-      "status": "proposed",
+      "status": "agreed",
       "content": ["listItem"],
       "min_content": 1,
       "attrs": {
@@ -83,49 +84,51 @@
       }
     },
     "listItem": {
-      "status": "proposed",
+      "status": "agreed",
       "content": ["paragraph", "bulletList", "orderedList"],
       "first_child": "paragraph",
       "min_content": 1,
       "attrs": {}
     },
     "blockquote": {
-      "status": "proposed",
+      "status": "agreed",
       "content": ["paragraph", "bulletList", "orderedList"],
       "min_content": 1,
       "attrs": {}
     },
     "table": {
-      "status": "proposed",
+      "status": "agreed",
       "content": ["tableRow"],
       "min_content": 1,
       "attrs": {}
     },
     "tableRow": {
-      "status": "proposed",
+      "status": "agreed",
       "content": ["tableCell", "tableHeader"],
       "min_content": 1,
       "attrs": {}
     },
     "tableCell": {
-      "status": "proposed",
+      "status": "agreed",
       "content": ["paragraph", "bulletList", "orderedList"],
       "min_content": 1,
       "attrs": {
-        "colspan": { "kind": "integer", "required": false, "min": 1, "max": 100, "status": "proposed" },
-        "rowspan": { "kind": "integer", "required": false, "min": 1, "max": 100, "status": "proposed" },
-        "colwidth": { "kind": "colwidth", "required": false, "status": "proposed" }
-      }
+        "colspan": { "kind": "integer", "required": false, "min": 1, "max": 1, "status": "agreed" },
+        "rowspan": { "kind": "integer", "required": false, "min": 1, "max": 1, "status": "agreed" },
+        "colwidth": { "kind": "colwidth", "required": false, "max_items": 1, "status": "agreed" }
+      },
+      "note": "Simple tables, no merged cells (Marco's implementation choice, 2026-10-30): colspan and rowspan are absent, null or 1 (Tiptap writes 1); the editor turns off mergeCells/splitCell. colwidth keeps column resizing: null or one whole-number width in pixels."
     },
     "tableHeader": {
-      "status": "proposed",
+      "status": "agreed",
       "content": ["paragraph", "bulletList", "orderedList"],
       "min_content": 1,
       "attrs": {
-        "colspan": { "kind": "integer", "required": false, "min": 1, "max": 100, "status": "proposed" },
-        "rowspan": { "kind": "integer", "required": false, "min": 1, "max": 100, "status": "proposed" },
-        "colwidth": { "kind": "colwidth", "required": false, "status": "proposed" }
-      }
+        "colspan": { "kind": "integer", "required": false, "min": 1, "max": 1, "status": "agreed" },
+        "rowspan": { "kind": "integer", "required": false, "min": 1, "max": 1, "status": "agreed" },
+        "colwidth": { "kind": "colwidth", "required": false, "max_items": 1, "status": "agreed" }
+      },
+      "note": "Simple tables, no merged cells (Marco's implementation choice, 2026-10-30): colspan and rowspan are absent, null or 1 (Tiptap writes 1); the editor turns off mergeCells/splitCell. colwidth keeps column resizing: null or one whole-number width in pixels."
     },
     "hardBreak": {
       "status": "proposed",
@@ -151,11 +154,11 @@
       "enabled": true,
       "attrs": {
         "href": { "kind": "href", "required": true, "schemes": ["http", "https", "mailto"], "status": "agreed" },
-        "target": { "kind": "enum", "required": false, "values": [null, "_blank"], "status": "proposed" },
-        "rel": { "kind": "enum", "required": false, "values": [null, "noopener noreferrer nofollow"], "status": "proposed" },
-        "class": { "kind": "enum", "required": false, "values": [null], "status": "proposed" }
+        "target": { "kind": "enum", "required": false, "values": [null, "_blank"], "status": "agreed" },
+        "rel": { "kind": "enum", "required": false, "values": [null, "noopener noreferrer nofollow"], "status": "agreed" },
+        "class": { "kind": "enum", "required": false, "values": [null], "status": "agreed" }
       },
-      "note": "target/rel/class are accepted only because Tiptap's Link extension writes them by default."
+      "note": "Final settings (Marco, 2026-10-30): absolute http, https or mailto links of at most 2048 characters. target, rel and class are accepted only with the values Tiptap's Link extension writes by default; nothing else."
     },
     "ai_generated": {
       "status": "agreed",
@@ -173,11 +176,11 @@
       "note": "Reserved until sources are developed (A09 stores sources at PRD level only). Rejected."
     },
     "assumption": {
-      "status": "proposed",
-      "enabled": false,
+      "status": "agreed",
+      "enabled": true,
       "inclusive": false,
       "attrs": {},
-      "note": "CANDIDATE ONLY, not agreed: a possible v2 home for the current <mark class=\"nt-assumption\"> highlights. Rejected until frontend agrees on it. It is not provenance and must never be merged with ai_generated."
+      "note": "Marks text a person should check. Users can add it, and so can the one-time v1 conversion (DB07, from <mark class=\"nt-assumption\">). AI output can never add it (see generation.forbid_marks). It is not provenance and never merges with ai_generated. Agreed with Aksh (Discord DM, 2026-10-30)."
     }
   },
 
@@ -190,7 +193,7 @@
   "generation": {
     "note": "Extra checks for complete initial-generation output (A01/A03), on top of every document rule above. Implemented in app/backend/ai/generation_output.py. Review readiness is a separate, later check: structural validity alone does not make a PRD ready for review.",
     "require_all_sections": { "status": "agreed", "note": "All nine sections, in standard order." },
-    "forbid_marks": { "values": ["ai_generated"], "status": "agreed", "note": "Model output cannot set provenance; the backend adds ai_generated after validation." },
+    "forbid_marks": { "values": ["ai_generated", "assumption"], "status": "agreed", "note": "Model output cannot set provenance (the backend adds ai_generated after validation) and cannot add assumption highlights (only people and the v1 conversion add them)." },
     "require_text_in_every_section": { "status": "proposed" },
     "forbid_leading_section_title_heading": { "status": "agreed", "note": "Section labels are derived from attrs.type, so generated content must not start with a heading that repeats the label. Saved drafts are not checked for this, since users may type any heading." }
   }

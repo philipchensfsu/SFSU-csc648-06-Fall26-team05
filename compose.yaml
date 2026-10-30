@@ -33,6 +33,8 @@ services:
     volumes:
       - ./app/backend:/app
       - /app/venv # hide a host venv from the container
+      # Shared spec and fixtures, read by the backend as ../shared.
+      - ./app/shared:/shared:ro
 
   frontend:
     build:
