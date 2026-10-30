@@ -1,0 +1,36 @@
+{
+  "description": "true is not a level, even though Python treats bool as int.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": true
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "invalid_attr",
+        "path": "/content/0/content/0/attrs/level"
+      }
+    ]
+  }
+}

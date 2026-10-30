@@ -1,0 +1,34 @@
+{
+  "description": "Unknown fields on a node are rejected.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "id": "p1",
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "unknown_key",
+        "path": "/content/0/content/0/id"
+      }
+    ]
+  }
+}
