@@ -122,3 +122,16 @@ def test_profiles_are_each_users_own(make_user):
     alice, legacy_admin = make_user(), make_user("admin")
     assert legacy_admin.rest("GET", f"profile?id=eq.{alice.id}&select=id").json() == []
     assert legacy_admin.rest("PATCH", f"profile?id=eq.{alice.id}", json={"full_name": "Taken"}).json() == []
+
+
+def test_deleting_the_only_owners_account_leaves_the_prd_to_org_admins(make_user, make_org, db):
+    creator, heir, admin = make_user(), make_user(), make_user()
+    prd = org_prd(db, make_org(admin, creator, heir), creator, "Handed over")
+    with db.transaction():
+        add_to_prd(db, prd, heir, "owner")
+        db.execute("delete from prd_member where prd_id = %s and user_id = %s", (prd, creator.id))
+    # The heir is now the only owner, and wasn't the creator.
+    db.execute("delete from profile where id = %s", (heir.id,))
+    assert db.execute("select count(*) from prd_member where prd_id = %s", (prd,)).fetchone()[0] == 0
+    assert admin.api("GET", f"/prds/{prd}").status_code == 200
+    assert edit(admin, prd, "Still editable").status_code == 200

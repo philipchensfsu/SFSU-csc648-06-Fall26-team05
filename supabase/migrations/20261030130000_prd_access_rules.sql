@@ -121,3 +121,24 @@ drop policy "admin deletes profiles" on profile;
 
 create policy "view own profile" on profile for select using (id = auth.uid());
 create policy "update own profile" on profile for update using (id = auth.uid()) with check (id = auth.uid());
+
+-- Deleting an account mustn't fail because the person is the only owner of
+-- a PRD (Marco's note on #76). When the owner row goes away because the
+-- account itself is being deleted, the PRD is left without an owner, and an
+-- org admin, who can still manage it, adds one.
+create or replace function check_prd_has_owner()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if exists (select 1 from prd where id = old.prd_id)
+     and exists (select 1 from profile where id = old.user_id)
+     and not exists (select 1 from prd_member where prd_id = old.prd_id and role = 'owner') then
+    raise exception 'A PRD needs at least one owner'
+      using errcode = 'check_violation', constraint = 'prd_owner_required';
+  end if;
+  return null;
+end;
+$$;
