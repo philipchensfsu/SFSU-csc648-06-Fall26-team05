@@ -20,7 +20,7 @@ from ai import preview, records
 from ai.acceptance import AcceptanceError
 from ai.gemini_client import GeminiResult
 from ai.generation import GenerationProposal
-from conftest import ANON_KEY, DB_URL, SERVICE_KEY, SUPABASE_URL
+from conftest import ANON_KEY, DB_URL, SERVICE_KEY, SUPABASE_URL, org_prd
 from prd_save import SaveError, save_prd
 
 FIXTURES = Path(__file__).resolve().parents[2].parent / "shared" / "fixtures" / "prd_document" / "valid"
@@ -53,9 +53,14 @@ def fake_model(prompt, **kwargs):
     return GeminiResult(data=data, model="fake-model", prompt_tokens=120, output_tokens=880)
 
 
-def previewed(user, service):
+def verified(service, user):
+    """What get_current_user puts in auth["user"] for this user's token."""
+    return service.auth.get_user(user.token).user
+
+
+def previewed(user, service, prd_id=None):
     """A PRD with answers and a staged proposal from the real preview."""
-    prd = user.api("POST", "/prds", json={"title": "Campus events"}).json()
+    prd = (user.api("GET", f"/prds/{prd_id}") if prd_id else user.api("POST", "/prds", json={"title": "Campus events"})).json()
     for key, text in REQUIRED.items():
         user.api("PUT", f"/prds/{prd['id']}/intake/{key}", json={"answer_text": text})
     body = preview.generate_preview(as_user(user), service, actor_id=user.id, prd_id=prd["id"],
@@ -75,7 +80,8 @@ def staged(user, service, context_patch):
 
 
 def accept(service, user, prd, record_id, *, content=None, title=TITLE, revision=None):
-    return save_prd(service, user.id, prd["id"], revision or prd["revision"], title=title, description=DESCRIPTION,
+    return save_prd(service, verified(service, user), prd["id"], revision or prd["revision"], title=title,
+                    description=DESCRIPTION,
                     content_json=copy.deepcopy(DRAFT) if content is None else content,
                     origin="ai_generated", generation_record_id=record_id)
 
@@ -170,7 +176,7 @@ def test_proposal_cannot_be_used_after_a_later_save(make_user, db, service):
     alice = make_user()
     prd, body = previewed(alice, service)
     first = accept(service, alice, prd, body["generation_record_id"])
-    save_prd(service, alice.id, prd["id"], first["revision"], title="Edited afterwards")
+    save_prd(service, verified(service, alice), prd["id"], first["revision"], title="Edited afterwards")
     with pytest.raises(SaveError) as info:
         accept(service, alice, prd, body["generation_record_id"])
     assert info.value.code == "stale_revision" and len(versions(db, prd["id"])) == 2
@@ -179,7 +185,7 @@ def test_proposal_cannot_be_used_after_a_later_save(make_user, db, service):
 def test_a_save_after_the_preview_makes_the_proposal_stale(make_user, db, service):
     alice = make_user()
     prd, body = previewed(alice, service)
-    moved = save_prd(service, alice.id, prd["id"], prd["revision"], title="Renamed meanwhile")
+    moved = save_prd(service, verified(service, alice), prd["id"], prd["revision"], title="Renamed meanwhile")
     with pytest.raises(SaveError) as info:  # the proposal's own base revision
         accept(service, alice, prd, body["generation_record_id"])
     assert info.value.code == "stale_revision"
@@ -189,11 +195,11 @@ def test_a_save_after_the_preview_makes_the_proposal_stale(make_user, db, servic
     assert proposal_status(db, body["generation_record_id"]) == "pending"
 
 
-def test_the_database_refuses_someone_elses_proposal(make_user, db, service):
-    # Straight to save_prd, skipping the Python checks: an admin can edit
-    # Alice's PRD under today's rules but can't use her proposal.
-    alice, admin = make_user(), make_user("admin")
-    prd, body = previewed(alice, service)
+def test_the_database_refuses_someone_elses_proposal(make_user, make_org, db, service):
+    # Straight to save_prd, skipping the Python checks: an org admin can edit
+    # Alice's PRD but can't use her proposal.
+    alice, admin = make_user(), make_user()
+    prd, body = previewed(alice, service, org_prd(db, make_org(admin, alice), alice, "Org PRD"))
     with pytest.raises(Exception) as info:
         service.rpc("save_prd", {
             "p_actor": admin.id, "p_prd_id": prd["id"], "p_base_revision": prd["revision"],

@@ -23,6 +23,7 @@ OTHER = "66666666-6666-4666-8666-666666666666"
 PRD = "11111111-1111-4111-8111-111111111111"
 RECORD = "33333333-3333-4333-8333-333333333333"
 PATCH = {"decisions": ["Weekly digest first"]}
+USER = SimpleNamespace(id=ACTOR)  # auth["user"] from get_current_user
 
 
 def proposal(**changes):
@@ -52,7 +53,7 @@ class FakeService:
 
 def accept(service, *, title="Campus events PRD", description="Help students find events.", content=None,
            revision=3):
-    return save_prd(service, ACTOR, PRD, revision, title=title, description=description,
+    return save_prd(service, USER, PRD, revision, title=title, description=description,
                     content_json=copy.deepcopy(DRAFT) if content is None else content,
                     origin="ai_generated", generation_record_id=RECORD)
 
@@ -99,7 +100,7 @@ def test_marks_dont_change_the_saved_text():
     service = FakeService(proposal())
     accept(service)
     unmarked = FakeService(proposal())
-    save_prd(unmarked, ACTOR, PRD, 3, content_json=copy.deepcopy(DRAFT))
+    save_prd(unmarked, USER, PRD, 3, content_json=copy.deepcopy(DRAFT))
     assert service.calls[0]["p_content_text"] == unmarked.calls[0]["p_content_text"]
 
 
@@ -141,7 +142,7 @@ def test_removed_and_added_sections():
 
 def test_accepting_only_the_title_saves_no_document():
     service = FakeService(proposal())
-    save_prd(service, ACTOR, PRD, 3, title="Campus events PRD", origin="ai_generated",
+    save_prd(service, USER, PRD, 3, title="Campus events PRD", origin="ai_generated",
              generation_record_id=RECORD)
     params = service.calls[0]
     assert not params["p_set_content"] and params["p_apply_context_patch"] is False
