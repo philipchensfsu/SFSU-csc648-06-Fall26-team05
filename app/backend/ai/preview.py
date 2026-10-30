@@ -36,7 +36,8 @@ from dataclasses import dataclass
 
 from ai import records, usage_gate
 from ai.gemini_client import AIError, GeminiResult, generate_json, model_name
-from ai.generation import INTAKE_KEYS, PROMPT_VERSION, GenerationInput, check_inputs, generate_proposal
+from ai.generation import (INTAKE_KEYS, PROMPT_VERSION, GenerationInput, SavedContext, check_inputs,
+                           generate_proposal)
 from errors import ApiError
 
 logger = logging.getLogger("nautilus.ai")
@@ -116,7 +117,8 @@ def load_state(user_client, prd_id: str) -> PreviewState:
     context = (user_client.table("prd_context").select("version, context_json, running_summary")
                .eq("prd_id", prd_id).execute().data)
     # The description column arrives with S03 (#55); until then it's "".
-    inputs = GenerationInput(title=row["title"], description=row.get("description") or "", answers=answers)
+    inputs = GenerationInput(title=row["title"], description=row.get("description") or "", answers=answers,
+                             context=SavedContext.from_row(context[0] if context else None))
     return PreviewState(revision=row["revision"], inputs=inputs,
                         fingerprint=_fingerprint(inputs, context[0] if context else None))
 
@@ -132,8 +134,8 @@ def require_edit(user_client, prd_id: str) -> None:
 
 
 def _fingerprint(inputs: GenerationInput, context: dict | None) -> str:
-    # Context isn't in the generation prompt yet, but anything that changes it
-    # also means the draft no longer matches what the PRD knows.
+    # The whole context row, not only the parts sent to Gemini: any change
+    # means the draft no longer matches what the PRD knows.
     data = {"title": inputs.title, "description": inputs.description,
             "answers": dict(inputs.answers), "context": context}
     return hashlib.sha256(json.dumps(data, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
