@@ -13,8 +13,8 @@
 -- patch only when nothing was edited, so durable context never describes
 -- model text that was discarded.
 --
--- Same trust boundary as save_prd: service role only (the #55 exception,
--- still under review). Not wired into PUT /api/prds/{id}.
+-- Same trust boundary as save_prd: service role only, for the verified user
+-- (reviewed on #55). Keep this copy of save_prd in step with #55's. Not wired into PUT /api/prds/{id}.
 
 drop function save_prd(uuid, uuid, integer, boolean, text, boolean, text, boolean,
                        jsonb, text, uuid[], text, uuid);
@@ -98,11 +98,14 @@ begin
     raise exception 'Stale revision' using errcode = 'NT409';
   end if;
 
-  -- D9 (E09): editing a PRD in review resets approvals; editing an approved
-  -- PRD needs an owner and a confirmed reviewer list. Until that is built on
-  -- the review tables, refuse instead of saving without it.
-  if current_row.status <> 'draft' then
-    raise exception 'Saving a PRD in review or approved needs E09' using errcode = 'NTREV';
+  -- D9 (E09): editing an approved PRD needs an owner and a confirmed
+  -- reviewer list, and must not leave the old approval standing. Until E09
+  -- exists, approved PRDs (final, assigned) are refused. PRDs in review can
+  -- be saved: no review rounds or approvals exist before E07/E08, so there is
+  -- nothing to reset yet; E09 adds the reset when they do. Status itself
+  -- never changes here (D6).
+  if current_row.status in ('final', 'assigned') then
+    raise exception 'Editing an approved PRD needs the reapproval flow (E09)' using errcode = 'NTREV';
   end if;
 
   -- Every ai_generated mark (and the accepted generation) must point to a
