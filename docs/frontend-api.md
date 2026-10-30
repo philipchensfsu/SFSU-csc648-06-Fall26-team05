@@ -108,25 +108,13 @@ Question keys: `problem`, `target_users`, `goals`, `scope`, `constraints`, `succ
 | `GET /api/prds/{id}/intake` | | 200 `IntakeAnswer[]` (empty if the PRD isn't visible) | |
 | `PUT /api/prds/{id}/intake/{question_key}` | `{ "answer_text": string ≤ 5000, "skipped": bool }` | 200 `IntakeAnswer` (saving again overwrites) | 400 unknown question key; 422 |
 
-## Coming in open PRs
+## Organization directory
 
-Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
+Everything the org chart needs in one call. Only active members of the organization can read it.
 
-### Organizations (Vineela)
-
-**One organization per account.** A normal sign-up names an org and becomes its admin; members join with the org's
-code from a "member sign-up" tab. Someone in two orgs uses two accounts. Orgs start with no departments or teams.
-
-| PR | Route | Body | Response | Errors |
-|---|---|---|---|---|
-| #71 | `POST /api/organizations` | `{ "name": string, 1–200 }` | 201 `{ organization_id }`; caller becomes **admin** | 409 `already_in_organization`; 422 |
-| #71 | `GET /api/me` | | 200 `{ id, email, full_name, organization }` where `organization` is `{ organization_id, name, access_role: "admin" \| "member" }` or **`null`** (show "Create your organization") | |
-| #72 | `POST /api/organizations/join` | `{ "code": "K7QX-M2PA-9DZR" }` (any case, dashes and spaces optional) | 200 `{ organization_id }`; caller becomes a **member** | 404 `invalid_join_code`; 403 `membership_inactive` (ask an admin); 409 `already_in_organization` |
-| #72 | `GET /api/organizations/{id}/join-code` | | 200 `{ join_code }` (admins only) | 403 members; 404 others |
-| #72 | `POST /api/organizations/{id}/join-code` | | 200 `{ join_code }`: a **new** code; the old one stops working | 403 members; 404 others |
-| #64 | `GET /api/organizations/{id}/directory` | | 200 `{ organization, departments, teams, members }` (below) | 404 not a member |
-
-Directory (#64), everything the org chart needs in one call:
+| Route | Response | Errors |
+|---|---|---|
+| `GET /api/organizations/{id}/directory` | 200 `{ organization, departments, teams, members }` | 404 if you're not an active member (or it doesn't exist) |
 
 ```json
 {
@@ -143,6 +131,23 @@ Directory (#64), everything the org chart needs in one call:
 
 Members are active members only, sorted by name. Archived departments and teams are included with `archived: true`
 so the chart can grey them out.
+
+## Coming in open PRs
+
+Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
+
+### Organizations (Vineela)
+
+**One organization per account.** A normal sign-up names an org and becomes its admin; members join with the org's
+code from a "member sign-up" tab. Someone in two orgs uses two accounts. Orgs start with no departments or teams.
+
+| PR | Route | Body | Response | Errors |
+|---|---|---|---|---|
+| #71 | `POST /api/organizations` | `{ "name": string, 1–200 }` | 201 `{ organization_id }`; caller becomes **admin** | 409 `already_in_organization`; 422 |
+| #71 | `GET /api/me` | | 200 `{ id, email, full_name, organization }` where `organization` is `{ organization_id, name, access_role: "admin" \| "member" }` or **`null`** (show "Create your organization") | |
+| #72 | `POST /api/organizations/join` | `{ "code": "K7QX-M2PA-9DZR" }` (any case, dashes and spaces optional) | 200 `{ organization_id }`; caller becomes a **member** | 404 `invalid_join_code`; 403 `membership_inactive` (ask an admin); 409 `already_in_organization` |
+| #72 | `GET /api/organizations/{id}/join-code` | | 200 `{ join_code }` (admins only) | 403 members; 404 others |
+| #72 | `POST /api/organizations/{id}/join-code` | | 200 `{ join_code }`: a **new** code; the old one stops working | 403 members; 404 others |
 
 Next: per-PRD roles (E03) add `my_role` to PRDs, a "Shared with me" list (`GET /api/prds?view=owned|shared`) and
 invites; admin routes for members, departments and teams (E02).
