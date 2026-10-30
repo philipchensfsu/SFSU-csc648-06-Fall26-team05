@@ -1,0 +1,12 @@
+{
+  "description": "The document is a list, not an object.",
+  "document": [],
+  "expect": {
+    "document_errors": [
+      {
+        "code": "invalid_type",
+        "path": ""
+      }
+    ]
+  }
+}
