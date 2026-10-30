@@ -331,3 +331,40 @@ def create_organization(payload: OrganizationCreate, auth=Depends(get_current_us
         raise
     return {"organization_id": response.data}
 
+
+class Membership(BaseModel):
+    organization_id: UUID
+    name: str
+    access_role: str
+
+
+class MeOut(BaseModel):
+    id: UUID
+    email: Optional[str]
+    full_name: Optional[str]
+    memberships: list[Membership]
+
+
+@app.get("/api/me", response_model=MeOut)
+def get_me(auth=Depends(get_current_user)):
+    # Identity plus active memberships. An empty list means the account has
+    # no organization yet, so the frontend shows "Create your organization".
+    client = auth["client"]
+    user = auth["user"]
+    profile = client.table("profile").select("full_name").eq("id", user.id).execute().data
+    rows = (
+        client.table("organization_member")
+        .select("organization_id, access_role, organization(name)")
+        .eq("user_id", user.id).eq("active", True).execute().data
+    )
+    memberships = [
+        {"organization_id": r["organization_id"], "name": r["organization"]["name"], "access_role": r["access_role"]}
+        for r in rows
+    ]
+    memberships.sort(key=lambda m: m["name"].lower())
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": profile[0]["full_name"] if profile else None,
+        "memberships": memberships,
+    }
