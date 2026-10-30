@@ -52,6 +52,7 @@ declare
   next_version_no integer;
   sections_changed text[];
   summary_parts text[] := '{}';
+  version_summary text;
   accepted ai_proposal;
 begin
   if p_actor is null or p_prd_id is null or p_base_revision is null then
@@ -177,13 +178,15 @@ begin
                      || case when cardinality(sections_changed) = 1 then ' section' else ' sections' end);
   end if;
 
+  version_summary := case when p_origin = 'ai_generated' then 'Accepted AI proposal: ' else 'Edited ' end
+                     || coalesce(nullif(array_to_string(summary_parts, ', '), ''), 'content');
+
   insert into prd_version (prd_id, version_no, saved_revision, title, description, content_json,
                            doc_schema_version, created_by, origin, generation_record_id,
                            changed_sections, change_summary)
   values (p_prd_id, next_version_no, current_row.revision + 1, new_title, new_description, new_content,
           new_schema_version, p_actor, p_origin, p_generation_record_id, sections_changed,
-          case when p_origin = 'ai_generated' then 'Accepted AI proposal: ' else 'Edited ' end
-          || coalesce(nullif(array_to_string(summary_parts, ', '), ''), 'content'))
+          version_summary)
   returning id into new_version_id;
 
   update prd
@@ -196,6 +199,27 @@ begin
       current_version_id = new_version_id
   where id = p_prd_id
   returning * into saved_row;
+
+  -- Keep the PRD's AI memory in step with the document, whoever edits it:
+  -- note the change in prd_context.change_log (newest 20 kept) and advance
+  -- the context version, so a preview built on the old state isn't current.
+  -- Lock order: the PRD row (above), then its context row.
+  insert into prd_context (prd_id) values (p_prd_id) on conflict (prd_id) do nothing;
+  update prd_context
+  set context_json = jsonb_set(context_json, '{change_log}', (
+        select coalesce(jsonb_agg(entry order by position), '[]'::jsonb)
+        from (
+          select entry, position
+          from jsonb_array_elements(coalesce(context_json -> 'change_log', '[]'::jsonb)
+                                    || jsonb_build_array(left(format('Version %s: %s', next_version_no,
+                                                                     version_summary), 300)))
+               with ordinality as entries(entry, position)
+          order by position desc
+          limit 20
+        ) newest)),
+      version = version + 1,
+      updated_by = case when p_origin = 'ai_generated' then 'ai' else 'pm' end
+  where prd_id = p_prd_id;
 
   return saved_row;
 end;

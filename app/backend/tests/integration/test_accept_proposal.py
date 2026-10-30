@@ -29,6 +29,7 @@ if not FIXTURES.exists():  # backend container: app/shared is mounted at /shared
 DRAFT = json.loads((FIXTURES / "full_generated_draft.json").read_text(encoding="utf-8"))["document"]
 SECTIONS = [s["attrs"]["type"] for s in DRAFT["content"]]
 TITLE, DESCRIPTION = "Campus events PRD", "Help students find events."
+ACCEPTED_NOTE = "Version 1: Accepted AI proposal: title, description, 9 sections"
 REQUIRED = {"problem": "Students miss campus events", "target_users": "Students", "goals": "Higher turnout"}
 
 
@@ -150,14 +151,16 @@ def test_unedited_acceptance_merges_the_staged_context(make_user, db, service):
     alice = make_user()
     prd, record_id = staged(alice, service, {"decisions": ["Weekly digest first"]})
     accept(service, alice, prd, record_id)
-    assert context(db, prd["id"]) == ({"decisions": ["Weekly digest first"]}, 2)
+    # The patch is merged (version 2), then the save notes itself (version 3).
+    assert context(db, prd["id"]) == ({"decisions": ["Weekly digest first"], "change_log": [ACCEPTED_NOTE]}, 3)
 
 
 def test_edited_acceptance_drops_the_staged_context(make_user, db, service):
     alice = make_user()
     prd, record_id = staged(alice, service, {"decisions": ["Weekly digest first"]})
     accept(service, alice, prd, record_id, title="Our own title")
-    assert context(db, prd["id"]) == ({}, 1)
+    # No patch; only the save's own note.
+    assert context(db, prd["id"]) == ({"change_log": [ACCEPTED_NOTE]}, 2)
     assert proposal_status(db, record_id) == "accepted"
 
 
