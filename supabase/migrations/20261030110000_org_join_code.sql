@@ -10,6 +10,8 @@
 -- them: members keep reading every other organization column.
 --
 -- A deactivated member can't rejoin with the code; an admin reactivates them.
+-- An account belongs to one organization, so someone already active in
+-- another organization can't join (they use another account).
 --
 -- Applied to the hosted database by hand (docs/local-development.md,
 -- "Applying a migration to the hosted database"). Gives existing
@@ -88,8 +90,9 @@ end;
 $$;
 
 -- Joins the caller to the organization with this code, as a member.
--- Raises invalid_join_code (no such code) or membership_inactive (the caller
--- was deactivated there). Joining again while active is a no-op.
+-- Raises invalid_join_code (no such code), membership_inactive (the caller
+-- was deactivated there) or already_in_organization (active in another
+-- one). Joining again while active is a no-op.
 create or replace function join_organization(code text)
 returns uuid
 language plpgsql
@@ -108,14 +111,18 @@ begin
   if target_org is null then
     raise exception 'invalid_join_code';
   end if;
+  -- Same lock as create_organization, so concurrent requests can't leave
+  -- the caller in two organizations.
+  perform pg_advisory_xact_lock(hashtextextended('nautilus.membership:' || caller::text, 0));
   select active into was_active from organization_member where organization_id = target_org and user_id = caller;
   if was_active is false then
     raise exception 'membership_inactive';
   end if;
   if was_active is null then
-    -- A concurrent join by the same user is a no-op too.
-    insert into organization_member (organization_id, user_id, access_role) values (target_org, caller, 'member')
-      on conflict (organization_id, user_id) do nothing;
+    if exists (select 1 from organization_member where user_id = caller and active) then
+      raise exception 'already_in_organization';
+    end if;
+    insert into organization_member (organization_id, user_id, access_role) values (target_org, caller, 'member');
   end if;
   return target_org;
 end;

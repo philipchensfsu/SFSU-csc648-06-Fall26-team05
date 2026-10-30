@@ -401,6 +401,9 @@ def join_organization(payload: JoinRequest, auth=Depends(get_current_user)):
         if exc.message == "membership_inactive":
             raise ApiError(403, "Your membership in this organization was deactivated. Ask an admin to reactivate it.",
                            code="membership_inactive")
+        if exc.message == "already_in_organization":
+            raise ApiError(409, "This account already belongs to an organization. Use another account to join this one.",
+                           code="already_in_organization")
         raise
     return {"organization_id": response.data}
 

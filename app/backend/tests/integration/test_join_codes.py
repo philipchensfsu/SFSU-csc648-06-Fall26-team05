@@ -30,7 +30,7 @@ def test_joining_makes_a_member_with_no_department_or_team(make_user, db):
     erin = make_user()
     r = erin.api("POST", "/organizations/join", json={"code": join_code(admin, org)})
     assert r.status_code == 200 and r.json() == {"organization_id": org}
-    assert erin.api("GET", "/me").json()["memberships"] == [{"organization_id": org, "name": "Acme", "access_role": "member"}]
+    assert erin.api("GET", "/me").json()["organization"] == {"organization_id": org, "name": "Acme", "access_role": "member"}
     assert db.execute("select department_id from organization_member where organization_id = %s and user_id = %s",
                       (org, erin.id)).fetchone() == (None,)
     assert db.execute("select count(*) from team_member where user_id = %s", (erin.id,)).fetchone()[0] == 0
@@ -50,7 +50,14 @@ def test_joining_again_is_a_no_op(make_user, db):
     assert db.execute("select count(*) from organization_member where user_id = %s", (erin.id,)).fetchone()[0] == 1
     # The admin joining their own org keeps their admin role.
     assert admin.api("POST", "/organizations/join", json={"code": code}).status_code == 200
-    assert admin.api("GET", "/me").json()["memberships"][0]["access_role"] == "admin"
+    assert admin.api("GET", "/me").json()["organization"]["access_role"] == "admin"
+
+
+def test_someone_in_another_org_cannot_join(make_user):
+    admin, org = org_with_admin(make_user)
+    other_admin, _ = org_with_admin(make_user)
+    r = other_admin.api("POST", "/organizations/join", json={"code": join_code(admin, org)})
+    assert r.status_code == 409 and r.json()["code"] == "already_in_organization"
 
 
 def test_a_wrong_code_is_404(make_user):

@@ -47,6 +47,7 @@ def test_join_returns_the_organization():
 @pytest.mark.parametrize("message, status, code", [
     ("invalid_join_code", 404, "invalid_join_code"),
     ("membership_inactive", 403, "membership_inactive"),
+    ("already_in_organization", 409, "already_in_organization"),
     ("anything else", 500, "database_error"),
 ])
 def test_join_errors(message, status, code):
