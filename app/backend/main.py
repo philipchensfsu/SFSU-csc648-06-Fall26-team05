@@ -2,14 +2,15 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
 from uuid import UUID
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field
+from postgrest.exceptions import APIError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from supabase_auth.errors import AuthError, AuthRetryableError
 
@@ -314,10 +315,166 @@ def save_intake_answer(
     return response.data[0]
 
 
+class OrganizationCreate(RequestModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class OrganizationCreated(BaseModel):
+    organization_id: UUID
+
+
+@app.post("/api/organizations", response_model=OrganizationCreated, status_code=201)
+def create_organization(payload: OrganizationCreate, auth=Depends(get_current_user)):
+    # Called by the sign-up screen right after the account is created: the
+    # new account becomes the organization's admin (E01). No department or
+    # team is created; admins add whatever structure their org uses.
+    client = auth["client"]
+    try:
+        response = client.rpc("create_organization", {"org_name": payload.name}).execute()
+    except APIError as exc:
+        if exc.message == "already_in_organization":
+            raise ApiError(409, "This account already belongs to an organization. Use another account to start a new one.",
+                           code="already_in_organization")
+        raise
+    return {"organization_id": response.data}
+
+
+class Membership(BaseModel):
+    organization_id: UUID
+    name: str
+    access_role: str
+
+
+class MeOut(BaseModel):
+    id: UUID
+    email: Optional[str]
+    full_name: Optional[str]
+    organization: Optional[Membership]
+
+
+@app.get("/api/me", response_model=MeOut)
+def get_me(auth=Depends(get_current_user)):
+    # Identity plus the account's organization (one per account). null means
+    # it has none yet, so the frontend shows "Create your organization".
+    client = auth["client"]
+    user = auth["user"]
+    profile = client.table("profile").select("full_name").eq("id", user.id).execute().data
+    rows = (
+        client.table("organization_member")
+        .select("organization_id, access_role, organization(name)")
+        .eq("user_id", user.id).eq("active", True).execute().data
+    )
+    organization = None
+    if rows:
+        row = rows[0]
+        organization = {"organization_id": row["organization_id"], "name": row["organization"]["name"],
+                        "access_role": row["access_role"]}
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": profile[0]["full_name"] if profile else None,
+        "organization": organization,
+    }
+
+
+class DirectoryOrganization(BaseModel):
+    id: UUID
+    name: str
+
+
+class DirectoryDepartment(BaseModel):
+    id: UUID
+    name: str
+    head_id: Optional[UUID]
+    archived: bool
+
+
+class DirectoryTeam(BaseModel):
+    id: UUID
+    name: str
+    # Teams may have no department (orgs choose their own structure).
+    department_id: Optional[UUID]
+    lead_id: Optional[UUID]
+    archived: bool
+
+
+class DirectoryMember(BaseModel):
+    user_id: UUID
+    name: Optional[str]
+    # Only org admins see emails; everyone else gets null.
+    email: Optional[str]
+    department_id: Optional[UUID]
+    team_ids: list[UUID]
+    access_role: str
+    manager_id: Optional[UUID]
+    title: Optional[str]
+
+
+class DirectoryOut(BaseModel):
+    organization: DirectoryOrganization
+    departments: list[DirectoryDepartment]
+    teams: list[DirectoryTeam]
+    members: list[DirectoryMember]
+
+
+def with_archived_flag(row):
+    archived_at = row.pop("archived_at")
+    return {**row, "archived": archived_at is not None}
+
+
+@app.get("/api/organizations/{org_id}/directory", response_model=DirectoryOut)
+def get_directory(org_id: UUID, auth=Depends(get_current_user)):
+    # Everything the frontend needs to draw the org chart in one response.
+    # RLS limits every query to organizations the caller is an active member of.
+    client = auth["client"]
+    org = str(org_id)
+    organization = client.table("organization").select("id, name").eq("id", org).execute()
+    if not organization.data:
+        raise HTTPException(status_code=404, detail="Organization not found")
+
+    departments = (
+        client.table("department").select("id, name, head_id, archived_at")
+        .eq("organization_id", org).order("name").execute().data
+    )
+    teams = (
+        client.table("team").select("id, name, department_id, lead_id, archived_at")
+        .eq("organization_id", org).order("name").execute().data
+    )
+    members = (
+        client.table("organization_member")
+        .select("user_id, department_id, access_role, manager_id, title")
+        .eq("organization_id", org).eq("active", True).execute().data
+    )
+    links = client.table("team_member").select("team_id, user_id").eq("organization_id", org).execute().data
+    people = {
+        p["user_id"]: p
+        for p in client.rpc("org_directory_people", {"target_org": org}).execute().data
+    }
+
+    team_ids = {}
+    for link in links:
+        team_ids.setdefault(link["user_id"], []).append(link["team_id"])
+    for member in members:
+        person = people.get(member["user_id"], {})
+        member.update(
+            name=person.get("full_name"),
+            email=person.get("email"),
+            team_ids=team_ids.get(member["user_id"], []),
+        )
+    members.sort(key=lambda m: (m["name"] or "").lower())
+
+    return {
+        "organization": organization.data[0],
+        "departments": [with_archived_flag(d) for d in departments],
+        "teams": [with_archived_flag(t) for t in teams],
+        "members": members,
+    }
+
+
 # Preview only (A03): returns {proposal, base_revision, generation_record_id}
 # and saves nothing to the PRD. Accepting the proposal is a normal save (A05).
-# Records and staged proposals are written with the service-role client, the
-# trusted-writer exception proposed in #55/#67 (not yet agreed).
+# Records and staged proposals are written with the service-role client for
+# the verified user, the trusted-writer pattern reviewed on #55.
 @app.post("/api/prds/{prd_id}/generate")
 def generate_prd_preview(prd_id: UUID, payload: GenerateRequest, auth=Depends(get_current_user)):
     return preview.generate_preview(
