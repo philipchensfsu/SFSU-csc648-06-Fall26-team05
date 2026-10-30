@@ -3,12 +3,13 @@ import re
 import sys
 from datetime import datetime, timezone
 from typing import Annotated, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from postgrest import ReturnMethod
 from postgrest.exceptions import APIError
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
@@ -187,11 +188,10 @@ def delete_project(project_id: UUID, auth=Depends(get_current_user)):
 @app.post("/api/prds", response_model=PRDOut, status_code=201)
 def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
     client = auth["client"]
-    insert_fields = {"title": payload.title, "owner_id": auth["user"].id}
+    insert_fields = {"id": str(uuid4()), "title": payload.title, "owner_id": auth["user"].id}
     if payload.project_id:
         # RLS also enforces this; checking here gives a 404 like the project
-        # routes. owner_id is filtered explicitly because admins can see
-        # every project, but may still only file PRDs in their own.
+        # routes. Projects are private to their owner.
         project = (
             client.table("project")
             .select("id")
@@ -202,7 +202,11 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
         if not project.data:
             raise HTTPException(status_code=404, detail="Project not found or not allowed")
         insert_fields["project_id"] = str(payload.project_id)
-    response = client.table("prd").insert(insert_fields).execute()
+    # Inserted without returning the row, then read back: the creator only
+    # becomes an owner (and so able to see it) when the insert's trigger
+    # runs, after Postgres checks the returned row against the view rule.
+    client.table("prd").insert(insert_fields, returning=ReturnMethod.minimal).execute()
+    response = client.table("prd").select("*").eq("id", insert_fields["id"]).execute()
     if not response.data:
         raise HTTPException(status_code=403, detail="Not allowed to create a PRD")
     return response.data[0]
