@@ -149,9 +149,43 @@ invites; admin routes for members, departments and teams (E02).
 
 ### AI (Marco)
 
-Drafts: #63 generation service, #67 AI records and staged proposals, #68 per-user AI usage gate, #69
-`POST /api/prds/{id}/generate` (generation preview), #70 accepting AI proposals through the normal save, #55 atomic
-save and version history. Marco adds their request/response details here as they merge.
+**Status: all draft.** These routes are in open PRs and are **not on `develop`** and **not deployed**. Shapes can still
+change in review. AI also needs migrations that aren't applied to the hosted database, and a Gemini key in Vercel.
+
+| PR | Route | Body | Response | Who |
+|---|---|---|---|---|
+| #69 (+ #74) | `POST /api/prds/{id}/generate` | `{ "revision": int }` | 200 `{ proposal: { title, description, content_json, doc_schema_version: 2, sources: [] }, base_revision, generation_record_id }`. A preview only: nothing is saved | Can edit the PRD |
+| #70 (+ #55) | `PUT /api/prds/{id}` | adds optional `generation_record_id` to accept a proposal (edited or not) | the saved PRD. **Not wired yet:** waits for the #55 review | Can edit |
+| #75 | `POST /api/prds/{id}/ai/chat` | `{ "revision": int, "message": "1–2000 chars", "history": [ { "role": "user" \| "assistant", "content": "1–2000 chars" } ] }` (at most 20 history items) | 200 `{ kind: "answer" \| "blocked" \| "clarification", message, base_revision, generation_record_id }`. Answers only; never changes the PRD | Can view the PRD |
+
+- **Generate:** needs answers to `problem`, `target_users` and `goals`. It uses the PRD's title, description, answers
+  and saved AI context.
+- **Accepting a proposal:** send its `generation_record_id` with the save. The AI highlight (`ai_generated` mark) goes
+  only on sections accepted unchanged. A proposal can be used once, by the person who asked for it, at the revision
+  it was made for.
+- **Chat:** `blocked` and `clarification` carry a fixed message; show it like an answer. Keep `history` in the
+  browser for the open PRD only, and clear it when another PRD opens. **Disabled until Om's guardrail and prompt
+  modules are in**: until then it returns 503 `ai_chat_unavailable`. Edit suggestions in chat come later, through the
+  same proposal and save flow.
+- **Limits (all AI routes):** one AI request per user at a time, plus a short cooldown between requests. A request
+  takes at most about 3 minutes. Show a waiting state; there's no streaming.
+
+AI error codes (all routes above; `{detail, code}` as usual; `detail` is safe to show):
+
+| Status | `code` | When | Suggested handling |
+|---|---|---|---|
+| 409 | `stale_revision` | The PRD changed since you loaded it | Reload, then retry |
+| 409 | `intake_changed` | (generate) the answers changed while the draft was written | "Generate again" |
+| 409 | `proposal_unavailable` | (accept) the proposal was already used, expired, or isn't yours | Discard the preview |
+| 422 | `intake_incomplete` | (generate) a required answer is missing | Send the user to the interview |
+| 422 | `invalid_context` | the PRD's saved AI context is malformed | Show `detail` |
+| 422 | `ai_output_blocked` | the AI declined the request | Suggest rewording |
+| 429 | `ai_cooldown`, `ai_busy` | AI limits; the body and `Retry-After` header include `retry_after` (seconds) | Disable AI buttons until then |
+| 429 | `ai_disabled` | AI is switched off | Hide AI actions; manual editing works |
+| 429 | `ai_provider_rate_limited` | Gemini is rate limited | "Try again in a minute" |
+| 502 | `ai_provider_error`, `ai_invalid_output` | Gemini failed or answered badly | Offer a retry |
+| 503 | `ai_unavailable`, `ai_budget_exhausted` | AI isn't configured or is out of quota | Keep manual editing |
+| 503 | `ai_chat_unavailable` | (chat) not switched on yet | Hide the chat |
 
 ## Changes from the integration guide
 
