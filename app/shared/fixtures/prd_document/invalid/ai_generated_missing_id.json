@@ -1,0 +1,38 @@
+{
+  "description": "ai_generated needs a generation_record_id.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x",
+                "marks": [
+                  {
+                    "type": "ai_generated"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "missing_attr",
+        "path": "/content/0/content/0/content/0/marks/0/attrs/generation_record_id"
+      }
+    ]
+  }
+}

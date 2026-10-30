@@ -1,0 +1,33 @@
+{
+  "description": "Section types come from the nine allowed values.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "summary"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "invalid_attr",
+        "path": "/content/0/attrs/type"
+      }
+    ]
+  }
+}
