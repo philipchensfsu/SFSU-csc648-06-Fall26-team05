@@ -296,3 +296,43 @@ def save_intake_answer(
         .execute()
     )
     return response.data[0]
+
+
+class DirectoryOrganization(BaseModel):
+    id: UUID
+    name: str
+
+
+class DirectoryDepartment(BaseModel):
+    id: UUID
+    name: str
+    head_id: Optional[UUID]
+    archived: bool
+
+
+class DirectoryTeam(BaseModel):
+    id: UUID
+    name: str
+    department_id: UUID
+    lead_id: Optional[UUID]
+    archived: bool
+
+
+class DirectoryMember(BaseModel):
+    user_id: UUID
+    name: Optional[str]
+    # Only org admins see emails; everyone else gets null.
+    email: Optional[str]
+    department_id: Optional[UUID]
+    team_ids: list[UUID]
+    access_role: str
+    manager_id: Optional[UUID]
+    title: Optional[str]
+
+
+class DirectoryOut(BaseModel):
+    organization: DirectoryOrganization
+    departments: list[DirectoryDepartment]
+    teams: list[DirectoryTeam]
+    members: list[DirectoryMember]
+
