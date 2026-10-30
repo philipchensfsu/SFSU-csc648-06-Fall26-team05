@@ -83,6 +83,9 @@ Open http://localhost:5173 and sign in as `alice.pm@example.com` / `password1` (
 See **[docs/local-development.md](docs/local-development.md)** for installing the tools (including Windows),
 test accounts, database migrations, running without Docker and troubleshooting.
 
+The backend's routes, request and response shapes and error codes are in
+**[docs/frontend-api.md](docs/frontend-api.md)**, kept current by every backend PR that changes the API.
+
 ## Database
 
 We use **Supabase (PostgreSQL)** for auth and data storage. The schema is defined in
