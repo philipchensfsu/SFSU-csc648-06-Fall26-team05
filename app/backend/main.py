@@ -323,7 +323,8 @@ class DirectoryDepartment(BaseModel):
 class DirectoryTeam(BaseModel):
     id: UUID
     name: str
-    department_id: UUID
+    # Teams may have no department (orgs choose their own structure).
+    department_id: Optional[UUID]
     lead_id: Optional[UUID]
     archived: bool
 
