@@ -110,16 +110,18 @@ revoke insert, update, delete on generation_record from authenticated;
 -- ai_generated record ids first. A browser calling this directly would skip
 -- that validation, so it gets no EXECUTE grant.
 --
--- p_actor is the user the backend already authenticated. The function sets it
--- as the request's JWT subject for this transaction, so the shared permission
--- helpers (can_view_prd, can_edit_prd, current_profile_role) answer for that
--- user exactly as they do under RLS. Change those helpers, not this function,
--- when the permission model changes (D1/D3).
+-- p_actor is the user the backend already authenticated (prd_save.py takes
+-- the verified user object, never a raw id). The function sets it as the
+-- request's JWT subject for this transaction, so the shared permission
+-- helpers (can_view_prd and can_edit_prd, which read prd_role,
+-- is_org_member and is_org_admin from auth.uid() since E03) answer for that
+-- user exactly as they do under RLS. Change those helpers, not this
+-- function, when the permission model changes.
 --
 -- Errors use custom SQLSTATEs that prd_save.py maps to API errors:
 --   NT404 not found or not visible, NT403 visible but not editable,
 --   NT409 stale revision, NT422 invalid AI provenance or arguments,
---   NTREV the PRD is in review or approved, which needs E09 (not built yet).
+--   NTREV the PRD is approved (final or assigned), which needs E09.
 create or replace function save_prd(
   p_actor uuid,
   p_prd_id uuid,
@@ -182,11 +184,14 @@ begin
     raise exception 'Stale revision' using errcode = 'NT409';
   end if;
 
-  -- D9 (E09): editing a PRD in review resets approvals; editing an approved
-  -- PRD needs an owner and a confirmed reviewer list. Until that is built on
-  -- the review tables, refuse instead of saving without it.
-  if current_row.status <> 'draft' then
-    raise exception 'Saving a PRD in review or approved needs E09' using errcode = 'NTREV';
+  -- D9 (E09): editing an approved PRD needs an owner and a confirmed
+  -- reviewer list, and must not leave the old approval standing. Until E09
+  -- exists, approved PRDs (final, assigned) are refused. PRDs in review can
+  -- be saved: no review rounds or approvals exist before E07/E08, so there is
+  -- nothing to reset yet; E09 adds the reset when they do. Status itself
+  -- never changes here (D6).
+  if current_row.status in ('final', 'assigned') then
+    raise exception 'Editing an approved PRD needs the reapproval flow (E09)' using errcode = 'NTREV';
   end if;
 
   -- Every ai_generated mark (and the accepted generation) must point to a

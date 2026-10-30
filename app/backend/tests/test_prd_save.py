@@ -5,6 +5,7 @@ checked against Postgres; see the PR description.
 """
 
 import json
+import uuid
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -17,6 +18,8 @@ FIXTURES = Path(__file__).resolve().parent.parent.parent / "shared" / "fixtures"
 ACTOR = "00000000-0000-0000-0000-0000000000a1"
 PRD = "00000000-0000-0000-0000-000000000101"
 RECORD = "3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01"
+# What get_current_user puts in auth["user"]: an object with the verified id.
+USER = SimpleNamespace(id=ACTOR, email="alice@example.com")
 
 
 def fixture(kind, name):
@@ -50,7 +53,7 @@ class FakeService:
 
 def test_title_only_save_sends_only_the_title():
     service = FakeService()
-    assert save_prd(service, ACTOR, PRD, 1, title="New title") == {"id": PRD, "revision": 2}
+    assert save_prd(service, USER, PRD, 1, title="New title") == {"id": PRD, "revision": 2}
     name, params = service.calls[0]
     assert name == "save_prd"
     assert params["p_set_title"] and params["p_title"] == "New title"
@@ -62,7 +65,7 @@ def test_title_only_save_sends_only_the_title():
 def test_content_save_sends_server_derived_text_and_ai_ids():
     case = fixture("valid", "marks")
     service = FakeService()
-    save_prd(service, ACTOR, PRD, 3, content_json=case["document"])
+    save_prd(service, USER, PRD, 3, content_json=case["document"])
     params = service.calls[0][1]
     assert params["p_set_content"] and params["p_content_json"] == case["document"]
     assert params["p_content_text"] == case["expect"]["content_text"]
@@ -71,7 +74,7 @@ def test_content_save_sends_server_derived_text_and_ai_ids():
 
 def test_description_can_be_cleared():
     service = FakeService()
-    save_prd(service, ACTOR, PRD, 1, description=None)
+    save_prd(service, USER, PRD, 1, description=None)
     params = service.calls[0][1]
     assert params["p_set_description"] and params["p_description"] is None
 
@@ -81,7 +84,7 @@ def test_an_ai_save_names_its_generation_record():
     service = FakeService(proposal={"prd_id": PRD, "requester_id": ACTOR, "kind": "generate", "base_revision": 1,
                                     "status": "pending", "context_patch": None,
                                     "content": {"title": "T", "description": "", "content_json": empty}})
-    save_prd(service, ACTOR, PRD, 1, content_json=fixture("valid", "empty_draft")["document"],
+    save_prd(service, USER, PRD, 1, content_json=fixture("valid", "empty_draft")["document"],
              origin="ai_generated", generation_record_id=RECORD)
     params = service.calls[0][1]
     assert params["p_origin"] == "ai_generated" and params["p_generation_record_id"] == RECORD
@@ -100,7 +103,7 @@ def test_an_ai_save_names_its_generation_record():
 def test_bad_input_never_reaches_the_database(kwargs, code):
     service = FakeService()
     with pytest.raises(SaveError) as caught:
-        save_prd(service, ACTOR, PRD, 1, **kwargs)
+        save_prd(service, USER, PRD, 1, **kwargs)
     assert caught.value.code == code and caught.value.status_code == 422
     assert service.calls == []
 
@@ -108,14 +111,14 @@ def test_bad_input_never_reaches_the_database(kwargs, code):
 @pytest.mark.parametrize("revision", [0, -1, True, "1", None])
 def test_bad_base_revision_is_rejected(revision):
     with pytest.raises(SaveError):
-        save_prd(FakeService(), ACTOR, PRD, revision, title="t")
+        save_prd(FakeService(), USER, PRD, revision, title="t")
 
 
 def test_invalid_documents_return_every_error_and_skip_the_database():
     case = fixture("invalid", "several_errors")
     service = FakeService()
     with pytest.raises(SaveError) as caught:
-        save_prd(service, ACTOR, PRD, 1, content_json=case["document"])
+        save_prd(service, USER, PRD, 1, content_json=case["document"])
     assert caught.value.code == "invalid_document" and caught.value.status_code == 422
     assert [{"code": e["code"], "path": e["path"]} for e in caught.value.errors] == case["expect"]["document_errors"]
     assert service.calls == []
@@ -124,7 +127,7 @@ def test_invalid_documents_return_every_error_and_skip_the_database():
 def test_v1_content_is_rejected():
     service = FakeService()
     with pytest.raises(SaveError) as caught:
-        save_prd(service, ACTOR, PRD, 1, content_json=fixture("invalid", "legacy_v1_sections")["document"])
+        save_prd(service, USER, PRD, 1, content_json=fixture("invalid", "legacy_v1_sections")["document"])
     assert caught.value.code == "invalid_document"
 
 
@@ -138,17 +141,31 @@ def test_v1_content_is_rejected():
 ])
 def test_database_errors_map_to_api_errors(sqlstate, status, code):
     with pytest.raises(SaveError) as caught:
-        save_prd(FakeService(sqlstate), ACTOR, PRD, 1, title="t")
+        save_prd(FakeService(sqlstate), USER, PRD, 1, title="t")
     assert (caught.value.status_code, caught.value.code) == (status, code)
     assert "postgres" not in caught.value.detail
 
 
 def test_other_database_errors_go_to_the_shared_handler():
     with pytest.raises(APIError):
-        save_prd(FakeService("23514"), ACTOR, PRD, 1, title="t")
+        save_prd(FakeService("23514"), USER, PRD, 1, title="t")
 
 
 def test_generation_record_ids_finds_nested_marks():
     document = fixture("valid", "generation_rejects_ai_mark")["document"]
     assert generation_record_ids(document) == {RECORD}
     assert generation_record_ids(fixture("valid", "empty_draft")["document"]) == set()
+
+
+def test_the_actor_is_the_verified_users_id():
+    service = FakeService()
+    save_prd(service, USER, PRD, 1, title="New title")
+    assert service.calls[0][1]["p_actor"] == ACTOR
+
+
+@pytest.mark.parametrize("actor", [ACTOR, uuid.UUID(ACTOR), None, SimpleNamespace(id=None)])
+def test_a_raw_id_is_never_accepted_as_the_actor(actor):
+    service = FakeService()
+    with pytest.raises(TypeError):
+        save_prd(service, actor, PRD, 1, title="New title")
+    assert service.calls == []
