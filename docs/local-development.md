@@ -44,12 +44,12 @@ docker compose up     # backend on :8000, frontend on :5173
 
 Open **http://localhost:5173** and sign in with a test account:
 
-| Email | Password | Role |
+| Email | Password | Organization |
 |---|---|---|
-| alice.pm@example.com | password1 | pm (projects and PRDs) |
-| ben.pm@example.com | password2 | pm (one PRD) |
-| erin.engineer@example.com | password3 | engineer |
-| ada.admin@example.com | password4 | admin (legacy) |
+| alice.pm@example.com | password1 | Campus Apps, admin (two projects, three PRDs) |
+| ben.pm@example.com | password2 | Campus Apps, member (one PRD) |
+| erin.engineer@example.com | password3 | Campus Apps, member |
+| ada.admin@example.com | password4 | Other Org, admin (for cross-organization checks) |
 
 These are test-only accounts from `supabase/seed.sql` and exist only locally.
 
