@@ -115,3 +115,34 @@ def test_an_editor_who_saved_can_still_be_deleted(cast, db, service):
     save_prd(service, verified(service, cast["editor"]), cast["prd"], 1, title="Editor's change")
     db.execute("delete from profile where id = %s", (cast["editor"].id,))
     assert versions(db, cast["prd"])[0][2] is None  # history kept, author cleared
+
+
+def context(db, prd):
+    return db.execute("select context_json -> 'change_log', version, updated_by from prd_context where prd_id = %s",
+                      (prd,)).fetchone()
+
+
+def test_each_save_is_noted_in_the_prds_ai_context(cast, db, service):
+    owner = verified(service, cast["owner"])
+    save_prd(service, owner, cast["prd"], 1, title="Edited")
+    save_prd(service, owner, cast["prd"], 2, content_json=DOC)
+    log, version, by = context(db, cast["prd"])
+    assert log == ["Version 1: Edited title", "Version 2: Edited 1 section"] and version == 3 and by == "pm"
+    save_prd(service, owner, cast["prd"], 3, content_json=DOC)  # unchanged: no version, no note
+    assert context(db, cast["prd"])[1] == 3
+
+
+def test_the_change_log_keeps_the_newest_twenty(cast, db, service):
+    owner = verified(service, cast["owner"])
+    for revision in range(1, 23):
+        save_prd(service, owner, cast["prd"], revision, title=f"Title {revision}")
+    log = context(db, cast["prd"])[0]
+    assert len(log) == 20 and log[0] == "Version 3: Edited title" and log[-1] == "Version 22: Edited title"
+
+
+def test_refused_saves_leave_the_context_alone(cast, db, service):
+    db.execute("insert into prd_context (prd_id, context_json) values (%s, '{\"decisions\": [\"Keep\"]}')",
+               (cast["prd"],))
+    with pytest.raises(SaveError):
+        save_prd(service, verified(service, cast["viewer"]), cast["prd"], 1, title="Taken")
+    assert context(db, cast["prd"]) == (None, 1, "pm")
