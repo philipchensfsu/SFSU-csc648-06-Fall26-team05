@@ -15,7 +15,7 @@ it was made from, expires, and can be used once. Accepting it is A05: the
 save transaction calls the database functions ai_take_proposal and
 ai_apply_context_patch after locking the PRD, so acceptance and the save
 commit or roll back together. That is not wired here (see the contract in
-supabase/migrations/20261030120000_ai_records.sql).
+supabase/migrations/20261030121000_ai_records.sql).
 
 The database functions accept calls from the service role only, so a browser
 can't record a fake successful generation. This uses the same trusted-writer

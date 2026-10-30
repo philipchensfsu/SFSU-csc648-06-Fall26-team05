@@ -204,7 +204,7 @@ def test_rejecting_someone_elses_proposal_looks_like_missing():
 def test_context_limits_match_the_migration():
     parents = Path(__file__).resolve().parents
     # In the backend container app/backend is /app, so there is no repo root.
-    path = parents[3] / "supabase" / "migrations" / "20261030120000_ai_records.sql" if len(parents) > 3 else None
+    path = parents[3] / "supabase" / "migrations" / "20261030121000_ai_records.sql" if len(parents) > 3 else None
     if path is None or not path.exists():
         pytest.skip("migrations aren't mounted here (the backend container mounts only app/backend)")
     sql = path.read_text()
