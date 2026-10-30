@@ -1,0 +1,30 @@
+{
+  "description": "Images are not allowed.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "image",
+            "attrs": {
+              "src": "https://example.com/a.png"
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "unknown_node",
+        "path": "/content/0/content/0/type"
+      }
+    ]
+  }
+}

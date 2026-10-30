@@ -1,0 +1,28 @@
+{
+  "description": "content must be a list.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": "text"
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "invalid_type",
+        "path": "/content/0/content/0/content"
+      }
+    ]
+  }
+}
