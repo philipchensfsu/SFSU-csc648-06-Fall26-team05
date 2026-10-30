@@ -283,7 +283,7 @@
                   {
                     "type": "tableCell",
                     "attrs": {
-                      "colspan": 2,
+                      "colspan": 1,
                       "rowspan": 1,
                       "colwidth": null
                     },

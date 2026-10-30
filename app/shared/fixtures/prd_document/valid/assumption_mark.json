@@ -1,5 +1,5 @@
 {
-  "description": "The assumption mark is only a candidate and is rejected until agreed.",
+  "description": "A person (or the one-time v1 conversion) may mark text as an assumption to check. Valid in saves; generated output must not contain it.",
   "document": {
     "type": "doc",
     "content": [
@@ -28,11 +28,45 @@
     ]
   },
   "expect": {
-    "document_errors": [
+    "document_errors": [],
+    "generation_errors": [
       {
-        "code": "mark_disabled",
-        "path": "/content/0/content/0/content/0/marks/0/type"
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "assumption_mark_not_allowed",
+        "path": "/content/0/content/0/content/0/marks/0"
       }
-    ]
+    ],
+    "content_text": "Target Users\nMostly on mobile"
   }
 }
