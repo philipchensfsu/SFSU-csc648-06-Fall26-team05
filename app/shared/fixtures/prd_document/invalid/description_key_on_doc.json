@@ -1,0 +1,34 @@
+{
+  "description": "Stray top-level keys are rejected; description is a PRD column.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "description": "Summary"
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "unknown_key",
+        "path": "/description"
+      }
+    ]
+  }
+}

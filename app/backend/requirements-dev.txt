@@ -3,3 +3,5 @@
 pytest
 # TestClient needs httpx; supabase pulls it in today, but list it explicitly.
 httpx
+# Integration tests talk to the local Postgres directly for setup.
+psycopg[binary]

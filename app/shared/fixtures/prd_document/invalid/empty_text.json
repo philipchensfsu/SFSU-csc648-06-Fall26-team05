@@ -1,0 +1,33 @@
+{
+  "description": "Text nodes cannot be empty.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "empty_text",
+        "path": "/content/0/content/0/content/0/text"
+      }
+    ]
+  }
+}
