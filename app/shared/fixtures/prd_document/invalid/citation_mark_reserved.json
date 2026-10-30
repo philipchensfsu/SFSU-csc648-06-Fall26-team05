@@ -1,0 +1,41 @@
+{
+  "description": "citation is reserved and rejected until sources are developed.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x",
+                "marks": [
+                  {
+                    "type": "citation",
+                    "attrs": {
+                      "source_id": "s1"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "mark_disabled",
+        "path": "/content/0/content/0/content/0/marks/0/type"
+      }
+    ]
+  }
+}

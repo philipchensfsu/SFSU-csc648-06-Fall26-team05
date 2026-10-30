@@ -106,8 +106,15 @@ def make_user(db):
         return User(user_id, email, r.json()["access_token"])
 
     yield make
+    left_behind = []
     for user_id in created:
         # Organizations outlive their creator, so remove the test ones first.
         db.execute("delete from organization where created_by = %s", (user_id,))
         # Cascades to the user's profile, projects, PRDs and their child rows.
-        httpx.delete(f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}", headers=admin)
+        r = httpx.delete(f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}", headers=admin)
+        if r.status_code != 200:
+            left_behind.append(f"{user_id} ({r.status_code})")
+    if left_behind:
+        # A row without ON DELETE (e.g. one the user created on someone
+        # else's PRD) can block the delete; fail instead of leaving them.
+        pytest.fail("Couldn't delete test users: " + ", ".join(left_behind))
