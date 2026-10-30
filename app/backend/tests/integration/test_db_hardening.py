@@ -3,7 +3,7 @@ PRD status grants no visibility, and a reader who can't edit gets 403 (#50)."""
 
 import httpx
 
-from conftest import API_URL, data_api
+from conftest import API_URL, add_to_prd, data_api, org_prd
 
 
 def scalar(db, query, *params):
@@ -49,24 +49,27 @@ def test_users_edit_only_their_name_and_team(make_user, db):
 
 
 def test_status_grants_no_visibility(make_user, db):
-    alice, erin, admin = make_user(), make_user("engineer"), make_user("admin")
+    alice, erin, legacy_admin = make_user(), make_user("engineer"), make_user("admin")
     prd = alice.api("POST", "/prds", json={"title": "Final PRD"}).json()["id"]
     alice.api("PUT", f"/prds/{prd}/intake/problem", json={"answer_text": "secret"})
     db.execute("update prd set status = 'final' where id = %s", (prd,))
     assert erin.rest("GET", f"prd?id=eq.{prd}&select=id").json() == []
     assert erin.rest("GET", f"intake_answer?prd_id=eq.{prd}&select=id").json() == []
     assert erin.api("GET", f"/prds/{prd}").status_code == 404
-    assert len(admin.rest("GET", f"prd?id=eq.{prd}&select=id").json()) == 1
+    # The legacy profile role grants nothing either: org admins are the only admins.
+    assert legacy_admin.rest("GET", f"prd?id=eq.{prd}&select=id").json() == []
+    assert legacy_admin.rest("PATCH", f"prd?id=eq.{prd}", json={"title": "x"}).json() == []
 
 
-def test_reader_without_edit_rights_gets_403_not_409(make_user, db):
-    # An owner whose role became engineer can still read their PRD but not edit it.
-    alice = make_user()
-    prd = alice.api("POST", "/prds", json={"title": "Read only"}).json()
-    db.execute("update profile set role = 'engineer' where id = %s", (alice.id,))
-    r = alice.api("PUT", f"/prds/{prd['id']}", json={"revision": prd["revision"], "title": "Changed"})
+def test_reader_without_edit_rights_gets_403_not_409(make_user, make_org, db):
+    # A viewer can read the PRD but not edit it.
+    alice, ben = make_user(), make_user()
+    prd = org_prd(db, make_org(alice, ben), alice, "Read only")
+    add_to_prd(db, prd, ben, "viewer")
+    revision = ben.api("GET", f"/prds/{prd}").json()["revision"]
+    r = ben.api("PUT", f"/prds/{prd}", json={"revision": revision, "title": "Changed"})
     assert r.status_code == 403 and r.json()["code"] == "forbidden"
-    assert scalar(db, "select title from prd where id = %s", prd["id"]) == "Read only"
+    assert scalar(db, "select title from prd where id = %s", prd) == "Read only"
 
 
 def test_service_role_health_check_still_works():

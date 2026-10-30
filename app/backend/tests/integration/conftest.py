@@ -109,3 +109,34 @@ def make_user(db):
     for user_id in created:
         # Cascades to the user's profile, projects, PRDs and their child rows.
         httpx.delete(f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}", headers=admin)
+
+
+@pytest.fixture
+def make_org(db):
+    """make_org(admin, *members) -> org id: admin as its admin, members as members; deleted after the test."""
+    created = []
+
+    def make(admin, *members):
+        org = db.execute("insert into organization (name, created_by) values ('Test org', %s) returning id::text",
+                         (admin.id,)).fetchone()[0]
+        created.append(org)
+        db.execute("insert into organization_member (organization_id, user_id, access_role) values (%s, %s, 'admin')",
+                   (org, admin.id))
+        for member in members:
+            db.execute("insert into organization_member (organization_id, user_id) values (%s, %s)", (org, member.id))
+        return org
+
+    yield make
+    for org in created:
+        db.execute("delete from prd where organization_id = %s", (org,))
+        db.execute("delete from organization where id = %s", (org,))
+
+
+def org_prd(db, org, creator, title="Org PRD", project_id=None):
+    """A PRD in the org, created directly (the creator becomes its owner)."""
+    return db.execute("insert into prd (title, owner_id, organization_id, project_id) values (%s, %s, %s, %s) "
+                      "returning id::text", (title, creator.id, org, project_id)).fetchone()[0]
+
+
+def add_to_prd(db, prd, user, role):
+    db.execute("insert into prd_member (prd_id, user_id, role) values (%s, %s, %s)", (prd, user.id, role))
