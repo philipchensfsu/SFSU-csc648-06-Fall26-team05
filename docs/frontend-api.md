@@ -165,6 +165,9 @@ Each org has a join code that only its admins can see. A member sign-up: create 
 | `GET /api/organizations/{id}/join-code` | | 200 `{ join_code }` (admins only) | 403 members; 404 others |
 | `POST /api/organizations/{id}/join-code` | | 200 `{ join_code }`: a **new** code; the old one stops working | 403 members; 404 others |
 
+Reading `organization` straight from Supabase (not through these routes): name the columns, e.g.
+`select=id,name`. `select *` fails with 401/403, because clients can't read the `join_code` column.
+
 ## Organization directory
 
 Everything the org chart needs in one call. Only active members of the organization can read it.
