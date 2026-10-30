@@ -2,14 +2,15 @@ import os
 import re
 import sys
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Annotated, Optional
 from uuid import UUID
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ConfigDict, Field
+from postgrest.exceptions import APIError
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from supabase_auth.errors import AuthError, AuthRetryableError
 
@@ -306,3 +307,27 @@ def save_intake_answer(
         .execute()
     )
     return response.data[0]
+
+
+class OrganizationCreate(RequestModel):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+
+
+class OrganizationCreated(BaseModel):
+    organization_id: UUID
+
+
+@app.post("/api/organizations", response_model=OrganizationCreated, status_code=201)
+def create_organization(payload: OrganizationCreate, auth=Depends(get_current_user)):
+    # Called by the sign-up screen right after the account is created: the
+    # new account becomes the organization's admin (E01). No department or
+    # team is created; admins add whatever structure their org uses.
+    client = auth["client"]
+    try:
+        response = client.rpc("create_organization", {"org_name": payload.name}).execute()
+    except APIError as exc:
+        if exc.message == "organization_limit":
+            raise ApiError(409, "You can create at most 3 organizations.", code="organization_limit")
+        raise
+    return {"organization_id": response.data}
+
