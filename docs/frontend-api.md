@@ -54,7 +54,7 @@ here when the AI routes merge.
 
 ## Projects
 
-A project groups a user's PRDs. Projects are private to their owner.
+A project groups a user's PRDs. Projects are private to their owner, and any signed-in user can create them.
 
 `Project`: `{ id, name, owner_id, created_at, updated_at }`
 
@@ -79,16 +79,27 @@ A project groups a user's PRDs. Projects are private to their owner.
 }
 ```
 
-**Who sees what (today):** a PRD is visible only to its owner (and legacy admin accounts). Status grants no visibility.
-Sharing comes with per-PRD roles (E03): owner, editor, viewer.
+**Who can do what.** Access comes from the person's role on that PRD, or from being an admin of the PRD's organization.
+Status and the old profile role (`pm`, `engineer`, `admin`) grant nothing.
+
+| | View | Edit (title, content, intake answers) | Delete |
+|---|---|---|---|
+| Owner | yes | yes | yes |
+| Editor | yes | yes | no |
+| Viewer | yes | no (403) | no (404) |
+| Org admin (any PRD in their org) | yes | yes | yes |
+| Anyone else | no (404) | no (404) | no (404) |
+
+The creator becomes the PRD's owner, and a PRD can have several owners. Roles stop counting if the person is
+deactivated in the organization. Inviting people comes with E04.
 
 | Route | Body / query | Response | Errors |
 |---|---|---|---|
-| `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1) | 403 if the account can't create PRDs (legacy engineer accounts); 404 if `project_id` isn't one of **your** projects; 422 |
+| `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1) | 404 if `project_id` isn't one of **your** projects; 422 |
 | `GET /api/prds` | optional `?search=text` (matches title and content text) | 200 `PRD[]`, most recently updated first | |
 | `GET /api/prds/{id}` | | 200 `PRD` | 404 |
 | `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 |
-| `DELETE /api/prds/{id}` | | 204 | 404 |
+| `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
 
 - **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). The backend
   still accepts it for now and will reject it with 422 once #62 is live.
