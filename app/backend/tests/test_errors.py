@@ -7,6 +7,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from postgrest.exceptions import APIError
+from supabase_auth.errors import AuthApiError, AuthRetryableError, AuthSessionMissingError
 
 import main
 
@@ -59,19 +60,57 @@ def assert_error(response, status, code):
 @pytest.mark.parametrize("headers", [{}, {"Authorization": "Token abc"}, {"Authorization": "Bearer "}])
 def test_missing_or_malformed_auth_is_401(headers, monkeypatch):
     def reject(token):
-        raise ValueError("bad token")
+        raise AuthApiError("invalid JWT", 403, "bad_jwt")
 
     monkeypatch.setattr(main.supabase.auth, "get_user", reject)
     assert_error(client.get("/api/projects", headers=headers), 401, "not_authenticated")
 
 
-def test_invalid_token_is_401(monkeypatch):
+@pytest.mark.parametrize("error", [
+    AuthApiError("invalid JWT", 403, "bad_jwt"),
+    AuthApiError("token expired", 401, None),
+    AuthSessionMissingError(),
+])
+def test_invalid_token_is_401(error, monkeypatch):
     def reject(token):
-        raise ValueError("bad token")
+        raise error
 
     monkeypatch.setattr(main.supabase.auth, "get_user", reject)
     response = client.get("/api/projects", headers={"Authorization": "Bearer nope"})
     assert_error(response, 401, "not_authenticated")
+
+
+def test_no_user_returned_is_401(monkeypatch):
+    monkeypatch.setattr(main.supabase.auth, "get_user", lambda token: SimpleNamespace(user=None))
+    response = client.get("/api/projects", headers={"Authorization": "Bearer nope"})
+    assert_error(response, 401, "not_authenticated")
+
+
+@pytest.mark.parametrize("error", [
+    httpx.ConnectError("refused"),
+    httpx.ReadTimeout("slow"),
+    AuthRetryableError("bad gateway", 502),
+    AuthApiError("too many requests", 429, "over_request_rate_limit"),
+    AuthApiError("internal error", 500, None),
+])
+def test_auth_outage_is_503_and_never_logs_the_token(error, monkeypatch, caplog):
+    def fail(token):
+        raise error
+
+    monkeypatch.setattr(main.supabase.auth, "get_user", fail)
+    with caplog.at_level(logging.ERROR):
+        response = client.get("/api/projects", headers={"Authorization": "Bearer secret-token-value"})
+    assert_error(response, 503, "service_unavailable")
+    assert "secret-token-value" not in caplog.text
+
+
+def test_unexpected_auth_failure_is_500(monkeypatch):
+    def fail(token):
+        raise ValueError("bug")
+
+    monkeypatch.setattr(main.supabase.auth, "get_user", fail)
+    response = client.get("/api/projects", headers={"Authorization": "Bearer nope"})
+    assert_error(response, 500, "internal_error")
 
 
 def test_validation_error_has_readable_detail_and_field_list():
