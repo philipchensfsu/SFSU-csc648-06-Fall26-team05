@@ -18,7 +18,7 @@ COLUMNS = {
 @pytest.fixture
 def orgs(make_user, db):
     """Org X: Alice (admin) and Erin (inactive), a Product department and Growth team. Org Y: Ben (admin), Ops."""
-    alice, ben, erin = make_user(), make_user(), make_user()
+    alice, ben, erin = (make_user(org=False) for _ in range(3))
     x, y = (db.execute("insert into organization (name, created_by) values (%s, %s) returning id::text",
                        (name, creator.id)).fetchone()[0] for name, creator in (("Org X", alice), ("Org Y", ben)))
     product = db.execute("insert into department (organization_id, name) values (%s, 'Product') returning id::text",
@@ -125,7 +125,7 @@ def test_org_helpers_answer_only_for_the_caller(orgs):
 
 
 def test_deleting_a_manager_head_or_lead_clears_those_links(orgs, make_user, db):
-    temp = make_user()
+    temp = make_user(org=False)
     o = orgs
     with db.transaction():
         db.execute("insert into organization_member (organization_id, user_id, department_id) values (%s, %s, %s)",
@@ -142,7 +142,7 @@ def test_deleting_a_manager_head_or_lead_clears_those_links(orgs, make_user, db)
     assert links == (None, None, None)
 
 
-def test_personal_projects_and_prds_still_work(make_user):
+def test_projects_and_prds_still_work(make_user):
     alice = make_user()
     assert alice.api("POST", "/projects", json={"name": "Personal"}).status_code == 201
     assert alice.api("POST", "/prds", json={"title": "Personal"}).status_code == 201
