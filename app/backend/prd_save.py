@@ -12,9 +12,12 @@ update until the S03 cutover. Status is never part of a save (D6).
 
 The database function only accepts calls made with the service role, so a
 browser can't skip the validation here by calling it directly. Pass the
-service-role client and the id of the user get_current_user already verified;
-the function checks that user's permissions with the shared RLS helpers.
+service-role client and the user object get_current_user verified
+(auth["user"]), never an id from the request: the function checks that
+user's permissions with the shared RLS helpers.
 """
+
+from uuid import UUID
 
 from postgrest.exceptions import APIError
 
@@ -31,7 +34,7 @@ DATABASE_ERRORS = {
     "NT403": (403, "You can view this PRD but not edit it", "forbidden"),
     "NT409": (409, "This PRD changed since you last loaded it. Refresh and try again.", "stale_revision"),
     "NT422": (422, "The AI content in this save doesn't match a successful generation", "invalid_generation_record"),
-    "NTREV": (409, "PRDs in review or approved can't be saved here yet", "review_integration_pending"),
+    "NTREV": (409, "Approved PRDs can't be edited until reapproval is in place", "review_integration_pending"),
 }
 
 
@@ -43,13 +46,17 @@ class SaveError(ApiError):
         self.errors = errors or []
 
 
-def save_prd(service_client, actor_id, prd_id, base_revision: int, *, title=UNSET, description=UNSET,
+def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title=UNSET, description=UNSET,
              content_json=UNSET, origin: str = "pm_edit", generation_record_id=None) -> dict:
     """Saves the given fields of one PRD and returns the saved row.
+
+    verified_user is auth["user"] from get_current_user: the actor comes from
+    the verified token, so no request value can become it.
 
     Fields left as UNSET keep their current value. description=None clears it.
     A save that changes nothing returns the current row without a new revision.
     """
+    actor_id = verified_actor_id(verified_user)
     if isinstance(base_revision, bool) or not isinstance(base_revision, int) or base_revision < 1:
         raise SaveError(422, "Invalid base revision", "validation_error")
     if origin not in ORIGINS:
@@ -102,6 +109,15 @@ def save_prd(service_client, actor_id, prd_id, base_revision: int, *, title=UNSE
         status, detail, code = known
         raise SaveError(status, detail, code) from None
     return response.data
+
+
+def verified_actor_id(verified_user) -> str:
+    """The id of the user object get_current_user verified. A plain id or
+    string is refused, so a value from the request can't be passed by
+    mistake."""
+    if isinstance(verified_user, (str, bytes, UUID)) or not getattr(verified_user, "id", None):
+        raise TypeError("save_prd needs the verified auth['user'], not an id")
+    return str(verified_user.id)
 
 
 def generation_record_ids(document: dict) -> set[str]:
