@@ -9,7 +9,7 @@ import pytest
 from supabase import create_client
 
 import seed_demo
-from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL
+from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL, User
 
 PASSWORD = "seed-test-password-123"
 
@@ -26,6 +26,10 @@ def demo(monkeypatch, db):
         db.execute("delete from prd where owner_id = %s", (user.id,))
         db.execute("delete from organization where created_by = %s", (user.id,))
         service.auth.admin.delete_user(user.id)
+    for member in seed_demo.MEMBERS:
+        found = seed_demo.find_user(service, seed_demo.member_email(member))
+        if found:
+            service.auth.admin.delete_user(found.id)
 
 
 def counts(db, user_id):
@@ -97,3 +101,37 @@ def test_a_demo_account_in_someone_elses_org_is_not_seeded(demo, db, make_org, m
     with pytest.raises(SystemExit):
         seed_demo.seed(service)
     assert db.execute("select count(*) from prd where owner_id = %s", (created.user.id,)).fetchone() == (0,)
+
+
+def sign_in(email):
+    r = httpx.post(f"{SUPABASE_URL}/auth/v1/token?grant_type=password", headers={"apikey": ANON_KEY},
+                   json={"email": email, "password": PASSWORD})
+    assert r.status_code == 200, email
+    body = r.json()
+    return User(body["user"]["id"], email, body["access_token"])
+
+
+def test_members_join_the_demo_org_with_their_prd_roles(demo, db):
+    service, _ = demo
+    org_id = seed_demo.seed(service)
+    seed_demo.seed(service)  # rerun: roles re-added once, memberships reused
+    signed_in = []
+    for member in seed_demo.MEMBERS:
+        user = sign_in(seed_demo.member_email(member))
+        assert db.execute("select organization_id::text, access_role from organization_member "
+                          "where user_id = %s and active", (user.id,)).fetchall() == [(org_id, "member")]
+        roles = dict(db.execute("select p.title, m.role from prd_member m join prd p on p.id = m.prd_id "
+                                "where m.user_id = %s", (user.id,)).fetchall())
+        assert roles == member["prds"]
+        # Through the API, a member sees exactly the PRDs they're on.
+        listed = user.api("GET", "/prds").json()
+        items = listed["items"] if isinstance(listed, dict) else listed
+        assert {p["title"] for p in items} == set(member["prds"])
+        signed_in.append((member, user, items))
+    # Saves last (an editor's rename changes what the next member would list):
+    # viewers can't save, editors can.
+    for member, user, items in signed_in:
+        for p in items:
+            current = user.api("GET", f"/prds/{p['id']}").json()
+            r = user.api("PUT", f"/prds/{p['id']}", json={"revision": current["revision"], "title": p["title"] + " x"})
+            assert r.status_code == (403 if member["prds"][p["title"]] == "viewer" else 200), p["title"]
