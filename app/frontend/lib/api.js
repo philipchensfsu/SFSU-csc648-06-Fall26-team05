@@ -25,6 +25,9 @@ async function request(path, options = {}) {
     const body = await response.json().catch(() => ({}));
     const error = new Error(body.detail || `Request failed: ${response.status}`);
     error.status = response.status;
+    // The stable machine-readable value (e.g. "invalid_join_code"), so a
+    // screen can choose its own wording.
+    error.code = body.code;
     throw error;
   }
 
@@ -33,6 +36,18 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // The signed-in account and its organization (null until it has one).
+  getMe: () => request("/me"),
+  createOrganization: (name) =>
+    request("/organizations", { method: "POST", body: JSON.stringify({ name }) }),
+  joinOrganization: (code) =>
+    request("/organizations/join", { method: "POST", body: JSON.stringify({ code }) }),
+  // Admins only; a new code stops the old one working.
+  getJoinCode: (orgId) => request(`/organizations/${orgId}/join-code`),
+  regenerateJoinCode: (orgId) => request(`/organizations/${orgId}/join-code`, { method: "POST" }),
+  // Active members (emails only for admins), departments and teams.
+  getDirectory: (orgId) => request(`/organizations/${orgId}/directory`),
+
   listProjects: () => request("/projects"),
   createProject: (name) =>
     request("/projects", { method: "POST", body: JSON.stringify({ name }) }),
