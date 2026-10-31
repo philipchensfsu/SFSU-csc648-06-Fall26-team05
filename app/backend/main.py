@@ -336,11 +336,12 @@ MEMBER_ERRORS = {
 }
 
 
-def call_member_function(client, function, params):
+def call_function(client, function, params, errors):
+    """Calls a database function; its fixed P0001 messages in `errors` become API errors."""
     try:
-        client.rpc(function, params).execute()
+        return client.rpc(function, params).execute().data
     except APIError as exc:
-        known = MEMBER_ERRORS.get(exc.message)
+        known = errors.get(exc.message)
         if known is None:
             raise
         status, detail, code = known
@@ -367,15 +368,16 @@ def set_prd_member(prd_id: UUID, user_id: UUID, payload: PRDMemberIn, auth=Depen
     # Invites someone from the PRD's organization, or changes their role.
     # Owners and org admins only. Returns the updated list.
     client = auth["client"]
-    call_member_function(client, "set_prd_member",
-                         {"target_prd": str(prd_id), "target_user": str(user_id), "new_role": payload.role})
+    call_function(client, "set_prd_member",
+                  {"target_prd": str(prd_id), "target_user": str(user_id), "new_role": payload.role}, MEMBER_ERRORS)
     return list_people(client, prd_id)
 
 
 @app.delete("/api/prds/{prd_id}/members/{user_id}", status_code=204)
 def remove_prd_member(prd_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
     # Owners and org admins remove anyone; anyone can remove themselves.
-    call_member_function(auth["client"], "remove_prd_member", {"target_prd": str(prd_id), "target_user": str(user_id)})
+    call_function(auth["client"], "remove_prd_member", {"target_prd": str(prd_id), "target_user": str(user_id)},
+                  MEMBER_ERRORS)
 
 
 @app.get("/api/prds/{prd_id}/intake", response_model=list[IntakeAnswerOut])
