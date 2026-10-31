@@ -173,13 +173,14 @@ begin
   if new_description is distinct from current_row.description then
     summary_parts := summary_parts || 'description'::text;
   end if;
+  -- Name the changed sections (non_goals -> "non goals"), so the change
+  -- log tells the AI which parts of its context may be stale.
   if cardinality(sections_changed) > 0 then
-    summary_parts := summary_parts || (cardinality(sections_changed)
-                     || case when cardinality(sections_changed) = 1 then ' section' else ' sections' end);
+    summary_parts := summary_parts || array(select replace(t, '_', ' ') from unnest(sections_changed) as t);
   end if;
 
-  version_summary := case when p_origin = 'ai_generated' then 'Accepted AI proposal: ' else 'Edited ' end
-                     || coalesce(nullif(array_to_string(summary_parts, ', '), ''), 'content');
+  version_summary := left(case when p_origin = 'ai_generated' then 'Accepted AI proposal: ' else 'Edited ' end
+                          || coalesce(nullif(array_to_string(summary_parts, ', '), ''), 'content'), 300);
 
   insert into prd_version (prd_id, version_no, saved_revision, title, description, content_json,
                            doc_schema_version, created_by, origin, generation_record_id,

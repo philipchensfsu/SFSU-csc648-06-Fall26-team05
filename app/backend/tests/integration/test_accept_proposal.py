@@ -28,8 +28,9 @@ if not FIXTURES.exists():  # backend container: app/shared is mounted at /shared
     FIXTURES = Path("/shared/fixtures/prd_document/valid")
 DRAFT = json.loads((FIXTURES / "full_generated_draft.json").read_text(encoding="utf-8"))["document"]
 SECTIONS = [s["attrs"]["type"] for s in DRAFT["content"]]
+ACCEPTED_SUMMARY = "Accepted AI proposal: title, description, " + ", ".join(t.replace("_", " ") for t in SECTIONS)
+ACCEPTED_NOTE = "Version 1: " + ACCEPTED_SUMMARY
 TITLE, DESCRIPTION = "Campus events PRD", "Help students find events."
-ACCEPTED_NOTE = "Version 1: Accepted AI proposal: title, description, 9 sections"
 REQUIRED = {"problem": "Students miss campus events", "target_users": "Students", "goals": "Higher turnout"}
 
 
@@ -125,7 +126,7 @@ def test_intake_preview_accept_and_reopen(make_user, db, service):
     assert marked_sections(saved["content_json"], record_id) == SECTIONS
     assert proposal_status(db, record_id) == "accepted"
     assert versions(db, prd["id"]) == [(1, prd["revision"] + 1, "ai_generated", alice.id, record_id, SECTIONS,
-                                        "Accepted AI proposal: title, description, 9 sections")]
+                                        ACCEPTED_SUMMARY)]
     # Reopen through the running API: the saved v2 document comes back as saved.
     reopened = alice.api("GET", f"/prds/{prd['id']}").json()
     assert reopened["content_json"] == saved["content_json"] and reopened["revision"] == saved["revision"]
