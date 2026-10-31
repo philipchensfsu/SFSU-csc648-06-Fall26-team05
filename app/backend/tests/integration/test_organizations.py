@@ -14,13 +14,13 @@ def create_org(user, name="Acme"):
 
 
 def test_new_account_has_no_organization(make_user):
-    alice = make_user()
+    alice = make_user(org=False)
     me = alice.api("GET", "/me").json()
     assert me["id"] == alice.id and me["email"] == alice.email and me["organization"] is None
 
 
 def test_creating_an_organization_makes_the_creator_its_admin(make_user, db):
-    alice = make_user()
+    alice = make_user(org=False)
     r = create_org(alice, "  Acme  ")
     assert r.status_code == 201, r.text
     org = r.json()["organization_id"]
@@ -36,14 +36,14 @@ def test_creating_an_organization_makes_the_creator_its_admin(make_user, db):
 
 
 def test_teams_can_exist_without_a_department(make_user, db):
-    alice = make_user()
+    alice = make_user(org=False)
     org = create_org(alice).json()["organization_id"]
     db.execute("insert into team (organization_id, name) values (%s, 'Growth')", (org,))
     assert db.execute("select department_id from team where organization_id = %s", (org,)).fetchone()[0] is None
 
 
 def test_an_account_belongs_to_one_organization(make_user):
-    alice = make_user()
+    alice = make_user(org=False)
     assert create_org(alice, "One").status_code == 201
     r = create_org(alice, "Two")
     assert r.status_code == 409 and r.json()["code"] == "already_in_organization"
@@ -51,7 +51,7 @@ def test_an_account_belongs_to_one_organization(make_user):
 
 
 def test_concurrent_creates_leave_one_organization(make_user, db):
-    alice = make_user()
+    alice = make_user(org=False)
     with ThreadPoolExecutor(max_workers=4) as pool:
         statuses = sorted(pool.map(lambda i: create_org(alice, f"Org {i}").status_code, range(4)))
     assert statuses == [201, 409, 409, 409]
@@ -60,7 +60,7 @@ def test_concurrent_creates_leave_one_organization(make_user, db):
 
 
 def test_a_deactivated_member_can_start_a_new_organization(make_user, db):
-    alice = make_user()
+    alice = make_user(org=False)
     first = create_org(alice, "Old").json()["organization_id"]
     db.execute("update organization_member set active = false where organization_id = %s", (first,))
     assert create_org(alice, "New").status_code == 201
@@ -68,7 +68,7 @@ def test_a_deactivated_member_can_start_a_new_organization(make_user, db):
 
 
 def test_the_database_allows_one_active_membership_per_user(make_user, db):
-    alice, ben = make_user(), make_user()
+    alice, ben = make_user(org=False), make_user(org=False)
     create_org(alice, "A")
     other = create_org(ben, "B").json()["organization_id"]
     try:
@@ -79,7 +79,7 @@ def test_the_database_allows_one_active_membership_per_user(make_user, db):
 
 
 def test_blank_or_long_names_are_rejected(make_user):
-    alice = make_user()
+    alice = make_user(org=False)
     for name in ("", "   ", "x" * 201):
         r = create_org(alice, name)
         assert r.status_code == 422 and r.json()["code"] == "validation_error"
@@ -91,13 +91,13 @@ def test_signed_out_callers_cannot_create_organizations():
 
 
 def test_organizations_are_only_created_through_the_function(make_user):
-    alice = make_user()
+    alice = make_user(org=False)
     r = alice.rest("POST", "organization", json={"name": "Direct", "created_by": alice.id})
     assert r.status_code in (401, 403)
 
 
 def test_other_users_see_neither_the_org_nor_the_membership(make_user):
-    alice, ben = make_user(), make_user()
+    alice, ben = make_user(org=False), make_user(org=False)
     org = create_org(alice).json()["organization_id"]
     assert ben.api("GET", "/me").json()["organization"] is None
     assert ben.rest("GET", f"organization?id=eq.{org}&select=id").json() == []
@@ -105,7 +105,7 @@ def test_other_users_see_neither_the_org_nor_the_membership(make_user):
 
 
 def test_an_inactive_membership_is_not_the_organization(make_user, db):
-    alice = make_user()
+    alice = make_user(org=False)
     org = create_org(alice).json()["organization_id"]
     db.execute("update organization_member set active = false where organization_id = %s and user_id = %s",
                (org, alice.id))
