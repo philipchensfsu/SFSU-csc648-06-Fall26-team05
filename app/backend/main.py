@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from supabase_auth.errors import AuthError, AuthRetryableError
 
+import prd_save
 from errors import ApiError, logger, register_error_handlers
 from supabase_client import supabase, user_client
 
@@ -99,13 +100,32 @@ class PRDUpdate(RequestModel):
     revision: int
     title: Optional[str] = Field(default=None, max_length=200)
     content_json: Optional[dict] = None
+    # Legacy save only: the S03 save derives content_text and never takes a
+    # status (D6).
     content_text: Optional[str] = None
     status: Optional[str] = None
+    # S03 save only (PRD_SAVE_V2): description is its own column there, and
+    # generation_record_id accepts an AI proposal once A05 (#70) is in.
+    description: Optional[str] = None
+    generation_record_id: Optional[UUID] = None
+
+
+# The S03 save (prd_save.save_prd: v2 documents, versions, server-derived
+# text) replaces the direct update once the frontend sends v2 documents.
+# Until that cutover, PUT keeps the legacy update. Set PRD_SAVE_V2=true to
+# switch.
+LEGACY_ONLY_FIELDS = ("content_text", "status")
+SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id")
+
+
+def prd_save_v2_enabled() -> bool:
+    return os.environ.get("PRD_SAVE_V2", "").strip().lower() in {"true", "1", "on", "yes"}
 
 
 class PRDOut(BaseModel):
     id: UUID
     title: str
+    description: Optional[str] = None
     owner_id: UUID
     project_id: Optional[UUID]
     status: str
@@ -238,6 +258,12 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
 
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
 def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user)):
+    sent = payload.model_fields_set
+    if prd_save_v2_enabled():
+        return save_prd_v2(prd_id, payload, sent, auth)
+    unsupported = [name for name in SAVE_CORE_ONLY_FIELDS if name in sent]
+    if unsupported:
+        raise ApiError(422, f"{unsupported[0]} can't be saved yet", code="validation_error")
     client = auth["client"]
     update_fields = payload.model_dump(exclude={"revision"}, exclude_unset=True)
     update_fields["revision"] = payload.revision + 1
@@ -264,6 +290,22 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
             code="stale_revision",
         )
     return response.data[0]
+
+
+def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict:
+    """The S03 save: only the fields sent change, in one transaction with a
+    revision check and a version snapshot. The actor is the verified user."""
+    if "status" in sent:
+        raise ApiError(422, "Status can't be changed by saving. It changes through the review workflow.",
+                       code="status_not_allowed")
+    if "content_text" in sent:
+        raise ApiError(422, "content_text is derived by the server; don't send it", code="validation_error")
+    if payload.generation_record_id is not None:
+        # Accepting a proposal needs A05's once-only checks (#70); without
+        # them a record id would only be checked for existence.
+        raise ApiError(422, "Accepting AI proposals isn't available yet", code="proposal_acceptance_unavailable")
+    fields = {name: getattr(payload, name) for name in ("title", "description", "content_json") if name in sent}
+    return prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
 
 
 @app.delete("/api/prds/{prd_id}", status_code=204)
