@@ -10,6 +10,12 @@
 -- it for update) can't slip in between the version check and the insert.
 -- It records a comment_added event, which notifies owners and editors.
 --
+-- Comment notifications are batched so a burst of comments doesn't flood
+-- anyone's inbox: when a recipient still has an unread comment notification
+-- from the same person on the same PRD, started less than 10 minutes ago,
+-- its count goes up ("Ed left 3 comments") instead of a new one being
+-- added. It keeps pointing at the first comment of the batch.
+--
 -- The author's name and department are copied when posting, so a later
 -- name or department change doesn't rewrite who said what. Bodies are plain
 -- text; the frontend escapes them.
@@ -19,7 +25,8 @@
 --
 -- Applied to the hosted database by hand (docs/local-development.md,
 -- "Applying a migration to the hosted database"). Apply after
--- 20261031100000_prd_events_notifications. Adds a table and a function.
+-- 20261031100000_prd_events_notifications. Adds a table, a function and
+-- two notification columns, and replaces record_prd_event.
 
 create table prd_comment (
   id uuid primary key default gen_random_uuid(),
@@ -53,6 +60,89 @@ grant select, insert, update, delete on prd_comment to service_role;
 alter table prd_event
   add constraint prd_event_comment_id_fkey
   foreign key (comment_id) references prd_comment(id) on delete set null;
+
+-- How many events a notification stands for, and when the latest arrived.
+alter table notification
+  add column event_count integer not null default 1 check (event_count >= 1),
+  add column updated_at timestamptz not null default now();
+
+-- As in 20261031100000, plus comment batching.
+create or replace function record_prd_event(
+  p_prd_id uuid,
+  p_event_type text,
+  p_actor uuid,
+  p_payload jsonb default '{}',
+  p_version_id uuid default null,
+  p_round_id uuid default null,
+  p_comment_id uuid default null
+)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  new_event uuid;
+  owners uuid[] := array(select user_id from prd_member where prd_id = p_prd_id and role = 'owner');
+  recipients uuid[];
+begin
+  if p_event_type in ('submitted', 'round_approved', 'superseded') then
+    raise exception 'event type % needs reviewers, which arrive with E07', p_event_type;
+  end if;
+
+  insert into prd_event (prd_id, event_type, actor_id, actor_name, payload, version_id, round_id, comment_id)
+    values (p_prd_id, p_event_type, p_actor, (select full_name from profile where id = p_actor),
+            coalesce(p_payload, '{}'), p_version_id, p_round_id, p_comment_id)
+    returning id into new_event;
+
+  recipients := case p_event_type
+    when 'member_added' then array[(p_payload ->> 'user_id')::uuid]
+    when 'comment_added' then
+      array(select user_id from prd_member where prd_id = p_prd_id and role in ('owner', 'editor'))
+    when 'approved' then owners
+    when 'changes_requested' then owners
+    when 'work_status_changed' then case when p_payload ->> 'status' = 'done' then owners end
+    else '{}'
+  end;
+  recipients := array(select distinct r from unnest(recipients) r
+                      where r is not null and r is distinct from p_actor and can_view_prd_as(r, p_prd_id));
+
+  perform notify_recipients(new_event, p_prd_id, p_event_type, p_actor, recipients);
+  return new_event;
+end;
+$$;
+
+-- Adds one notification per recipient for an event, or for a comment, bumps
+-- the recipient's open batch from the same person (see the header).
+create or replace function notify_recipients(p_event uuid, p_prd_id uuid, p_event_type text, p_actor uuid,
+                                             p_recipients uuid[])
+returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  bumped uuid[] := '{}';
+begin
+  if p_event_type = 'comment_added' and p_actor is not null then
+    with batch as (
+      update notification n
+      set event_count = n.event_count + 1, updated_at = now()
+      from prd_event e
+      where e.id = n.event_id and n.prd_id = p_prd_id and n.recipient_id = any(p_recipients)
+        and n.read_at is null and n.created_at > now() - interval '10 minutes'
+        and e.event_type = 'comment_added' and e.actor_id = p_actor
+      returning n.recipient_id
+    )
+    select coalesce(array_agg(recipient_id), '{}') into bumped from batch;
+  end if;
+
+  insert into notification (event_id, recipient_id, prd_id)
+    select p_event, r, p_prd_id from unnest(p_recipients) r
+    where not r = any(bumped)
+    on conflict (event_id, recipient_id) do nothing;
+end;
+$$;
 
 -- Posts a comment on the PRD's current version. Returns the comment's id.
 create or replace function add_prd_comment(target_prd uuid, target_version uuid, target_section text, comment_body text)
@@ -103,4 +193,5 @@ begin
 end;
 $$;
 
+revoke execute on function notify_recipients(uuid, uuid, text, uuid, uuid[]) from public, anon, authenticated;
 grant execute on function add_prd_comment(uuid, uuid, text, text) to authenticated, service_role;
