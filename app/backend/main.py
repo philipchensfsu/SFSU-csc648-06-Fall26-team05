@@ -457,6 +457,8 @@ class ReviewerOut(BaseModel):
     department: Optional[str]
     state: Literal["pending", "approved", "changes_requested"]
     decided_at: Optional[datetime]
+    explanation: Optional[str]
+    comment_id: Optional[UUID]
 
 
 class ReviewRoundOut(BaseModel):
@@ -479,7 +481,7 @@ class ReviewSubmitIn(RequestModel):
     reviewer_ids: list[UUID] = Field(..., min_length=1, max_length=50)
 
 
-class ReviewSubmitted(BaseModel):
+class ReviewResult(BaseModel):
     round: ReviewRoundOut
     revision: int
     status: str
@@ -503,12 +505,14 @@ REVIEW_ERRORS = {
 
 ROUND_COLUMNS = ("id, prd_id, round_no, version_id, state, owner_review_allowed, submitted_by, submitted_at, "
                  "completed_at, version:prd_version(version_no), "
-                 "slots:review_slot(reviewer_id, reviewer_name, department_name, state, decided_at)")
+                 "slots:review_slot(reviewer_id, reviewer_name, department_name, state, decided_at, comment_id, "
+                 "comment:prd_comment(body))")
 
 
 def round_item(row):
     reviewers = [{"user_id": s["reviewer_id"], "name": s["reviewer_name"], "department": s["department_name"],
-                  "state": s["state"], "decided_at": s["decided_at"]} for s in row["slots"]]
+                  "state": s["state"], "decided_at": s["decided_at"], "comment_id": s["comment_id"],
+                  "explanation": (s["comment"] or {}).get("body")} for s in row["slots"]]
     reviewers.sort(key=lambda r: ((r["name"] or "").lower(), r["user_id"]))
     item = {k: row[k] for k in ("id", "prd_id", "round_no", "version_id", "state", "owner_review_allowed",
                                 "submitted_by", "submitted_at", "completed_at")}
@@ -526,7 +530,7 @@ def list_review_rounds(prd_id: UUID, params: PageParams = Depends(), auth=Depend
     return {"items": [round_item(r) for r in page["items"]], "next_cursor": page["next_cursor"]}
 
 
-@app.post("/api/prds/{prd_id}/reviews", response_model=ReviewSubmitted, status_code=201)
+@app.post("/api/prds/{prd_id}/reviews", response_model=ReviewResult, status_code=201)
 def submit_review(prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_current_user)):
     # Owners and org admins submit the current version to the reviewers they
     # choose; the PRD moves to in_review.
@@ -536,6 +540,45 @@ def submit_review(prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_curren
         "reviewer_ids": [str(r) for r in payload.reviewer_ids],
     }, REVIEW_ERRORS)
     row = client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id).execute().data[0]
+    prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
+    return {"round": round_item(row), **prd}
+
+
+class ReviewDecisionIn(RequestModel):
+    version_id: UUID
+    decision: Literal["approved", "changes_requested"]
+    explanation: Optional[str] = Field(default=None, max_length=5000)
+    section_type: Optional[str] = None
+
+
+# Errors raised by decide_review (P0001 with a fixed message).
+DECISION_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "round_not_found": (404, "Review round not found", None),
+    "round_not_current": (409, "This review round was replaced by a newer one.", "round_not_current"),
+    "stale_version": (409, "The PRD changed since this round was submitted. Refresh to see the current review.",
+                      "stale_version"),
+    "not_a_reviewer": (403, "You're not a reviewer on this round.", None),
+    "owner_cannot_review": (403, "Owners can't review their own PRD.", "owner_cannot_review"),
+    "invalid_decision": (422, "The decision must be approved or changes_requested.", "validation_error"),
+    "invalid_explanation": (422, "Requesting changes needs an explanation, up to 5,000 characters.",
+                            "validation_error"),
+    "invalid_section": (422, "section_type must be null or one of the PRD's nine section types.", "validation_error"),
+    "decision_already_made": (409, "You already decided on this round; a decision can't be changed.",
+                              "decision_already_made"),
+}
+
+
+@app.put("/api/prds/{prd_id}/reviews/{round_id}/decision", response_model=ReviewResult)
+def decide_review(prd_id: UUID, round_id: UUID, payload: ReviewDecisionIn, auth=Depends(get_current_user)):
+    # A reviewer approves or requests changes on the round's version. Returns
+    # the round and the PRD's status (final once every reviewer approved).
+    client = auth["client"]
+    call_function(client, "decide_review", {
+        "target_prd": str(prd_id), "target_round": str(round_id), "target_version": str(payload.version_id),
+        "decision": payload.decision, "explanation": payload.explanation, "target_section": payload.section_type,
+    }, DECISION_ERRORS)
+    row = client.table("review_round").select(ROUND_COLUMNS).eq("id", str(round_id)).execute().data[0]
     prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
     return {"round": round_item(row), **prd}
 
