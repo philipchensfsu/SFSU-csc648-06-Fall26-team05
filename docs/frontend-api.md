@@ -71,7 +71,8 @@ A project groups a user's PRDs. Projects are private to their owner, and any sig
 
 ```json
 {
-  "id": "uuid", "title": "string", "owner_id": "uuid", "project_id": "uuid | null",
+  "id": "uuid", "title": "string", "owner_id": "uuid (the creator)", "organization_id": "uuid", "project_id": "uuid | null",
+  "my_role": "owner | editor | viewer | org_admin",
   "status": "draft | in_review | final | assigned",
   "content_json": { }, "content_text": "string | null",
   "doc_schema_version": 1, "revision": 3,
@@ -93,10 +94,13 @@ Status and the old profile role (`pm`, `engineer`, `admin`) grant nothing.
 The creator becomes the PRD's owner, and a PRD can have several owners. Roles stop counting if the person is
 deactivated in the organization. Inviting people comes with E04.
 
+Every PRD belongs to its creator's organization. `my_role` is the caller's access: their role on the PRD, or
+`org_admin` when they only see it as an admin of its organization. Use it to decide which buttons to show.
+
 | Route | Body / query | Response | Errors |
 |---|---|---|---|
-| `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1) | 404 if `project_id` isn't one of **your** projects; 422 |
-| `GET /api/prds` | optional `?search=text` (matches title and content text) | 200 `PRD[]`, most recently updated first | |
+| `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1, `my_role: "owner"`), in your organization | 403 `no_organization` if the account has none; 404 if `project_id` isn't one of **your** projects; 422 |
+| `GET /api/prds` | optional `?search=text` (matches title and content text); optional `?view=owned` (PRDs you own) or `?view=shared` (PRDs you were invited to as editor or viewer: "Shared with me") | 200 `PRD[]`, most recently updated first. Without `view`: every PRD you can see, which for an org admin is every PRD in the org | 422 unknown `view` |
 | `GET /api/prds/{id}` | | 200 `PRD` | 404 |
 | `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 |
 | `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
@@ -174,8 +178,7 @@ Not on `develop` yet. Shapes can still change in review; each PR updates its ent
 
 ### Organizations (Vineela)
 
-Next: per-PRD roles (E03) add `my_role` to PRDs, a "Shared with me" list (`GET /api/prds?view=owned|shared`) and
-invites; admin routes for members, departments and teams (E02).
+Next: inviting people to a PRD (E04) and admin routes for members, departments and teams (E02).
 
 ### AI (Marco)
 
