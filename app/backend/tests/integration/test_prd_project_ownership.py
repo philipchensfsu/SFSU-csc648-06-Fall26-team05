@@ -1,9 +1,8 @@
 """A PRD can only sit in a project owned by the PRD's owner (issue #44), through
 the API and directly through the Data API, for creates and for updates."""
 
-import httpx
 
-from conftest import ANON_KEY, SUPABASE_URL, org_prd
+from conftest import ANON_KEY, SUPABASE_URL, http, org_prd
 
 MISSING = "00000000-0000-0000-0000-000000000000"
 
@@ -74,7 +73,7 @@ def test_ownership_helper_is_closed_to_signed_out_callers_and_reveals_nothing(ma
     alice, ben = make_user(), make_user()
     alices_project = project(alice)
     body = {"target_project_id": alices_project, "target_owner_id": alice.id}
-    r = httpx.post(f"{SUPABASE_URL}/rest/v1/rpc/project_matches_owner", headers={"apikey": ANON_KEY}, json=body)
+    r = http.post(f"{SUPABASE_URL}/rest/v1/rpc/project_matches_owner", headers={"apikey": ANON_KEY}, json=body)
     assert r.status_code in (401, 403, 404)
     r = ben.rest("POST", "rpc/project_matches_owner", json=body)
     assert r.status_code == 200 and r.json() is False

@@ -47,19 +47,33 @@ for _url in (SUPABASE_URL, API_URL, DB_URL):
     if urlparse(_url).hostname not in LOCAL_HOSTS:
         raise pytest.UsageError(f"Integration tests only run against a local stack, not {_url}")
 
+# Every HTTP call goes through this client. Under load (or after the laptop
+# sleeps) a connection to the local stack sometimes fails to open; the
+# transport retries only failures to connect, which never reached the
+# server, so nothing runs twice. Slow responses get 30 seconds.
+http = httpx.Client(transport=httpx.HTTPTransport(retries=3), timeout=30)
+
+
+def connect_db(**kwargs):
+    """A psycopg connection that fails instead of hanging: TCP keepalives notice
+    a connection killed by sleep within about a minute, and no statement waits
+    more than two minutes (a stuck lock fails the test, not the whole run)."""
+    return psycopg.connect(DB_URL, connect_timeout=10, keepalives=1, keepalives_idle=30, keepalives_interval=10,
+                           keepalives_count=3, options="-c statement_timeout=120000", **kwargs)
+
 
 @pytest.fixture(scope="session", autouse=True)
 def local_stack():
     try:
-        httpx.get(f"{SUPABASE_URL}/auth/v1/health", headers={"apikey": ANON_KEY}, timeout=3).raise_for_status()
-        httpx.get(f"{API_URL}/health", timeout=3).raise_for_status()
+        http.get(f"{SUPABASE_URL}/auth/v1/health", headers={"apikey": ANON_KEY}, timeout=3).raise_for_status()
+        http.get(f"{API_URL}/health", timeout=3).raise_for_status()
     except httpx.HTTPError:
         pytest.skip("local stack not running (supabase start, docker compose up)")
 
 
 @pytest.fixture(scope="session")
 def db():
-    with psycopg.connect(DB_URL, autocommit=True) as conn:
+    with connect_db(autocommit=True) as conn:
         yield conn
 
 
@@ -72,7 +86,7 @@ class User:
     def api(self, method, path, **kwargs):
         """Calls the FastAPI backend as this user."""
         headers = {"Authorization": f"Bearer {self.token}"}
-        return httpx.request(method, f"{API_URL}{path}", headers=headers, **kwargs)
+        return http.request(method, f"{API_URL}{path}", headers=headers, **kwargs)
 
     def rest(self, method, path, **kwargs):
         """Calls the Supabase Data API directly as this user, bypassing the backend."""
@@ -83,7 +97,7 @@ def data_api(method, path, token=None, **kwargs):
     headers = {"apikey": ANON_KEY, "Prefer": "return=representation"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return httpx.request(method, f"{SUPABASE_URL}/rest/v1/{path}", headers=headers, **kwargs)
+    return http.request(method, f"{SUPABASE_URL}/rest/v1/{path}", headers=headers, **kwargs)
 
 
 @pytest.fixture
@@ -98,7 +112,7 @@ def make_user(db):
 
     def make(role="pm", org=True):
         email = f"it-{uuid.uuid4().hex[:12]}@example.com"
-        r = httpx.post(f"{SUPABASE_URL}/auth/v1/admin/users", headers=admin,
+        r = http.post(f"{SUPABASE_URL}/auth/v1/admin/users", headers=admin,
                        json={"email": email, "password": TEST_PASSWORD, "email_confirm": True})
         r.raise_for_status()
         user_id = r.json()["id"]
@@ -109,7 +123,7 @@ def make_user(db):
                                 (f"Org of {email}", user_id)).fetchone()[0]
             db.execute("insert into organization_member (organization_id, user_id, access_role) "
                        "values (%s, %s, 'admin')", (org_id, user_id))
-        r = httpx.post(f"{SUPABASE_URL}/auth/v1/token?grant_type=password", headers={"apikey": ANON_KEY},
+        r = http.post(f"{SUPABASE_URL}/auth/v1/token?grant_type=password", headers={"apikey": ANON_KEY},
                        json={"email": email, "password": TEST_PASSWORD})
         r.raise_for_status()
         return User(user_id, email, r.json()["access_token"])
@@ -121,7 +135,7 @@ def make_user(db):
         # (their PRDs first: a PRD's organization can't be deleted under it).
         remove_orgs_created_by(db, user_id)
         # Cascades to the user's profile, projects, PRDs and their child rows.
-        r = httpx.delete(f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}", headers=admin)
+        r = http.delete(f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}", headers=admin)
         if r.status_code != 200:
             left_behind.append(f"{user_id} ({r.status_code})")
     if left_behind:

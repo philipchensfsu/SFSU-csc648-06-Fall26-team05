@@ -1,16 +1,15 @@
 """A02 database rules against the local stack: who can call the AI record
 functions and write durable context, through the Data API."""
 
-import httpx
 
-from conftest import SERVICE_KEY, SUPABASE_URL
+from conftest import SERVICE_KEY, SUPABASE_URL, http
 
 ZERO = "00000000-0000-0000-0000-000000000000"
 
 
 def as_service(method, path, **kwargs):
     headers = {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"}
-    return httpx.request(method, f"{SUPABASE_URL}/rest/v1/{path}", headers=headers, **kwargs)
+    return http.request(method, f"{SUPABASE_URL}/rest/v1/{path}", headers=headers, **kwargs)
 
 
 def test_acceptance_functions_are_closed_even_to_the_service_role(make_user):

@@ -4,12 +4,11 @@ anything, and that other accounts are untouched."""
 
 import uuid
 
-import httpx
 import pytest
 from supabase import create_client
 
 import seed_demo
-from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL
+from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL, http
 
 PASSWORD = "seed-test-password-123"
 
@@ -71,7 +70,7 @@ def test_reruns_replace_without_duplicating_and_keep_the_login(demo, db):
     first = counts(db, user.id)
     assert seed_demo.seed(service) == first_org
     assert counts(db, user.id) == first
-    r = httpx.post(f"{SUPABASE_URL}/auth/v1/token?grant_type=password", headers={"apikey": ANON_KEY},
+    r = http.post(f"{SUPABASE_URL}/auth/v1/token?grant_type=password", headers={"apikey": ANON_KEY},
                    json={"email": email, "password": PASSWORD})
     assert r.status_code == 200
 

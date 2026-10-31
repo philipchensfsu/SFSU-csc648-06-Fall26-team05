@@ -3,10 +3,9 @@ behind it, against real RLS. Members see names; only admins see emails."""
 
 from dataclasses import dataclass
 
-import httpx
 import pytest
 
-from conftest import API_URL, data_api
+from conftest import API_URL, data_api, http
 
 
 @dataclass
@@ -96,7 +95,7 @@ def test_people_outside_the_org_get_404(directory, make_user, who):
 
 
 def test_signed_out_callers_get_401(directory):
-    assert httpx.get(f"{API_URL}/organizations/{directory.id}/directory").status_code == 401
+    assert http.get(f"{API_URL}/organizations/{directory.id}/directory").status_code == 401
 
 
 def test_the_people_function_answers_only_members(directory, make_user):
