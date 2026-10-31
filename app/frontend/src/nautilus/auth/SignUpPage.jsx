@@ -15,8 +15,15 @@ const RULES = [
   { label: 'A symbol (recommended)', test: (p) => /[^A-Za-z0-9\s]/.test(p), required: false },
 ];
 
+// the two ways in: join an existing organization with its code, or start a new one
+const TAB_STYLE = { height: "40px", border: "0", borderRadius: "8px", font: "inherit", fontSize: "14px", cursor: "pointer" };
+const TAB_ON = { ...TAB_STYLE, background: "#FFFFFF", color: "#102C33", fontWeight: "600", boxShadow: "0 1px 3px rgba(16,44,51,0.15)" };
+const TAB_OFF = { ...TAB_STYLE, background: "transparent", color: "#3E5A60", fontWeight: "500" };
+
 // Sign up. Props (all optional):
-//   onSubmit({ name, email, password })   the form was sent: all three filled in, and the password meets the required rules
+//   onSubmit({ name, email, password, orgMode, orgName, joinCode })
+//                      the form was sent: all three filled in, the password meets the required rules, and
+//                      orgMode is "join" (with joinCode) or "create" (with orgName)
 //   onGoogle()                            "Continue with Google"
 //   onNavigate(path)   routes the page's links ("/", "/signin", "/signup") client-side; without it they are plain links
 //   error, notice      a message above the main button: error in red, notice (e.g. "Check your inbox") in aqua
@@ -24,8 +31,10 @@ const RULES = [
 //   defaultValues      fields start empty unless given here; title: the tab title (null leaves it alone)
 export default function SignUpPage({ onSubmit, onGoogle, error = '', notice = '', busy = false, onNavigate, defaultValues, title }) {
   useAuthPage(title === undefined ? 'Nautilus — Sign up' : title);
-  const values = { name: '', email: '', password: '', ...defaultValues };
+  const values = { name: '', email: '', password: '', orgMode: 'join', orgName: '', joinCode: '', ...defaultValues };
   const [password, setPassword] = useState(values.password);
+  const [orgMode, setOrgMode] = useState(values.orgMode);
+  const joining = orgMode === 'join';
   const [problem, setProblem] = useState('');
   const rules = RULES.map((r) => ({ label: r.label, met: r.test(password) }));
 
@@ -42,7 +51,14 @@ export default function SignUpPage({ onSubmit, onGoogle, error = '', notice = ''
       setProblem('Use at least 8 characters, including a number.');
       return;
     }
-    onSubmit?.({ name: String(form.get('name')).trim(), email: String(form.get('email')).trim(), password: pass });
+    onSubmit?.({
+      name: String(form.get('name')).trim(),
+      email: String(form.get('email')).trim(),
+      password: pass,
+      orgMode,
+      orgName: joining ? '' : String(form.get('orgName')).trim(),
+      joinCode: joining ? String(form.get('joinCode')).trim() : '',
+    });
   }
   const google = () => onGoogle?.();
 
@@ -61,6 +77,10 @@ export default function SignUpPage({ onSubmit, onGoogle, error = '', notice = ''
               <h1 style={{ margin: "0", fontSize: "30px", letterSpacing: "-0.025em", fontWeight: "650" }}>Create your <span className="au-serif">account</span></h1>
               <p style={{ margin: "0", color: "#557479" }}>Your first PRD is about fifteen minutes away.</p>
             </div>
+            <div role="tablist" aria-label="How you’re joining Nautilus" style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "4px", padding: "4px", borderRadius: "11px", background: "#EAF3F5" }}>
+              <button type="button" role="tab" aria-selected={joining} onClick={() => setOrgMode('join')} style={joining ? TAB_ON : TAB_OFF}>Join an organization</button>
+              <button type="button" role="tab" aria-selected={!joining} onClick={() => setOrgMode('create')} style={joining ? TAB_OFF : TAB_ON}>Start an organization</button>
+            </div>
             <button type="button" onClick={google} disabled={busy} style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px", height: "46px", borderRadius: "10px", border: "1px solid #C3DADE", background: "#FFFFFF", color: "#102C33", font: "inherit", fontWeight: "500", cursor: "pointer" }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
                 <circle cx="12" cy="12" r="9" />
@@ -70,6 +90,19 @@ export default function SignUpPage({ onSubmit, onGoogle, error = '', notice = ''
             </button>
             <div style={{ display: "flex", alignItems: "center", gap: "12px", color: "#557479", fontSize: "13px" }}><span style={{ flex: "1", height: "1px", background: "#DCEBEE" }} />or sign up with email<span style={{ flex: "1", height: "1px", background: "#DCEBEE" }} /></div>
             <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
+              {joining ? (
+                <div key="join" style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label htmlFor="su-code" style={{ fontWeight: "500", fontSize: "14px" }}>Join code</label>
+                  <input id="su-code" name="joinCode" type="text" required maxLength={50} defaultValue={values.joinCode} autoComplete="off" spellCheck="false" placeholder="XXXX-XXXX-XXXX" aria-describedby="su-code-hint" className="au-input" style={{ height: "44px", boxSizing: "border-box", borderRadius: "9px", padding: "0 12px", font: "inherit", fontFamily: "'Geist Mono', ui-monospace, monospace", letterSpacing: "0.06em", color: "#102C33", background: "#FFFFFF" }} />
+                  <span id="su-code-hint" style={{ fontSize: "13px", color: "#557479" }}>Ask your organization’s admin. You’ll join as a member.</span>
+                </div>
+              ) : (
+                <div key="create" style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+                  <label htmlFor="su-org" style={{ fontWeight: "500", fontSize: "14px" }}>Organization name</label>
+                  <input id="su-org" name="orgName" type="text" required maxLength={200} defaultValue={values.orgName} autoComplete="organization" aria-describedby="su-org-hint" className="au-input" style={{ height: "44px", boxSizing: "border-box", borderRadius: "9px", padding: "0 12px", font: "inherit", color: "#102C33", background: "#FFFFFF" }} />
+                  <span id="su-org-hint" style={{ fontSize: "13px", color: "#557479" }}>You’ll be its admin and can invite your team with a join code.</span>
+                </div>
+              )}
               <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
                 <label htmlFor="su-name" style={{ fontWeight: "500", fontSize: "14px" }}>Full name</label>
                 <input id="su-name" name="name" type="text" required defaultValue={values.name} autoComplete="name" className="au-input" style={{ height: "44px", boxSizing: "border-box", borderRadius: "9px", padding: "0 12px", font: "inherit", color: "#102C33", background: "#FFFFFF" }} />
@@ -89,7 +122,7 @@ export default function SignUpPage({ onSubmit, onGoogle, error = '', notice = ''
               </div>
             </div>
             <Message error={problem || error} notice={problem ? "" : notice} />
-            <button type="submit" disabled={busy} className="au-primary" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "48px", borderRadius: "10px", background: "#85D1DB", color: "#102C33", fontWeight: "600" }}>{busy ? "Creating account…" : "Create account"}</button>
+            <button type="submit" disabled={busy} className="au-primary" style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "48px", borderRadius: "10px", background: "#85D1DB", color: "#102C33", fontWeight: "600" }}>{busy ? "Creating account…" : joining ? "Create account & join" : "Create account & organization"}</button>
             <p style={{ margin: "0", fontSize: "13px", color: "#557479" }}>By creating an account you agree to the <a href={links.terms}>Terms</a> and <a href={links.privacy}>Privacy Policy</a>.</p>
             <p style={{ margin: "0", paddingTop: "8px", borderTop: "1px solid #DCEBEE", fontSize: "14px", color: "#3E5A60" }}>Already have an account? <a href={links.signIn} style={{ fontWeight: "500" }}>Sign in</a></p>
           </form>
