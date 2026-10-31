@@ -377,3 +377,47 @@ def test_route_renders_intake_changed(api, monkeypatch):
     monkeypatch.setattr(preview, "generate_json", edit_answer)
     response = client.post(f"/api/prds/{PRD}/generate", json={"revision": 3})
     assert response.status_code == 409 and response.json()["code"] == "intake_changed"
+
+
+# --- saved context reaches the model ---------------------------------------------------
+
+
+def saved_context(user, decisions, version=2, prd_id=PRD):
+    user.tables["prd_context"] = [r for r in user.tables["prd_context"] if r["prd_id"] != prd_id]
+    user.tables["prd_context"].append({"prd_id": prd_id, "version": version,
+                                       "context_json": {"decisions": decisions, "change_log": ["audit"]},
+                                       "running_summary": "Summary for " + prd_id[:4]})
+
+
+def sent_context(model, call=0):
+    return json.loads(model.calls[call])["saved_context"]
+
+
+def test_saved_context_reaches_the_provider_request():
+    user = FakeUserClient()
+    saved_context(user, ["Weekly digest first"])
+    model = gemini()
+    run(user, FakeService(user), model)
+    assert sent_context(model) == {"decisions": ["Weekly digest first"], "constraints": [], "open_questions": [],
+                                   "running_summary": "Summary for 1111"}
+
+
+def test_updated_context_changes_the_next_request():
+    user = FakeUserClient()
+    saved_context(user, ["First decision"])
+    model = gemini()
+    run(user, FakeService(user), model)
+    saved_context(user, ["Second decision"], version=3)
+    run(user, FakeService(user), model)
+    assert sent_context(model, 0)["decisions"] == ["First decision"]
+    assert sent_context(model, 1)["decisions"] == ["Second decision"]
+
+
+def test_another_prds_context_is_never_sent():
+    other = "99999999-9999-4999-8999-999999999999"
+    user = FakeUserClient()
+    saved_context(user, ["Other PRD's secret"], prd_id=other)
+    model = gemini()
+    run(user, FakeService(user), model)
+    assert "Other PRD" not in model.calls[0]
+    assert sent_context(model)["decisions"] == []
