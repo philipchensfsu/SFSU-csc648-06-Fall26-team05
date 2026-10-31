@@ -17,6 +17,7 @@ from supabase_auth.errors import AuthError, AuthRetryableError
 
 from ai import preview
 from errors import ApiError, logger, register_error_handlers
+from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
 
 app = FastAPI()
@@ -319,6 +320,70 @@ def delete_prd(prd_id: UUID, auth=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="PRD not found or not allowed")
 
 
+class PRDMemberOut(BaseModel):
+    user_id: UUID
+    name: Optional[str]
+    role: Literal["owner", "editor", "viewer"]
+    granted_by: Optional[UUID]
+    added_at: datetime
+
+
+class PRDMemberIn(RequestModel):
+    role: Literal["owner", "editor", "viewer"]
+
+
+# Errors raised by the member functions (P0001 with a fixed message).
+MEMBER_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "prd_manage_forbidden": (403, "Only the PRD's owners and org admins can change who's on it.", None),
+    "invalid_role": (422, "The role must be owner, editor or viewer.", "validation_error"),
+    "not_in_organization": (422, "That person isn't an active member of this PRD's organization.", "not_in_organization"),
+    "owner_required": (409, "A PRD needs at least one owner. Add another owner first.", "owner_required"),
+}
+
+
+def call_member_function(client, function, params):
+    try:
+        client.rpc(function, params).execute()
+    except APIError as exc:
+        known = MEMBER_ERRORS.get(exc.message)
+        if known is None:
+            raise
+        status, detail, code = known
+        raise ApiError(status, detail, code)
+
+
+def list_people(client, prd_id: UUID):
+    rows = client.rpc("prd_people", {"target_prd": str(prd_id)}).execute().data
+    # A PRD always has an owner, so no rows means the caller can't see it.
+    if not rows:
+        raise ApiError(404, "PRD not found")
+    return [{"user_id": r["user_id"], "name": r["full_name"], "role": r["role"],
+             "granted_by": r["granted_by"], "added_at": r["created_at"]} for r in rows]
+
+
+@app.get("/api/prds/{prd_id}/members", response_model=list[PRDMemberOut])
+def list_prd_members(prd_id: UUID, auth=Depends(get_current_user)):
+    # Everyone on the PRD, in the order they were added; any viewer can see it.
+    return list_people(auth["client"], prd_id)
+
+
+@app.put("/api/prds/{prd_id}/members/{user_id}", response_model=list[PRDMemberOut])
+def set_prd_member(prd_id: UUID, user_id: UUID, payload: PRDMemberIn, auth=Depends(get_current_user)):
+    # Invites someone from the PRD's organization, or changes their role.
+    # Owners and org admins only. Returns the updated list.
+    client = auth["client"]
+    call_member_function(client, "set_prd_member",
+                         {"target_prd": str(prd_id), "target_user": str(user_id), "new_role": payload.role})
+    return list_people(client, prd_id)
+
+
+@app.delete("/api/prds/{prd_id}/members/{user_id}", status_code=204)
+def remove_prd_member(prd_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
+    # Owners and org admins remove anyone; anyone can remove themselves.
+    call_member_function(auth["client"], "remove_prd_member", {"target_prd": str(prd_id), "target_user": str(user_id)})
+
+
 @app.get("/api/prds/{prd_id}/intake", response_model=list[IntakeAnswerOut])
 def list_intake_answers(prd_id: UUID, auth=Depends(get_current_user)):
     client = auth["client"]
@@ -572,6 +637,71 @@ def get_directory(org_id: UUID, auth=Depends(get_current_user)):
         "teams": [with_archived_flag(t) for t in teams],
         "members": members,
     }
+
+
+class NotificationOut(BaseModel):
+    id: UUID
+    type: str
+    prd_id: UUID
+    title: str
+    actor_id: Optional[UUID]
+    actor_name: Optional[str]
+    payload: dict
+    version_id: Optional[UUID]
+    round_id: Optional[UUID]
+    comment_id: Optional[UUID]
+    created_at: datetime
+    read_at: Optional[datetime]
+
+
+class NotificationPage(Page[NotificationOut]):
+    unread_count: int
+
+
+class NotificationRead(RequestModel):
+    read: Literal[True]
+
+
+NOTIFICATION_COLUMNS = (
+    "id, prd_id, created_at, read_at, prd(title), "
+    "event:prd_event(event_type, actor_id, actor_name, payload, version_id, round_id, comment_id)"
+)
+
+
+def notification_item(row):
+    event = row["event"]
+    return {
+        "id": row["id"], "type": event["event_type"], "prd_id": row["prd_id"], "title": row["prd"]["title"],
+        "actor_id": event["actor_id"], "actor_name": event["actor_name"], "payload": event["payload"],
+        "version_id": event["version_id"], "round_id": event["round_id"], "comment_id": event["comment_id"],
+        "created_at": row["created_at"], "read_at": row["read_at"],
+    }
+
+
+@app.get("/api/notifications", response_model=NotificationPage)
+def list_notifications(unread_only: bool = False, params: PageParams = Depends(), auth=Depends(get_current_user)):
+    # The caller's inbox, newest first. RLS hides notifications about PRDs
+    # they can no longer see, from the items and the unread count alike.
+    client = auth["client"]
+    query = client.table("notification").select(NOTIFICATION_COLUMNS)
+    if unread_only:
+        query = query.is_("read_at", "null")
+    page = paginate(query, params)
+    unread = client.table("notification").select("id", count="exact", head=True).is_("read_at", "null").execute()
+    return {"items": [notification_item(r) for r in page["items"]], "next_cursor": page["next_cursor"],
+            "unread_count": unread.count or 0}
+
+
+@app.patch("/api/notifications/{notification_id}", response_model=NotificationOut)
+def mark_notification_read(notification_id: UUID, payload: NotificationRead, auth=Depends(get_current_user)):
+    # Marking read again succeeds and keeps the first read time.
+    client = auth["client"]
+    if not client.rpc("mark_notification_read", {"target": str(notification_id)}).execute().data:
+        raise ApiError(404, "Notification not found")
+    rows = client.table("notification").select(NOTIFICATION_COLUMNS).eq("id", str(notification_id)).execute().data
+    if not rows:
+        raise ApiError(404, "Notification not found")
+    return notification_item(rows[0])
 
 
 # Preview only (A03): returns {proposal, base_revision, generation_record_id}

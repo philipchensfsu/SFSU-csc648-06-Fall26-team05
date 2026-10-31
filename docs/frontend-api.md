@@ -42,8 +42,7 @@ Every error has the same shape:
 | 500 | `database_error`, `internal_error` | A bug on our side | Show a generic error |
 | 503 | `service_unavailable` | Supabase (database or sign-in) is unreachable or overloaded | "Try again shortly"; safe to retry |
 
-AI routes add their own `ai_*` codes (see the Gemini client in `app/backend/ai/gemini_client.py`); they'll be listed
-here when the AI routes merge.
+AI routes add their own `ai_*` codes; see [Generation preview](#generation-preview-ai) for the full list.
 
 ## Health
 
@@ -92,7 +91,7 @@ Status and the old profile role (`pm`, `engineer`, `admin`) grant nothing.
 | Anyone else | no (404) | no (404) | no (404) |
 
 The creator becomes the PRD's owner, and a PRD can have several owners. Roles stop counting if the person is
-deactivated in the organization. Inviting people comes with E04.
+deactivated in the organization. Owners and org admins invite people: see [People on a PRD](#people-on-a-prd).
 
 Every PRD belongs to its creator's organization. `my_role` is the caller's access: their role on the PRD, or
 `org_admin` when they only see it as an admin of its organization. Use it to decide which buttons to show.
@@ -109,6 +108,24 @@ Every PRD belongs to its creator's organization. `my_role` is the caller's acces
   still accepts it for now and will reject it with 422 once #62 is live.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
   [`docs/prd-document-format.md`](prd-document-format.md); saves switch to it with Marco's S03 work.
+
+### People on a PRD
+
+Owners and org admins invite people from the PRD's organization, change their roles and remove them. Anyone on a
+PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
+
+`PRDMember`: `{ "user_id": "uuid", "name": "string | null", "role": "owner | editor | viewer", "granted_by": "uuid | null", "added_at": "…" }`
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `GET /api/prds/{id}/members` | | 200 `PRDMember[]`, in the order they were added (the creator first) | 404 if you can't see the PRD |
+| `PUT /api/prds/{id}/members/{user_id}` | `{ "role": "owner" \| "editor" \| "viewer" }` | 200 `PRDMember[]` (the updated list): adds the person, or changes their role | 404 can't see the PRD; 403 `forbidden` not an owner or org admin; 422 `not_in_organization` (not an active member of the PRD's org); 422 `validation_error` unknown role; 409 `owner_required` (demoting the last owner) |
+| `DELETE /api/prds/{id}/members/{user_id}` | | 204, also when the person wasn't on it | 404; 403 removing someone else without managing the PRD; 409 `owner_required` (the last owner) |
+
+- To leave a PRD, `DELETE` with your own `user_id`. Afterwards it's 404 for you unless you're an org admin.
+- An owner who demotes themselves loses the right to manage people straight away.
+- Pick invitees from the [organization directory](#organization-directory) (`members[].user_id`).
+- Inviting someone sends them a [notification](#notifications). Setting a role someone already has changes nothing.
 
 ## Intake answers
 
@@ -148,6 +165,9 @@ Each org has a join code that only its admins can see. A member sign-up: create 
 | `GET /api/organizations/{id}/join-code` | | 200 `{ join_code }` (admins only) | 403 members; 404 others |
 | `POST /api/organizations/{id}/join-code` | | 200 `{ join_code }`: a **new** code; the old one stops working | 403 members; 404 others |
 
+Reading `organization` straight from Supabase (not through these routes): name the columns, e.g.
+`select=id,name`. `select *` fails with 401/403, because clients can't read the `join_code` column.
+
 ## Organization directory
 
 Everything the org chart needs in one call. Only active members of the organization can read it.
@@ -172,19 +192,80 @@ Everything the org chart needs in one call. Only active members of the organizat
 Members are active members only, sorted by name. Archived departments and teams are included with `archived: true`
 so the chart can grey them out.
 
+## Generation preview (AI)
+
+`POST /api/prds/{id}/generate` drafts a whole PRD from its interview answers with Gemini. **It's a preview: nothing is
+saved.** The user accepts it through the normal save (accepting proposals arrives with #70); rejecting means
+discarding it.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int }`: the revision you last loaded | 200 `{ proposal: { title, description, content_json, doc_schema_version: 2, sources: [] }, base_revision, generation_record_id }` | Can edit the PRD |
+
+- **Needs** answers to `problem`, `target_users` and `goals`. It uses the title, the description and all seven
+  answers.
+- `content_json` is a v2 document with all nine sections ([prd-document-format.md](prd-document-format.md)).
+  `sources` is always empty for now.
+- Keep `generation_record_id`: it's how the save will know this content came from the AI.
+- **No streaming:** show a waiting state. A slow generation can still fail with 502/503; offer a retry.
+
+| Status | `code` | When | Suggested handling |
+|---|---|---|---|
+| 404 | `not_found` | You can't see the PRD | Show "not found" |
+| 403 | `forbidden` | You can view the PRD but not edit it | Hide Generate for viewers |
+| 409 | `stale_revision` | The PRD was saved after you loaded it, or while the draft was being written | Reload, then generate again |
+| 409 | `intake_changed` | The interview answers changed while the draft was being written | Show the message and a **Generate again** button. Keep this separate from `stale_revision` |
+| 422 | `intake_incomplete` | `problem`, `target_users` or `goals` is unanswered | Send the user back to the interview |
+| 422 | `validation_error` | Bad body (missing or non-positive `revision`, unknown field) | Show `detail` |
+| 429 | `ai_cooldown`, `ai_busy` | Per-user AI limits; the body and the `Retry-After` header include `retry_after` (seconds) | Disable AI actions until then |
+| 429 | `ai_disabled` | AI is switched off | Hide AI actions; manual editing works |
+| 429 | `ai_provider_rate_limited` | Gemini is rate limited | "Try again in a minute" |
+| 502 | `ai_provider_error`, `ai_invalid_output` | Gemini failed or returned an unusable draft | Offer a retry |
+| 503 | `ai_unavailable`, `ai_budget_exhausted` | AI isn't configured or is out of quota | Keep manual editing |
+
+## Notifications
+
+Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD;
+review and comment notifications arrive with E06–E08). You never get one for your own action, and notifications
+about a PRD you can no longer see are hidden from the list and the unread count.
+
+`Notification`:
+
+```json
+{
+  "id": "uuid", "type": "member_added", "prd_id": "uuid", "title": "PRD title",
+  "actor_id": "uuid | null", "actor_name": "string | null", "payload": { "user_id": "uuid", "role": "editor" },
+  "version_id": "uuid | null", "round_id": "uuid | null", "comment_id": "uuid | null",
+  "created_at": "…", "read_at": "… | null"
+}
+```
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `GET /api/notifications?unread_only=false&limit=25&cursor=` | | 200 `{ "items": Notification[], "next_cursor": "string \| null", "unread_count": int }`, newest first | 400 `invalid_cursor` |
+| `PATCH /api/notifications/{id}` | `{ "read": true }` | 200 `Notification`; repeating it succeeds and keeps the first `read_at` | 404 not yours (or the PRD is hidden from you); 422 anything but `read: true` |
+
+- **Paging:** `limit` is 1–100 (default 25). Send `next_cursor` back as `cursor` for the next page; `null` means the end.
+  `unread_count` always counts all your unread notifications, whatever page or filter you asked for.
+- **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
+  are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
+- **`payload` by type:** `member_added`: `{ user_id, role }`. Types still to come: `comment_added`, `submitted`,
+  `approved`, `changes_requested`, `round_approved`, `superseded`, `work_status_changed`.
+- No realtime updates: refetch the unread count when the user navigates or on a timer.
+
 ## Coming in open PRs
 
 Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
 
 ### Organizations (Vineela)
 
-Next: inviting people to a PRD (E04) and admin routes for members, departments and teams (E02).
+Next: admin routes for members, departments and teams (E02).
 
 ### AI (Marco)
 
-Drafts: #63 generation service, #67 AI records and staged proposals, #68 per-user AI usage gate, #69
-`POST /api/prds/{id}/generate` (generation preview), #70 accepting AI proposals through the normal save, #55 atomic
-save and version history. Marco adds their request/response details here as they merge.
+Open: #74 (saved context in generation), #75 (PRD chat), #70 (accepting AI proposals through the save), #81 (PUT
+through the S03 save, behind a switch), #84 (version history), #85 (AI section edits), #86 (owning team and priority).
+Each adds its entry here or in the main reference as it merges.
 
 ## Changes from the integration guide
 
