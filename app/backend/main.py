@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from postgrest import ReturnMethod
 from postgrest.exceptions import APIError
@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from supabase_auth.errors import AuthError, AuthRetryableError
 
+import prd_versions
 from errors import ApiError, logger, register_error_handlers
 from supabase_client import supabase, user_client
 
@@ -273,6 +274,52 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
     return with_my_role(client, auth["user"].id, response.data)[0]
+
+
+class VersionActor(BaseModel):
+    id: UUID
+    name: Optional[str]
+
+
+class VersionOut(BaseModel):
+    id: UUID
+    version_no: int
+    saved_revision: Optional[int]
+    actor: Optional[VersionActor]  # null: the person was deleted, or the pre-history checkpoint
+    origin: str
+    created_at: datetime
+    changed_sections: list[str]
+    change_summary: Optional[str]
+
+
+class VersionPage(BaseModel):
+    items: list[VersionOut]
+    next_cursor: Optional[str]
+
+
+class VersionDetail(VersionOut):
+    title: Optional[str]
+    description: Optional[str]
+    content_json: Optional[dict]
+    doc_schema_version: int
+    generation_record_id: Optional[UUID]
+
+
+# S04: read-only history. RLS decides who can see a PRD's versions; there's
+# no restore (scheduled separately).
+@app.get("/api/prds/{prd_id}/versions", response_model=VersionPage)
+def list_prd_versions(
+    prd_id: UUID,
+    limit: int = Query(prd_versions.DEFAULT_LIMIT, ge=1, le=prd_versions.MAX_LIMIT),
+    cursor: Optional[str] = None,
+    auth=Depends(get_current_user),
+):
+    return prd_versions.list_versions(auth["client"], str(prd_id), limit=limit, cursor=cursor)
+
+
+@app.get("/api/prds/{prd_id}/versions/{version_id}", response_model=VersionDetail)
+def get_prd_version(prd_id: UUID, version_id: UUID, auth=Depends(get_current_user)):
+    return prd_versions.get_version(auth["client"], str(prd_id), str(version_id))
 
 
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
