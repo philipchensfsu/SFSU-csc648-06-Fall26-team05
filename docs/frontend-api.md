@@ -193,6 +193,32 @@ Everything the org chart needs in one call. Only active members of the organizat
 Members are active members only, sorted by name. Archived departments and teams are included with `archived: true`
 so the chart can grey them out.
 
+### Managing departments and teams (admins)
+
+Org admins build the structure their organization uses; it's all optional. Nothing is deleted: archiving replaces
+deletion, and archived units stay in the directory with `archived: true`. Responses use the directory's
+`department` and `team` shapes.
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `POST /api/organizations/{id}/departments` | `{ "name": "1–100 chars" }` | 201 department | 409 `name_taken` |
+| `PATCH /api/organizations/{id}/departments/{dept_id}` | any of `{ "name", "head_id": uuid \| null, "archived": bool }` | 200 department | 404; 409 `name_taken`, `department_not_empty`; 422 `head_not_in_department`, `not_in_organization` |
+| `POST /api/organizations/{id}/teams` | `{ "name": "1–100 chars", "department_id": uuid \| null }` | 201 team | 409 `name_taken`; 422 `not_in_organization` |
+| `PATCH /api/organizations/{id}/teams/{team_id}` | any of `{ "name", "department_id": uuid \| null, "lead_id": uuid \| null, "archived": bool }` | 200 team | 404; 409 `name_taken`, `team_not_empty`; 422 `lead_not_in_team`, `not_in_organization` |
+| `PUT /api/organizations/{id}/teams/{team_id}/members/{user_id}` | | 204, also if already on it | 404; 409 `team_archived`; 422 `not_in_organization` (not an active member) |
+| `DELETE /api/organizations/{id}/teams/{team_id}/members/{user_id}` | | 204, also if not on it | 404; 422 `lead_not_in_team` (clear or change the lead first) |
+
+All routes: 404 if you're not an active member of the organization, 403 if you're a member but not an admin.
+
+- **Only the fields you send change.** Send `null` to clear a head, lead or department.
+- **Names** are trimmed and unique among *active* departments (and among active teams), ignoring case; an archived
+  unit's name can be reused.
+- **Heads and leads:** a department head must be an active member *of that department*, and a team lead must be on
+  the team. Move the person in first. Member department changes come with E02 part 2.
+- **Archiving** needs the unit to be empty: a department with active members or active teams, or a team with active
+  members, is 409 until they're moved out. Archived teams take no new members.
+- Team membership never changes anyone's org role or access to PRDs.
+
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD;
@@ -229,7 +255,7 @@ Not on `develop` yet. Shapes can still change in review; each PR updates its ent
 
 ### Organizations (Vineela)
 
-Next: admin routes for members, departments and teams (E02).
+Next: admin routes for members (E02 part 2).
 
 ### AI (Marco)
 

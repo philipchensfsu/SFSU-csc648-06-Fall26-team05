@@ -711,6 +711,18 @@ class DepartmentUpdate(RequestModel):
     archived: Optional[bool] = None
 
 
+class TeamCreate(RequestModel):
+    name: UnitName
+    department_id: Optional[UUID] = None
+
+
+class TeamUpdate(RequestModel):
+    name: Optional[UnitName] = None
+    department_id: Optional[UUID] = None
+    lead_id: Optional[UUID] = None
+    archived: Optional[bool] = None
+
+
 # Messages of the directory's end-state checks (20261029110000), which run
 # when the change commits.
 DIRECTORY_ERRORS = {
@@ -775,6 +787,7 @@ def update_unit(client, table, org_id: UUID, unit_id: UUID, changes, columns):
 
 
 DEPARTMENT_COLUMNS = "id, name, head_id, archived_at"
+TEAM_COLUMNS = "id, name, department_id, lead_id, archived_at"
 
 
 @app.post("/api/organizations/{org_id}/departments", response_model=DirectoryDepartment, status_code=201)
@@ -792,3 +805,52 @@ def update_department(org_id: UUID, department_id: UUID, payload: DepartmentUpda
     client = auth["client"]
     require_org_admin(client, org_id)
     return update_unit(client, "department", org_id, department_id, unit_changes(payload), DEPARTMENT_COLUMNS)
+
+
+@app.post("/api/organizations/{org_id}/teams", response_model=DirectoryTeam, status_code=201)
+def create_team(org_id: UUID, payload: TeamCreate, auth=Depends(get_current_user)):
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    fields = {"organization_id": str(org_id), "name": payload.name,
+              "department_id": str(payload.department_id) if payload.department_id else None}
+    rows = write_directory(lambda: client.table("team").insert(fields).execute().data)
+    return with_archived_flag({key: rows[0][key] for key in TEAM_COLUMNS.split(", ")})
+
+
+@app.patch("/api/organizations/{org_id}/teams/{team_id}", response_model=DirectoryTeam)
+def update_team(org_id: UUID, team_id: UUID, payload: TeamUpdate, auth=Depends(get_current_user)):
+    # Rename, move to another department (or none), set or clear the lead,
+    # archive or unarchive.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    return update_unit(client, "team", org_id, team_id, unit_changes(payload), TEAM_COLUMNS)
+
+
+def team_in_org(client, org_id: UUID, team_id: UUID):
+    rows = (client.table("team").select("archived_at")
+            .eq("organization_id", str(org_id)).eq("id", str(team_id)).execute().data)
+    if not rows:
+        raise ApiError(404, "Team not found")
+    return rows[0]
+
+
+@app.put("/api/organizations/{org_id}/teams/{team_id}/members/{user_id}", status_code=204)
+def add_team_member(org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
+    # Puts an active member on the team; already on it is fine.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    if team_in_org(client, org_id, team_id)["archived_at"]:
+        raise ApiError(409, "This team is archived.", "team_archived")
+    link = {"organization_id": str(org_id), "team_id": str(team_id), "user_id": str(user_id)}
+    write_directory(lambda: client.table("team_member").upsert(link, ignore_duplicates=True,
+                                                                returning=ReturnMethod.minimal).execute())
+
+
+@app.delete("/api/organizations/{org_id}/teams/{team_id}/members/{user_id}", status_code=204)
+def remove_team_member(org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
+    # Takes someone off the team; their org membership stays. Not on it is fine.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    team_in_org(client, org_id, team_id)
+    write_directory(lambda: client.table("team_member").delete(returning=ReturnMethod.minimal)
+                    .eq("team_id", str(team_id)).eq("user_id", str(user_id)).execute())
