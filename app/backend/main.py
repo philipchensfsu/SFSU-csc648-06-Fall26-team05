@@ -17,6 +17,7 @@ from supabase_auth.errors import AuthError, AuthRetryableError
 
 import prd_save
 import prd_versions
+from ai import preview
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
@@ -153,6 +154,11 @@ class IntakeAnswerOut(BaseModel):
     answer_text: Optional[str]
     skipped: bool
     answered_at: datetime
+
+
+class GenerateRequest(RequestModel):
+    # The revision the client last saw; the draft is built for it.
+    revision: int = Field(..., ge=1)
 
 
 @app.get("/api/health")
@@ -427,11 +433,12 @@ MEMBER_ERRORS = {
 }
 
 
-def call_member_function(client, function, params):
+def call_function(client, function, params, errors):
+    """Calls a database function; its fixed P0001 messages in `errors` become API errors."""
     try:
-        client.rpc(function, params).execute()
+        return client.rpc(function, params).execute().data
     except APIError as exc:
-        known = MEMBER_ERRORS.get(exc.message)
+        known = errors.get(exc.message)
         if known is None:
             raise
         status, detail, code = known
@@ -458,15 +465,87 @@ def set_prd_member(prd_id: UUID, user_id: UUID, payload: PRDMemberIn, auth=Depen
     # Invites someone from the PRD's organization, or changes their role.
     # Owners and org admins only. Returns the updated list.
     client = auth["client"]
-    call_member_function(client, "set_prd_member",
-                         {"target_prd": str(prd_id), "target_user": str(user_id), "new_role": payload.role})
+    call_function(client, "set_prd_member",
+                  {"target_prd": str(prd_id), "target_user": str(user_id), "new_role": payload.role}, MEMBER_ERRORS)
     return list_people(client, prd_id)
 
 
 @app.delete("/api/prds/{prd_id}/members/{user_id}", status_code=204)
 def remove_prd_member(prd_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
     # Owners and org admins remove anyone; anyone can remove themselves.
-    call_member_function(auth["client"], "remove_prd_member", {"target_prd": str(prd_id), "target_user": str(user_id)})
+    call_function(auth["client"], "remove_prd_member", {"target_prd": str(prd_id), "target_user": str(user_id)},
+                  MEMBER_ERRORS)
+
+
+class CommentAuthor(BaseModel):
+    id: Optional[UUID]
+    name: Optional[str]
+    department: Optional[str]
+
+
+class CommentOut(BaseModel):
+    id: UUID
+    prd_id: UUID
+    version_id: UUID
+    version_no: Optional[int]
+    section_type: Optional[str]
+    author: CommentAuthor
+    body: str
+    created_at: datetime
+
+
+class CommentIn(RequestModel):
+    version_id: UUID
+    section_type: Optional[str] = None
+    body: str = Field(..., min_length=1, max_length=5000)
+
+
+# Errors raised by add_prd_comment (P0001 with a fixed message).
+COMMENT_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "no_saved_version": (409, "Save the PRD before commenting on it.", "no_saved_version"),
+    "stale_version": (409, "The PRD has a newer version. Refresh, then post your comment.", "stale_version"),
+    "invalid_section": (422, "section_type must be null or one of the PRD's nine section types.", "validation_error"),
+    "invalid_body": (422, "A comment needs text, up to 5,000 characters.", "validation_error"),
+}
+
+COMMENT_COLUMNS = ("id, prd_id, version_id, section_type, author_id, author_name, department_name, body, created_at, "
+                   "version:prd_version(version_no)")
+
+
+def comment_item(row):
+    return {
+        "id": row["id"], "prd_id": row["prd_id"], "version_id": row["version_id"],
+        "version_no": (row["version"] or {}).get("version_no"), "section_type": row["section_type"],
+        "author": {"id": row["author_id"], "name": row["author_name"], "department": row["department_name"]},
+        "body": row["body"], "created_at": row["created_at"],
+    }
+
+
+@app.get("/api/prds/{prd_id}/comments", response_model=Page[CommentOut])
+def list_comments(prd_id: UUID, version_id: Optional[UUID] = None, params: PageParams = Depends(),
+                  auth=Depends(get_current_user)):
+    # Oldest first. Without version_id, every comment on the PRD.
+    client = auth["client"]
+    if not client.table("prd").select("id").eq("id", str(prd_id)).execute().data:
+        raise ApiError(404, "PRD not found")
+    query = client.table("prd_comment").select(COMMENT_COLUMNS).eq("prd_id", str(prd_id))
+    if version_id:
+        query = query.eq("version_id", str(version_id))
+    page = paginate(query, params, descending=False)
+    return {"items": [comment_item(r) for r in page["items"]], "next_cursor": page["next_cursor"]}
+
+
+@app.post("/api/prds/{prd_id}/comments", response_model=CommentOut, status_code=201)
+def add_comment(prd_id: UUID, payload: CommentIn, auth=Depends(get_current_user)):
+    # Anyone who can view the PRD comments on its current version.
+    client = auth["client"]
+    comment_id = call_function(client, "add_prd_comment", {
+        "target_prd": str(prd_id), "target_version": str(payload.version_id),
+        "target_section": payload.section_type, "comment_body": payload.body,
+    }, COMMENT_ERRORS)
+    row = client.table("prd_comment").select(COMMENT_COLUMNS).eq("id", comment_id).execute().data[0]
+    return comment_item(row)
 
 
 @app.get("/api/prds/{prd_id}/intake", response_model=list[IntakeAnswerOut])
@@ -737,6 +816,8 @@ class NotificationOut(BaseModel):
     comment_id: Optional[UUID]
     created_at: datetime
     read_at: Optional[datetime]
+    count: int
+    updated_at: datetime
 
 
 class NotificationPage(Page[NotificationOut]):
@@ -748,7 +829,7 @@ class NotificationRead(RequestModel):
 
 
 NOTIFICATION_COLUMNS = (
-    "id, prd_id, created_at, read_at, prd(title), "
+    "id, prd_id, created_at, read_at, event_count, updated_at, prd(title), "
     "event:prd_event(event_type, actor_id, actor_name, payload, version_id, round_id, comment_id)"
 )
 
@@ -760,18 +841,20 @@ def notification_item(row):
         "actor_id": event["actor_id"], "actor_name": event["actor_name"], "payload": event["payload"],
         "version_id": event["version_id"], "round_id": event["round_id"], "comment_id": event["comment_id"],
         "created_at": row["created_at"], "read_at": row["read_at"],
+        "count": row["event_count"], "updated_at": row["updated_at"],
     }
 
 
 @app.get("/api/notifications", response_model=NotificationPage)
 def list_notifications(unread_only: bool = False, params: PageParams = Depends(), auth=Depends(get_current_user)):
-    # The caller's inbox, newest first. RLS hides notifications about PRDs
-    # they can no longer see, from the items and the unread count alike.
+    # The caller's inbox, most recent activity first, so a growing comment
+    # batch moves back up. RLS hides notifications about PRDs they can no
+    # longer see, from the items and the unread count alike.
     client = auth["client"]
     query = client.table("notification").select(NOTIFICATION_COLUMNS)
     if unread_only:
         query = query.is_("read_at", "null")
-    page = paginate(query, params)
+    page = paginate(query, params, sort_column="updated_at")
     unread = client.table("notification").select("id", count="exact", head=True).is_("read_at", "null").execute()
     return {"items": [notification_item(r) for r in page["items"]], "next_cursor": page["next_cursor"],
             "unread_count": unread.count or 0}
@@ -787,3 +870,14 @@ def mark_notification_read(notification_id: UUID, payload: NotificationRead, aut
     if not rows:
         raise ApiError(404, "Notification not found")
     return notification_item(rows[0])
+
+
+# Preview only (A03): returns {proposal, base_revision, generation_record_id}
+# and saves nothing to the PRD. Accepting the proposal is a normal save (A05).
+# Records and staged proposals are written with the service-role client for
+# the verified user, the trusted-writer pattern reviewed on #55.
+@app.post("/api/prds/{prd_id}/generate")
+def generate_prd_preview(prd_id: UUID, payload: GenerateRequest, auth=Depends(get_current_user)):
+    return preview.generate_preview(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision
+    )
