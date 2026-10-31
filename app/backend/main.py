@@ -101,9 +101,10 @@ class PRDUpdate(RequestModel):
     revision: int
     title: Optional[str] = Field(default=None, max_length=200)
     content_json: Optional[dict] = None
-    # Legacy save only: the S03 save derives content_text and never takes a
-    # status (D6).
+    # Legacy save only: the S03 save derives content_text itself.
     content_text: Optional[str] = None
+    # Refused (422 status_not_allowed): status changes only through review
+    # (Decision 6). Kept as a field so the error names it.
     status: Optional[str] = None
     # S03 save only (PRD_SAVE_V2): description is its own column there, and
     # generation_record_id accepts an AI proposal once A05 (#70) is in.
@@ -301,6 +302,10 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
     sent = payload.model_fields_set
     if prd_save_v2_enabled():
         return save_prd_v2(prd_id, payload, sent, auth)
+    if "status" in sent:
+        # Same refusal as the S03 save: status changes only through review.
+        raise ApiError(422, "A PRD's status changes only through review. Don't send status when saving.",
+                       code="status_not_allowed")
     unsupported = [name for name in SAVE_CORE_ONLY_FIELDS if name in sent]
     if unsupported:
         raise ApiError(422, f"{unsupported[0]} can't be saved yet", code="validation_error")

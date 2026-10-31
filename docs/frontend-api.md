@@ -102,11 +102,11 @@ Every PRD belongs to its creator's organization. `my_role` is the caller's acces
 | `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1, `my_role: "owner"`), in your organization | 403 `no_organization` if the account has none; 404 if `project_id` isn't one of **your** projects; 422 |
 | `GET /api/prds` | optional `?search=text` (matches title and content text); optional `?view=owned` (PRDs you own) or `?view=shared` (PRDs you were invited to as editor or viewer: "Shared with me") | 200 `PRD[]`, most recently updated first. Without `view`: every PRD you can see, which for an org admin is every PRD in the org | 422 unknown `view` |
 | `GET /api/prds/{id}` | | 200 `PRD` | 404 |
-| `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 |
+| `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 (`status_not_allowed` if `status` is sent) |
 | `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
 
-- **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). The legacy
-  save still accepts it; the S03 save below rejects it.
+- **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). Both saves
+  reject it with 422 `status_not_allowed`.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
   [`docs/prd-document-format.md`](prd-document-format.md).
 
