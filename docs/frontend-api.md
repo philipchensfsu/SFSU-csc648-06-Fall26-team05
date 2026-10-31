@@ -105,10 +105,29 @@ Every PRD belongs to its creator's organization. `my_role` is the caller's acces
 | `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 |
 | `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
 
-- **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). The backend
-  still accepts it for now and will reject it with 422 once #62 is live.
+- **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). The legacy
+  save still accepts it; the S03 save below rejects it.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
-  [`docs/prd-document-format.md`](prd-document-format.md); saves switch to it with Marco's S03 work.
+  [`docs/prd-document-format.md`](prd-document-format.md).
+
+**S03 save (draft, #81; not on `develop`, not deployed).** When the backend runs with `PRD_SAVE_V2=true`, the
+same `PUT /api/prds/{id}` goes through the S03 save. The switch is off until the cutover: the editor must send v2
+documents first.
+
+- **Body:** `{ "revision": int, "title"?, "description"?: string | null, "content_json"?: v2 document }`. Only the
+  fields you send change; `description: null` clears it.
+- **Response:** 200 `PRD`, now including `description`, with the new `revision`. The server derives `content_text`
+  and keeps a version for each save that changes something. A save that changes nothing returns the PRD unchanged.
+- **Errors:**
+  - 422 `invalid_document`, with an `errors` list (path and code per problem), for a document that isn't v2,
+    including today's v1 shape;
+  - 422 `invalid_title` / `invalid_description`;
+  - 422 `status_not_allowed` if `status` is sent; 422 for `content_text` (the server derives it);
+  - 403 viewer; 404 not visible; 409 `stale_revision`;
+  - 409 `review_integration_pending` for approved PRDs (`final`, `assigned`) until reapproval (E09) exists. Draft and
+    in-review PRDs save, and their status doesn't change.
+- **Accepting an AI proposal:** send `generation_record_id` with the save. Until A05 (#70) is in, this returns 422
+  `proposal_acceptance_unavailable`.
 
 ### People on a PRD
 
