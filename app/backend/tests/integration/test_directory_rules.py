@@ -27,7 +27,7 @@ class Org:
 @pytest.fixture
 def org(make_user, db):
     """Alice (admin), Ben, Erin and Ada in Product; an Ops department; a Growth team in Product, no lead."""
-    alice, ben, erin, ada = (make_user().id for _ in range(4))
+    alice, ben, erin, ada = (make_user(org=False).id for _ in range(4))
     org_id = db.execute("insert into organization (name, created_by) values ('Rules', %s) returning id::text",
                         (alice,)).fetchone()[0]
     product, ops = (db.execute("insert into department (organization_id, name) values (%s, %s) returning id::text",
