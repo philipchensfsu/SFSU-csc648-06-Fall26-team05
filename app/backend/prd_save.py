@@ -44,6 +44,9 @@ class SaveError(ApiError):
     def __init__(self, status_code: int, detail: str, code: str, errors: list[dict] | None = None):
         super().__init__(status_code, detail, code)
         self.errors = errors or []
+        if self.errors:
+            # Rendered into the body by the shared S01 handler.
+            self.extra = {"errors": self.errors}
 
 
 def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title=UNSET, description=UNSET,
