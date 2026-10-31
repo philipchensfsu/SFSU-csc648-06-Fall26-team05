@@ -203,6 +203,21 @@ change in review. AI also needs migrations that aren't applied to the hosted dat
 - **Limits (all AI routes):** one AI request per user at a time, plus a short cooldown between requests. A request
   takes at most about 3 minutes. Show a waiting state; there's no streaming.
 
+**Owning team and priority (A08; draft, #86).** Neither is reviewed material, and neither changes the revision or
+makes a version. The owning team grants no access. PRD responses add `owning_team_id` and `priority`
+(`low` | `medium` | `high` | `critical`, or null).
+
+| Route | Body | Response | Who |
+|---|---|---|---|
+| `POST /api/prds/{id}/classification` | `{ "revision": int }` | 200 `{ suggestion: { id, team_id, priority, rationale }, base_revision, generation_record_id }`. A preview: nothing on the PRD changes | Owner or org admin |
+| `PUT /api/prds/{id}/classification/{suggestion_id}/decision` | `{ "decision": "accepted" \| "rejected", "team_id"?, "priority"? }` (adjustments only with `accepted`; `team_id: null` means no team) | 200 `PRD` | Owner or org admin |
+| `PUT /api/prds/{id}/routing` | `{ "owning_team_id": uuid \| null, "priority": ... \| null }` | 200 `PRD` | Owner or org admin |
+
+- The suggestion uses AI (same limits as the other AI routes). It needs saved content (422 `needs_content`) and at
+  least one active team in the org (422 `no_teams`). A save while it runs gives 409 `stale_revision`.
+- A suggestion is decided once: a second decision is 409 `suggestion_unavailable`.
+- A team must be an active team of the PRD's org (422 `invalid_team`). Editors and viewers get 403.
+
 AI error codes (all routes above; `{detail, code}` as usual; `detail` is safe to show):
 
 | Status | `code` | When | Suggested handling |
