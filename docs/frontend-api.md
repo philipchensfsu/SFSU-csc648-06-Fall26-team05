@@ -319,8 +319,8 @@ Next: admin routes for members, departments and teams (E02).
 
 ### AI (Marco)
 
-Open: #75 (PRD chat), #70 (accepting AI proposals through the save), #84 (version history), #85 (AI section
-edits), #86 (owning team and priority), #106 (save events, draft).
+Open: #75 (PRD chat), #84 (version history), #85 (AI section edits), #86 (owning team and priority), #106 (save
+events, draft).
 Each adds its entry here or in the main reference as it merges.
 
 ### Version history (Marco, draft, #84)
