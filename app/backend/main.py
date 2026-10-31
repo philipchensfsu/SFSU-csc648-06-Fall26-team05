@@ -15,6 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from supabase_auth.errors import AuthError, AuthRetryableError
 
+import prd_save
+from ai import preview
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
@@ -100,13 +102,32 @@ class PRDUpdate(RequestModel):
     revision: int
     title: Optional[str] = Field(default=None, max_length=200)
     content_json: Optional[dict] = None
+    # Legacy save only: the S03 save derives content_text and never takes a
+    # status (D6).
     content_text: Optional[str] = None
     status: Optional[str] = None
+    # S03 save only (PRD_SAVE_V2): description is its own column there, and
+    # generation_record_id accepts an AI proposal once A05 (#70) is in.
+    description: Optional[str] = None
+    generation_record_id: Optional[UUID] = None
+
+
+# The S03 save (prd_save.save_prd: v2 documents, versions, server-derived
+# text) replaces the direct update once the frontend sends v2 documents.
+# Until that cutover, PUT keeps the legacy update. Set PRD_SAVE_V2=true to
+# switch.
+LEGACY_ONLY_FIELDS = ("content_text", "status")
+SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id")
+
+
+def prd_save_v2_enabled() -> bool:
+    return os.environ.get("PRD_SAVE_V2", "").strip().lower() in {"true", "1", "on", "yes"}
 
 
 class PRDOut(BaseModel):
     id: UUID
     title: str
+    description: Optional[str] = None
     owner_id: UUID
     organization_id: UUID
     project_id: Optional[UUID]
@@ -132,6 +153,11 @@ class IntakeAnswerOut(BaseModel):
     answer_text: Optional[str]
     skipped: bool
     answered_at: datetime
+
+
+class GenerateRequest(RequestModel):
+    # The revision the client last saw; the draft is built for it.
+    revision: int = Field(..., ge=1)
 
 
 @app.get("/api/health")
@@ -278,6 +304,12 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
 
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
 def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user)):
+    sent = payload.model_fields_set
+    if prd_save_v2_enabled():
+        return save_prd_v2(prd_id, payload, sent, auth)
+    unsupported = [name for name in SAVE_CORE_ONLY_FIELDS if name in sent]
+    if unsupported:
+        raise ApiError(422, f"{unsupported[0]} can't be saved yet", code="validation_error")
     client = auth["client"]
     update_fields = payload.model_dump(exclude={"revision"}, exclude_unset=True)
     update_fields["revision"] = payload.revision + 1
@@ -304,6 +336,24 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
             code="stale_revision",
         )
     return with_my_role(client, auth["user"].id, response.data)[0]
+
+
+def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict:
+    """The S03 save: only the fields sent change, in one transaction with a
+    revision check and a version snapshot. The actor is the verified user."""
+    if "status" in sent:
+        raise ApiError(422, "Status can't be changed by saving. It changes through the review workflow.",
+                       code="status_not_allowed")
+    if "content_text" in sent:
+        raise ApiError(422, "content_text is derived by the server; don't send it", code="validation_error")
+    if payload.generation_record_id is not None:
+        # Accepting a proposal needs A05's once-only checks (#70); without
+        # them a record id would only be checked for existence.
+        raise ApiError(422, "Accepting AI proposals isn't available yet", code="proposal_acceptance_unavailable")
+    fields = {name: getattr(payload, name) for name in ("title", "description", "content_json") if name in sent}
+    saved = prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
+    # Like every PRD response, it carries the caller's role, read as them.
+    return with_my_role(auth["client"], auth["user"].id, [saved])[0]
 
 
 @app.delete("/api/prds/{prd_id}", status_code=204)
@@ -839,13 +889,14 @@ def notification_item(row):
 
 @app.get("/api/notifications", response_model=NotificationPage)
 def list_notifications(unread_only: bool = False, params: PageParams = Depends(), auth=Depends(get_current_user)):
-    # The caller's inbox, newest first. RLS hides notifications about PRDs
-    # they can no longer see, from the items and the unread count alike.
+    # The caller's inbox, most recent activity first, so a growing comment
+    # batch moves back up. RLS hides notifications about PRDs they can no
+    # longer see, from the items and the unread count alike.
     client = auth["client"]
     query = client.table("notification").select(NOTIFICATION_COLUMNS)
     if unread_only:
         query = query.is_("read_at", "null")
-    page = paginate(query, params)
+    page = paginate(query, params, sort_column="updated_at")
     unread = client.table("notification").select("id", count="exact", head=True).is_("read_at", "null").execute()
     return {"items": [notification_item(r) for r in page["items"]], "next_cursor": page["next_cursor"],
             "unread_count": unread.count or 0}
@@ -861,3 +912,14 @@ def mark_notification_read(notification_id: UUID, payload: NotificationRead, aut
     if not rows:
         raise ApiError(404, "Notification not found")
     return notification_item(rows[0])
+
+
+# Preview only (A03): returns {proposal, base_revision, generation_record_id}
+# and saves nothing to the PRD. Accepting the proposal is a normal save (A05).
+# Records and staged proposals are written with the service-role client for
+# the verified user, the trusted-writer pattern reviewed on #55.
+@app.post("/api/prds/{prd_id}/generate")
+def generate_prd_preview(prd_id: UUID, payload: GenerateRequest, auth=Depends(get_current_user)):
+    return preview.generate_preview(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision
+    )
