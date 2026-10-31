@@ -106,7 +106,7 @@ deactivated in the organization. Inviting people comes with E04.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
   [`docs/prd-document-format.md`](prd-document-format.md).
 
-**S03 save (draft, PR_NUMBER; not on `develop`, not deployed).** When the backend runs with `PRD_SAVE_V2=true`, the
+**S03 save (draft, #81; not on `develop`, not deployed).** When the backend runs with `PRD_SAVE_V2=true`, the
 same `PUT /api/prds/{id}` goes through the S03 save. The switch is off until the cutover: the editor must send v2
 documents first.
 
