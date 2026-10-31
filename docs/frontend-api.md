@@ -128,6 +128,37 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 - Pick invitees from the [organization directory](#organization-directory) (`members[].user_id`).
 - Inviting someone sends them a [notification](#notifications). Setting a role someone already has changes nothing.
 
+### Comments
+
+Flat comments on a PRD's saved version. Anyone who can view the PRD (owners, editors, viewers, org admins) can read
+and post them. New comments go on the PRD's **current** version; older comments stay readable and carry their
+`version_no` for a "v2" label. No replies, edits, deletes or mentions. Comments never change the PRD, its revision or
+its review.
+
+`Comment`:
+
+```json
+{
+  "id": "uuid", "prd_id": "uuid", "version_id": "uuid", "version_no": 3, "section_type": "goals | null",
+  "author": { "id": "uuid | null", "name": "string | null", "department": "string | null" },
+  "body": "plain text", "created_at": "…"
+}
+```
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `GET /api/prds/{id}/comments?version_id=&limit=25&cursor=` | | 200 `{ "items": Comment[], "next_cursor": "string \| null" }`, **oldest first**; without `version_id`, every version's comments | 404 if you can't see the PRD; 400 `invalid_cursor` |
+| `POST /api/prds/{id}/comments` | `{ "version_id": "uuid", "section_type": null \| "<section type>", "body": "1–5,000 chars" }` | 201 `Comment` | 404; 409 `no_saved_version` (the PRD has never been saved: disable the comment box); 409 `stale_version` (someone saved since: reload, keep the draft, post again); 422 `validation_error` (blank or too-long body, unknown section) |
+
+- Send the `current_version_id` from the PRD you loaded as `version_id`.
+- `section_type` is one of the nine section types in [`prd-document-format.md`](prd-document-format.md), or `null`
+  for the whole PRD.
+- **`body` is plain text: escape it when rendering**, and keep line breaks.
+- `author.name` and `author.department` are frozen when the comment is posted, so later renames or department
+  moves don't change them.
+- Posting notifies the PRD's owners and editors (`comment_added`, with `comment_id` and `version_id` set). Inbox
+  `payload`: `{ section_type }`.
+
 ## Intake answers
 
 The interview answers for a PRD, one per question.
@@ -195,8 +226,8 @@ so the chart can grey them out.
 
 ## Notifications
 
-Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD;
-review and comment notifications arrive with E06–E08). You never get one for your own action, and notifications
+Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD and
+comments; review notifications arrive with E07–E08). You never get one for your own action, and notifications
 about a PRD you can no longer see are hidden from the list and the unread count.
 
 `Notification`:
@@ -219,7 +250,7 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   `unread_count` always counts all your unread notifications, whatever page or filter you asked for.
 - **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
-- **`payload` by type:** `member_added`: `{ user_id, role }`. Types still to come: `comment_added`, `submitted`,
+- **`payload` by type:** `member_added`: `{ user_id, role }`; `comment_added`: `{ section_type }`. Types still to come: `submitted`,
   `approved`, `changes_requested`, `round_approved`, `superseded`, `work_status_changed`.
 - No realtime updates: refetch the unread count when the user navigates or on a timer.
 
