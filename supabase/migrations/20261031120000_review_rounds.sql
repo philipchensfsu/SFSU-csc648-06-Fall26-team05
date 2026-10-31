@@ -24,7 +24,12 @@
 -- record_prd_event now notifies reviewers: submitted -> the round's
 -- reviewers; round_approved -> owners and the round's reviewers;
 -- superseded -> the round's reviewers listed in payload.reviewer_ids
--- (the ones whose approval was reset).
+-- (the ones whose approval was reset). A role change now also notifies the
+-- person whose role changed (member_role_changed).
+--
+-- can_view_prd is redefined as can_view_prd_as for the caller, so the two
+-- can't drift apart (same rule as before: a role on the PRD, or admin of its
+-- org, while an active member of that org).
 --
 -- Errors raise P0001 with a fixed message the API maps: prd_not_found,
 -- prd_manage_forbidden, stale_revision, no_saved_version, stale_version,
@@ -34,7 +39,7 @@
 -- Applied to the hosted database by hand (docs/local-development.md,
 -- "Applying a migration to the hosted database"). Apply after
 -- 20261031110000_prd_comments. Adds tables and functions, and replaces
--- record_prd_event.
+-- record_prd_event and can_view_prd.
 
 create table review_round (
   id uuid primary key default gen_random_uuid(),
@@ -218,6 +223,7 @@ begin
 
   recipients := case p_event_type
     when 'member_added' then array[(p_payload ->> 'user_id')::uuid]
+    when 'member_role_changed' then array[(p_payload ->> 'user_id')::uuid]
     when 'comment_added' then
       array(select user_id from prd_member where prd_id = p_prd_id and role in ('owner', 'editor'))
     when 'submitted' then round_reviewers
@@ -227,7 +233,7 @@ begin
     when 'superseded' then
       array(select r from unnest(round_reviewers) r
             where r::text in (select jsonb_array_elements_text(coalesce(p_payload -> 'reviewer_ids', '[]'))))
-    when 'work_status_changed' then case when p_payload ->> 'status' = 'done' then owners end
+    when 'work_status_changed' then case when p_payload ->> 'status' = 'done' then owners else '{}' end
     else '{}'
   end;
 
@@ -237,6 +243,18 @@ begin
   perform notify_recipients(new_event, p_prd_id, p_event_type, p_actor, recipients);
   return new_event;
 end;
+$$;
+
+-- One rule for "can this person view the PRD", asked for the caller.
+-- create or replace keeps its grants and the RLS policies that call it.
+create or replace function can_view_prd(target_prd_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select can_view_prd_as(auth.uid(), target_prd_id)
 $$;
 
 revoke execute on function open_review_round(uuid, uuid, uuid[], boolean) from public, anon, authenticated;
