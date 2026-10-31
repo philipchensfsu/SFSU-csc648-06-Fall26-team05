@@ -139,3 +139,41 @@ def test_the_section_list_matches_the_document_format(db):
                             ).fetchone()[0]
     for section_type in prd_document.section_types():
         assert f"'{section_type}'" in definition
+
+
+def notifications(user):
+    return [(i["type"], i["actor_id"], i["count"]) for i in user.api("GET", "/notifications").json()["items"]]
+
+
+def test_a_burst_of_comments_is_one_notification_with_a_count(team):
+    first = post(team["vic"], team["prd"], team["version"], "One").json()
+    post(team["vic"], team["prd"], team["version"], "Two")
+    post(team["vic"], team["prd"], team["version"], "Three")
+    for who in ("olive", "ed"):
+        inbox = team[who].api("GET", "/notifications").json()
+        assert inbox["unread_count"] == 1
+        [item] = inbox["items"]
+        assert item["count"] == 3 and item["comment_id"] == first["id"] and item["updated_at"] >= item["created_at"]
+
+
+def test_other_commenters_get_their_own_notification(team):
+    post(team["vic"], team["prd"], team["version"])
+    post(team["ed"], team["prd"], team["version"])
+    post(team["vic"], team["prd"], team["version"])
+    assert notifications(team["olive"]) == [("comment_added", team["ed"].id, 1), ("comment_added", team["vic"].id, 2)]
+
+
+def test_reading_the_batch_starts_a_new_one(team):
+    post(team["vic"], team["prd"], team["version"])
+    [item] = team["olive"].api("GET", "/notifications").json()["items"]
+    team["olive"].api("PATCH", f"/notifications/{item['id']}", json={"read": True})
+    post(team["vic"], team["prd"], team["version"])
+    assert notifications(team["olive"]) == [("comment_added", team["vic"].id, 1), ("comment_added", team["vic"].id, 1)]
+    assert notifications(team["ed"]) == [("comment_added", team["vic"].id, 2)]
+
+
+def test_a_batch_closes_ten_minutes_after_its_first_comment(team, db):
+    post(team["vic"], team["prd"], team["version"])
+    db.execute("update notification set created_at = now() - interval '11 minutes' where prd_id = %s", (team["prd"],))
+    post(team["vic"], team["prd"], team["version"])
+    assert notifications(team["olive"]) == [("comment_added", team["vic"].id, 1), ("comment_added", team["vic"].id, 1)]

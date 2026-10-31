@@ -237,7 +237,7 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   "id": "uuid", "type": "member_added", "prd_id": "uuid", "title": "PRD title",
   "actor_id": "uuid | null", "actor_name": "string | null", "payload": { "user_id": "uuid", "role": "editor" },
   "version_id": "uuid | null", "round_id": "uuid | null", "comment_id": "uuid | null",
-  "created_at": "…", "read_at": "… | null"
+  "created_at": "…", "read_at": "… | null", "count": 1, "updated_at": "…"
 }
 ```
 
@@ -252,6 +252,10 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
 - **`payload` by type:** `member_added`: `{ user_id, role }`; `comment_added`: `{ section_type }`. Types still to come: `submitted`,
   `approved`, `changes_requested`, `round_approved`, `superseded`, `work_status_changed`.
+- **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
+  one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
+  the first one and `updated_at` is when the latest arrived. Once read, the next comment starts a new notification.
+  Other types always have `count: 1`.
 - No realtime updates: refetch the unread count when the user navigates or on a timer.
 
 ## Coming in open PRs

@@ -719,6 +719,8 @@ class NotificationOut(BaseModel):
     comment_id: Optional[UUID]
     created_at: datetime
     read_at: Optional[datetime]
+    count: int
+    updated_at: datetime
 
 
 class NotificationPage(Page[NotificationOut]):
@@ -730,7 +732,7 @@ class NotificationRead(RequestModel):
 
 
 NOTIFICATION_COLUMNS = (
-    "id, prd_id, created_at, read_at, prd(title), "
+    "id, prd_id, created_at, read_at, event_count, updated_at, prd(title), "
     "event:prd_event(event_type, actor_id, actor_name, payload, version_id, round_id, comment_id)"
 )
 
@@ -742,6 +744,7 @@ def notification_item(row):
         "actor_id": event["actor_id"], "actor_name": event["actor_name"], "payload": event["payload"],
         "version_id": event["version_id"], "round_id": event["round_id"], "comment_id": event["comment_id"],
         "created_at": row["created_at"], "read_at": row["read_at"],
+        "count": row["event_count"], "updated_at": row["updated_at"],
     }
 
 
