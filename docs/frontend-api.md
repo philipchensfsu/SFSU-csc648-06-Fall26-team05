@@ -207,7 +207,12 @@ changes (coming with E08).
 - **Owners can't review their own PRD**, unless the PRD's owners are everyone in the org (`owner_review_allowed`
   is then `true`, and stays so for that round even if someone joins later).
 - One round at a time: while a round is `in_review`, `changes_requested` or `approved`, submitting again is 409
-  `review_in_progress`. Editing reviewed content supersedes the round (Marco's E09), and then the owner submits again.
+  `review_in_progress`.
+- **Edits during a review** (with Marco's E09): saving a new version supersedes the round and starts a new one on the
+  new version with the same reviewers, all back to pending; the PRD stays `in_review`. Reviewers who had decided get a
+  `superseded` notification. The old round keeps its decisions and explanations, so show superseded rounds as history
+  (`GET .../reviews`). Reviewers who left are dropped; if none remain, or the PRD is emptied, it goes back to `draft`.
+  Edits to an approved PRD are owner-only and go through a modal to confirm the reviewers.
 - The reviewer list is frozen when the round starts. Names and departments are as of submission.
 
 ## Intake answers
