@@ -14,7 +14,7 @@ import pytest
 from supabase import create_client
 
 from ai import preview
-from ai.gemini_client import GeminiResult
+from ai.gemini_client import AIError, GeminiResult
 from ai.usage_gate import UsageLimitError
 from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL, add_to_prd, org_prd
 from errors import ApiError
@@ -48,6 +48,12 @@ def fake_model(during=None):
         data = {"title": "Campus events PRD", "description": "Help students find events.", "document": DRAFT}
         return GeminiResult(data=data, model="fake-model", prompt_tokens=120, output_tokens=880)
     call_model.calls = calls
+    return call_model
+
+
+def failing_model():
+    def call_model(prompt, **kwargs):
+        raise AIError(503, "ai_unavailable")
     return call_model
 
 
@@ -203,3 +209,67 @@ def test_api_refuses_before_the_limit_or_gemini(make_user, make_org, db):
     for user in (alice, ben, viewer):
         assert lease(db, user.id) is None  # never admitted
 
+
+
+# --- saved context (prd_context) in the request ----------------------------------------
+
+
+def save_context(db, prd_id, decisions, summary):
+    db.execute("insert into prd_context (prd_id, context_json, running_summary, version) values (%s, %s, %s, 1) "
+               "on conflict (prd_id) do update set context_json = excluded.context_json, "
+               "running_summary = excluded.running_summary, version = prd_context.version + 1",
+               (prd_id, json.dumps({"decisions": decisions, "constraints": ["No SMS"]}), summary))
+
+
+def context_row(db, prd_id):
+    return db.execute("select context_json, running_summary, version from prd_context where prd_id = %s",
+                      (prd_id,)).fetchone()
+
+
+def sent(model, call=-1):
+    return json.loads(model.calls[call])["saved_context"]
+
+
+def test_saved_context_reaches_the_model_and_follows_updates(make_user, db, monkeypatch):
+    monkeypatch.setenv("AI_COOLDOWN_SECONDS", "0")  # two previews in a row
+    alice = make_user()
+    prd = ready_prd(alice)
+    save_context(db, prd["id"], ["Weekly digest first"], "Events app for students.")
+    model = fake_model()
+    run(alice, prd, model)
+    assert sent(model) == {"decisions": ["Weekly digest first"], "constraints": ["No SMS"], "open_questions": [],
+                           "running_summary": "Events app for students."}
+    save_context(db, prd["id"], ["Push notifications first"], "Updated summary.")
+    run(alice, prd, model)
+    assert sent(model)["decisions"] == ["Push notifications first"]
+    assert sent(model)["running_summary"] == "Updated summary."
+
+
+def test_context_stays_with_its_own_prd(make_user, db):
+    alice = make_user()
+    first, second = ready_prd(alice), ready_prd(alice)
+    save_context(db, first["id"], ["Only for the first PRD"], "First summary.")
+    model = fake_model()
+    run(alice, second, model)
+    assert "Only for the first PRD" not in model.calls[0] and "First summary" not in model.calls[0]
+    assert sent(model)["decisions"] == []
+
+
+def test_previews_never_change_saved_context(make_user, db, monkeypatch):
+    monkeypatch.setenv("AI_COOLDOWN_SECONDS", "0")
+    alice = make_user()
+    prd = ready_prd(alice)
+    save_context(db, prd["id"], ["Weekly digest first"], "Events app for students.")
+    before = context_row(db, prd["id"])
+
+    run(alice, prd, fake_model())  # staged
+    with pytest.raises(AIError):  # provider failure
+        run(alice, prd, failing_model())
+
+    def edit():
+        alice.api("PUT", f"/prds/{prd['id']}/intake/goals", json={"answer_text": "Different goals"})
+    with pytest.raises(ApiError):  # discarded: answers changed mid-call
+        run(alice, prd, fake_model(during=edit))
+
+    assert context_row(db, prd["id"]) == before
+    assert [r[2] for r in records(db, prd["id"])] == ["success", "failed", "failed"]
