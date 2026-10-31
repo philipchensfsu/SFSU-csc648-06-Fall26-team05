@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from supabase_auth.errors import AuthError, AuthRetryableError
 
 import prd_save
+from ai import preview
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
@@ -152,6 +153,11 @@ class IntakeAnswerOut(BaseModel):
     answer_text: Optional[str]
     skipped: bool
     answered_at: datetime
+
+
+class GenerateRequest(RequestModel):
+    # The revision the client last saw; the draft is built for it.
+    revision: int = Field(..., ge=1)
 
 
 @app.get("/api/health")
@@ -740,3 +746,14 @@ def mark_notification_read(notification_id: UUID, payload: NotificationRead, aut
     if not rows:
         raise ApiError(404, "Notification not found")
     return notification_item(rows[0])
+
+
+# Preview only (A03): returns {proposal, base_revision, generation_record_id}
+# and saves nothing to the PRD. Accepting the proposal is a normal save (A05).
+# Records and staged proposals are written with the service-role client for
+# the verified user, the trusted-writer pattern reviewed on #55.
+@app.post("/api/prds/{prd_id}/generate")
+def generate_prd_preview(prd_id: UUID, payload: GenerateRequest, auth=Depends(get_current_user)):
+    return preview.generate_preview(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision
+    )
