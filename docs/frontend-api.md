@@ -134,7 +134,8 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 - To leave a PRD, `DELETE` with your own `user_id`. Afterwards it's 404 for you unless you're an org admin.
 - An owner who demotes themselves loses the right to manage people straight away.
 - Pick invitees from the [organization directory](#organization-directory) (`members[].user_id`).
-- Inviting someone sends them a [notification](#notifications). Setting a role someone already has changes nothing.
+- Inviting someone or changing their role sends them a [notification](#notifications); removing someone doesn't.
+  Setting a role someone already has changes nothing.
 
 ### Comments
 
@@ -279,8 +280,8 @@ so the chart can grey them out.
 
 ## Notifications
 
-Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD and
-comments, review submissions and decisions). You never get one for your own action, and notifications
+Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD or
+having your role changed, comments, review submissions and decisions). You never get one for your own action, and notifications
 about a PRD you can no longer see are hidden from the list and the unread count.
 
 `Notification`:
@@ -303,7 +304,7 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   `unread_count` always counts all your unread notifications, whatever page or filter you asked for.
 - **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
-- **`payload` by type:** `member_added`: `{ user_id, role }`; `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`;
+- **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`; `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`;
   `approved`: `{ round_no }`; `changes_requested`: `{ round_no, section_type }`; `round_approved`:
   `{ round_no, reviewer_id }` (the last approver). Coming with Marco's E09/E14: `superseded`, `work_status_changed`.
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
