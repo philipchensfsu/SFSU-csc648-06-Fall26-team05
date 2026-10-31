@@ -202,8 +202,8 @@ discarding it.
 |---|---|---|
 | `{ "revision": int }`: the revision you last loaded | 200 `{ proposal: { title, description, content_json, doc_schema_version: 2, sources: [] }, base_revision, generation_record_id }` | Can edit the PRD |
 
-- **Needs** answers to `problem`, `target_users` and `goals`. It uses the title, the description and all seven
-  answers.
+- **Needs** answers to `problem`, `target_users` and `goals`. It uses the title, the description, all seven
+  answers and the PRD's saved AI context (decisions, constraints, open questions, summary).
 - `content_json` is a v2 document with all nine sections ([prd-document-format.md](prd-document-format.md)).
   `sources` is always empty for now.
 - Keep `generation_record_id`: it's how the save will know this content came from the AI.
@@ -216,6 +216,7 @@ discarding it.
 | 409 | `stale_revision` | The PRD was saved after you loaded it, or while the draft was being written | Reload, then generate again |
 | 409 | `intake_changed` | The interview answers changed while the draft was being written | Show the message and a **Generate again** button. Keep this separate from `stale_revision` |
 | 422 | `intake_incomplete` | `problem`, `target_users` or `goals` is unanswered | Send the user back to the interview |
+| 422 | `invalid_context` | The PRD's saved AI context is malformed | Show `detail` |
 | 422 | `validation_error` | Bad body (missing or non-positive `revision`, unknown field) | Show `detail` |
 | 429 | `ai_cooldown`, `ai_busy` | Per-user AI limits; the body and the `Retry-After` header include `retry_after` (seconds) | Disable AI actions until then |
 | 429 | `ai_disabled` | AI is switched off | Hide AI actions; manual editing works |
@@ -263,7 +264,7 @@ Next: admin routes for members, departments and teams (E02).
 
 ### AI (Marco)
 
-Open: #74 (saved context in generation), #75 (PRD chat), #70 (accepting AI proposals through the save), #81 (PUT
+Open: #75 (PRD chat), #70 (accepting AI proposals through the save), #81 (PUT
 through the S03 save, behind a switch), #84 (version history), #85 (AI section edits), #86 (owning team and priority).
 Each adds its entry here or in the main reference as it merges.
 
