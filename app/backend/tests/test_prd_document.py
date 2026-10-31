@@ -138,14 +138,15 @@ def test_the_only_disabled_mark_is_the_reserved_citation():
     assert marks["ai_generated"]["attrs"]["generation_record_id"]["required"] is True
 
 
-def test_section_types_match_the_seed_data():
-    # The demo seed is the backend's other copy of the nine types; keep them in step.
+def test_the_seed_takes_section_types_from_the_spec():
+    # The demo seed used to keep its own copy of the nine types; it now reads
+    # them from the shared spec, so there's one list to keep in step.
     tree = ast.parse((BACKEND / "seed_demo.py").read_text(encoding="utf-8"))
-    titles = next(ast.literal_eval(node.value) for node in tree.body
-                  if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "SECTION_TITLES")
-    spec_values = load_spec()["section_types"]["values"]
-    assert [(entry["type"], entry["title"]) for entry in spec_values] == list(titles.items())
-    assert section_types() == list(titles)
+    copies = [node for node in tree.body
+              if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "SECTION_TITLES"]
+    assert copies == []
+    import seed_demo
+    assert seed_demo.section_order() == section_types()
 
 
 # --- limits -----------------------------------------------------------------

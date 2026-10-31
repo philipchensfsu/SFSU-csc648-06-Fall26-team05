@@ -1,11 +1,11 @@
 -- Local seed data. `supabase db reset` runs this after the migrations.
 --
 -- Test accounts (sign in at http://localhost:5173):
---   email                      password   role      data
---   alice.pm@example.com       password1  pm        two projects, three PRDs
---   ben.pm@example.com         password2  pm        one project, one PRD, for cross-owner tests
---   erin.engineer@example.com  password3  engineer
---   ada.admin@example.com      password4  admin     legacy global admin
+--   email                      password   organization        data
+--   alice.pm@example.com       password1  Campus Apps, admin  two projects, three PRDs
+--   ben.pm@example.com         password2  Campus Apps, member one project, one PRD
+--   erin.engineer@example.com  password3  Campus Apps, member
+--   ada.admin@example.com      password4  Other Org, admin    for cross-organization tests
 --
 -- These are deliberately obvious test-only passwords for the local stack.
 -- They are not real credentials and don't exist on the hosted database.
@@ -35,22 +35,30 @@ select gen_random_uuid(), id, id::text, 'email',
 from auth.users
 where email like '%@example.com';
 
--- handle_new_user created a 'pm' profile for each user; set the other roles.
-update public.profile set role = 'engineer' where email = 'erin.engineer@example.com';
-update public.profile set role = 'admin' where email = 'ada.admin@example.com';
+-- Every account belongs to one organization, and every PRD to its owner's.
+insert into public.organization (id, name, created_by) values
+  ('00000000-0000-0000-0000-0000000000f1', 'Campus Apps', '00000000-0000-0000-0000-00000000a11c'),
+  ('00000000-0000-0000-0000-0000000000f2', 'Other Org', '00000000-0000-0000-0000-0000000000ad');
+
+insert into public.organization_member (organization_id, user_id, access_role) values
+  ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-00000000a11c', 'admin'),
+  ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-000000000be4', 'member'),
+  ('00000000-0000-0000-0000-0000000000f1', '00000000-0000-0000-0000-0000000000e1', 'member'),
+  ('00000000-0000-0000-0000-0000000000f2', '00000000-0000-0000-0000-0000000000ad', 'admin');
 
 insert into public.project (id, name, owner_id) values
   ('00000000-0000-0000-0000-0000000000c1', 'Campus Life', '00000000-0000-0000-0000-00000000a11c'),
   ('00000000-0000-0000-0000-0000000000c2', 'Internal Tools', '00000000-0000-0000-0000-00000000a11c'),
   ('00000000-0000-0000-0000-0000000000c3', 'Community', '00000000-0000-0000-0000-000000000be4');
 
-insert into public.prd (title, owner_id, project_id, status, content_text) values
-  ('Campus Study Group Finder', '00000000-0000-0000-0000-00000000a11c',
+insert into public.prd (title, owner_id, organization_id, project_id, status, content_text) values
+  ('Campus Study Group Finder', '00000000-0000-0000-0000-00000000a11c', '00000000-0000-0000-0000-0000000000f1',
    '00000000-0000-0000-0000-0000000000c1', 'draft', 'Help students find study groups.'),
-  ('Library Room Booking', '00000000-0000-0000-0000-00000000a11c',
+  ('Library Room Booking', '00000000-0000-0000-0000-00000000a11c', '00000000-0000-0000-0000-0000000000f1',
    '00000000-0000-0000-0000-0000000000c1', 'in_review', 'Book library rooms online.'),
-  ('Expense Report Tool', '00000000-0000-0000-0000-00000000a11c', null, 'final', 'Submit expenses in one place.'),
-  ('Neighborhood Lost Pet Board', '00000000-0000-0000-0000-000000000be4',
+  ('Expense Report Tool', '00000000-0000-0000-0000-00000000a11c', '00000000-0000-0000-0000-0000000000f1',
+   null, 'final', 'Submit expenses in one place.'),
+  ('Neighborhood Lost Pet Board', '00000000-0000-0000-0000-000000000be4', '00000000-0000-0000-0000-0000000000f1',
    '00000000-0000-0000-0000-0000000000c3', 'draft', 'Post and find lost pets.');
 
 -- One PRD with sections so the editor has something to open. This uses the

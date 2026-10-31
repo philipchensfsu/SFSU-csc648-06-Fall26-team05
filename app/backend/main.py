@@ -15,8 +15,10 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from supabase_auth.errors import AuthError, AuthRetryableError
 
+import prd_save
 from ai import chat, preview, usage_gate
 from errors import ApiError, logger, register_error_handlers
+from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
 
 app = FastAPI()
@@ -100,15 +102,38 @@ class PRDUpdate(RequestModel):
     revision: int
     title: Optional[str] = Field(default=None, max_length=200)
     content_json: Optional[dict] = None
+    # Legacy save only: the S03 save derives content_text and never takes a
+    # status (D6).
     content_text: Optional[str] = None
     status: Optional[str] = None
+    # S03 save only (PRD_SAVE_V2): description is its own column there, and
+    # generation_record_id accepts an AI proposal once A05 (#70) is in.
+    description: Optional[str] = None
+    generation_record_id: Optional[UUID] = None
+
+
+# The S03 save (prd_save.save_prd: v2 documents, versions, server-derived
+# text) replaces the direct update once the frontend sends v2 documents.
+# Until that cutover, PUT keeps the legacy update. Set PRD_SAVE_V2=true to
+# switch.
+LEGACY_ONLY_FIELDS = ("content_text", "status")
+SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id")
+
+
+def prd_save_v2_enabled() -> bool:
+    return os.environ.get("PRD_SAVE_V2", "").strip().lower() in {"true", "1", "on", "yes"}
 
 
 class PRDOut(BaseModel):
     id: UUID
     title: str
+    description: Optional[str] = None
     owner_id: UUID
+    organization_id: UUID
     project_id: Optional[UUID]
+    # The caller's access: their role on the PRD, or org_admin when they only
+    # see it as an admin of its organization.
+    my_role: Literal["owner", "editor", "viewer", "org_admin"]
     status: str
     content_json: Optional[dict]
     content_text: Optional[str]
@@ -206,10 +231,33 @@ def delete_project(project_id: UUID, auth=Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Project not found or not allowed")
 
 
+def with_my_role(client, user_id, rows):
+    """Adds my_role to each visible PRD row."""
+    ids = [row["id"] for row in rows]
+    roles = {}
+    if ids:
+        members = client.table("prd_member").select("prd_id, role").eq("user_id", user_id).in_("prd_id", ids).execute()
+        roles = {m["prd_id"]: m["role"] for m in members.data}
+    # Visible without a role on it means the caller is an admin of its org.
+    return [{**row, "my_role": roles.get(row["id"], "org_admin")} for row in rows]
+
+
 @app.post("/api/prds", response_model=PRDOut, status_code=201)
 def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
     client = auth["client"]
-    insert_fields = {"id": str(uuid4()), "title": payload.title, "owner_id": auth["user"].id}
+    # A new PRD belongs to the creator's organization (one per account).
+    membership = (
+        client.table("organization_member").select("organization_id")
+        .eq("user_id", auth["user"].id).eq("active", True).execute().data
+    )
+    if not membership:
+        raise ApiError(403, "You need to be in an organization to create a PRD.", code="no_organization")
+    insert_fields = {
+        "id": str(uuid4()),
+        "title": payload.title,
+        "owner_id": auth["user"].id,
+        "organization_id": membership[0]["organization_id"],
+    }
     if payload.project_id:
         # RLS also enforces this; checking here gives a 404 like the project
         # routes. Projects are private to their owner.
@@ -230,11 +278,18 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
     response = client.table("prd").select("*").eq("id", insert_fields["id"]).execute()
     if not response.data:
         raise HTTPException(status_code=403, detail="Not allowed to create a PRD")
-    return response.data[0]
+    return with_my_role(client, auth["user"].id, response.data)[0]
 
 
 @app.get("/api/prds", response_model=list[PRDOut])
-def list_prds(search: Optional[str] = None, auth=Depends(get_current_user)):
+def list_prds(
+    search: Optional[str] = None,
+    view: Optional[Literal["owned", "shared"]] = None,
+    auth=Depends(get_current_user),
+):
+    # view=owned: PRDs the caller owns. view=shared: PRDs they were invited
+    # to as an editor or viewer ("Shared with me"). No view: everything
+    # they can see, including any PRD in their org if they're its admin.
     client = auth["client"]
     query = client.table("prd").select("*")
 
@@ -245,7 +300,12 @@ def list_prds(search: Optional[str] = None, auth=Depends(get_current_user)):
         query = query.or_(f"title.ilike.*{term}*,content_text.ilike.*{term}*")
 
     response = query.order("updated_at", desc=True).execute()
-    return response.data
+    prds = with_my_role(client, auth["user"].id, response.data)
+    if view == "owned":
+        prds = [prd for prd in prds if prd["my_role"] == "owner"]
+    elif view == "shared":
+        prds = [prd for prd in prds if prd["my_role"] in ("editor", "viewer")]
+    return prds
 
 
 @app.get("/api/prds/{prd_id}", response_model=PRDOut)
@@ -254,11 +314,17 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
     response = client.table("prd").select("*").eq("id", str(prd_id)).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
-    return response.data[0]
+    return with_my_role(client, auth["user"].id, response.data)[0]
 
 
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
 def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user)):
+    sent = payload.model_fields_set
+    if prd_save_v2_enabled():
+        return save_prd_v2(prd_id, payload, sent, auth)
+    unsupported = [name for name in SAVE_CORE_ONLY_FIELDS if name in sent]
+    if unsupported:
+        raise ApiError(422, f"{unsupported[0]} can't be saved yet", code="validation_error")
     client = auth["client"]
     update_fields = payload.model_dump(exclude={"revision"}, exclude_unset=True)
     update_fields["revision"] = payload.revision + 1
@@ -284,7 +350,25 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
             "This PRD changed since you last loaded it. Refresh and try again.",
             code="stale_revision",
         )
-    return response.data[0]
+    return with_my_role(client, auth["user"].id, response.data)[0]
+
+
+def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict:
+    """The S03 save: only the fields sent change, in one transaction with a
+    revision check and a version snapshot. The actor is the verified user."""
+    if "status" in sent:
+        raise ApiError(422, "Status can't be changed by saving. It changes through the review workflow.",
+                       code="status_not_allowed")
+    if "content_text" in sent:
+        raise ApiError(422, "content_text is derived by the server; don't send it", code="validation_error")
+    if payload.generation_record_id is not None:
+        # Accepting a proposal needs A05's once-only checks (#70); without
+        # them a record id would only be checked for existence.
+        raise ApiError(422, "Accepting AI proposals isn't available yet", code="proposal_acceptance_unavailable")
+    fields = {name: getattr(payload, name) for name in ("title", "description", "content_json") if name in sent}
+    saved = prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
+    # Like every PRD response, it carries the caller's role, read as them.
+    return with_my_role(auth["client"], auth["user"].id, [saved])[0]
 
 
 @app.delete("/api/prds/{prd_id}", status_code=204)
@@ -293,6 +377,143 @@ def delete_prd(prd_id: UUID, auth=Depends(get_current_user)):
     response = client.table("prd").delete().eq("id", str(prd_id)).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found or not allowed")
+
+
+class PRDMemberOut(BaseModel):
+    user_id: UUID
+    name: Optional[str]
+    role: Literal["owner", "editor", "viewer"]
+    granted_by: Optional[UUID]
+    added_at: datetime
+
+
+class PRDMemberIn(RequestModel):
+    role: Literal["owner", "editor", "viewer"]
+
+
+# Errors raised by the member functions (P0001 with a fixed message).
+MEMBER_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "prd_manage_forbidden": (403, "Only the PRD's owners and org admins can change who's on it.", None),
+    "invalid_role": (422, "The role must be owner, editor or viewer.", "validation_error"),
+    "not_in_organization": (422, "That person isn't an active member of this PRD's organization.", "not_in_organization"),
+    "owner_required": (409, "A PRD needs at least one owner. Add another owner first.", "owner_required"),
+}
+
+
+def call_function(client, function, params, errors):
+    """Calls a database function; its fixed P0001 messages in `errors` become API errors."""
+    try:
+        return client.rpc(function, params).execute().data
+    except APIError as exc:
+        known = errors.get(exc.message)
+        if known is None:
+            raise
+        status, detail, code = known
+        raise ApiError(status, detail, code)
+
+
+def list_people(client, prd_id: UUID):
+    rows = client.rpc("prd_people", {"target_prd": str(prd_id)}).execute().data
+    # A PRD always has an owner, so no rows means the caller can't see it.
+    if not rows:
+        raise ApiError(404, "PRD not found")
+    return [{"user_id": r["user_id"], "name": r["full_name"], "role": r["role"],
+             "granted_by": r["granted_by"], "added_at": r["created_at"]} for r in rows]
+
+
+@app.get("/api/prds/{prd_id}/members", response_model=list[PRDMemberOut])
+def list_prd_members(prd_id: UUID, auth=Depends(get_current_user)):
+    # Everyone on the PRD, in the order they were added; any viewer can see it.
+    return list_people(auth["client"], prd_id)
+
+
+@app.put("/api/prds/{prd_id}/members/{user_id}", response_model=list[PRDMemberOut])
+def set_prd_member(prd_id: UUID, user_id: UUID, payload: PRDMemberIn, auth=Depends(get_current_user)):
+    # Invites someone from the PRD's organization, or changes their role.
+    # Owners and org admins only. Returns the updated list.
+    client = auth["client"]
+    call_function(client, "set_prd_member",
+                  {"target_prd": str(prd_id), "target_user": str(user_id), "new_role": payload.role}, MEMBER_ERRORS)
+    return list_people(client, prd_id)
+
+
+@app.delete("/api/prds/{prd_id}/members/{user_id}", status_code=204)
+def remove_prd_member(prd_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
+    # Owners and org admins remove anyone; anyone can remove themselves.
+    call_function(auth["client"], "remove_prd_member", {"target_prd": str(prd_id), "target_user": str(user_id)},
+                  MEMBER_ERRORS)
+
+
+class CommentAuthor(BaseModel):
+    id: Optional[UUID]
+    name: Optional[str]
+    department: Optional[str]
+
+
+class CommentOut(BaseModel):
+    id: UUID
+    prd_id: UUID
+    version_id: UUID
+    version_no: Optional[int]
+    section_type: Optional[str]
+    author: CommentAuthor
+    body: str
+    created_at: datetime
+
+
+class CommentIn(RequestModel):
+    version_id: UUID
+    section_type: Optional[str] = None
+    body: str = Field(..., min_length=1, max_length=5000)
+
+
+# Errors raised by add_prd_comment (P0001 with a fixed message).
+COMMENT_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "no_saved_version": (409, "Save the PRD before commenting on it.", "no_saved_version"),
+    "stale_version": (409, "The PRD has a newer version. Refresh, then post your comment.", "stale_version"),
+    "invalid_section": (422, "section_type must be null or one of the PRD's nine section types.", "validation_error"),
+    "invalid_body": (422, "A comment needs text, up to 5,000 characters.", "validation_error"),
+}
+
+COMMENT_COLUMNS = ("id, prd_id, version_id, section_type, author_id, author_name, department_name, body, created_at, "
+                   "version:prd_version(version_no)")
+
+
+def comment_item(row):
+    return {
+        "id": row["id"], "prd_id": row["prd_id"], "version_id": row["version_id"],
+        "version_no": (row["version"] or {}).get("version_no"), "section_type": row["section_type"],
+        "author": {"id": row["author_id"], "name": row["author_name"], "department": row["department_name"]},
+        "body": row["body"], "created_at": row["created_at"],
+    }
+
+
+@app.get("/api/prds/{prd_id}/comments", response_model=Page[CommentOut])
+def list_comments(prd_id: UUID, version_id: Optional[UUID] = None, params: PageParams = Depends(),
+                  auth=Depends(get_current_user)):
+    # Oldest first. Without version_id, every comment on the PRD.
+    client = auth["client"]
+    if not client.table("prd").select("id").eq("id", str(prd_id)).execute().data:
+        raise ApiError(404, "PRD not found")
+    query = client.table("prd_comment").select(COMMENT_COLUMNS).eq("prd_id", str(prd_id))
+    if version_id:
+        query = query.eq("version_id", str(version_id))
+    page = paginate(query, params, descending=False)
+    return {"items": [comment_item(r) for r in page["items"]], "next_cursor": page["next_cursor"]}
+
+
+@app.post("/api/prds/{prd_id}/comments", response_model=CommentOut, status_code=201)
+def add_comment(prd_id: UUID, payload: CommentIn, auth=Depends(get_current_user)):
+    # Anyone who can view the PRD comments on its current version.
+    client = auth["client"]
+    comment_id = call_function(client, "add_prd_comment", {
+        "target_prd": str(prd_id), "target_version": str(payload.version_id),
+        "target_section": payload.section_type, "comment_body": payload.body,
+    }, COMMENT_ERRORS)
+    row = client.table("prd_comment").select(COMMENT_COLUMNS).eq("id", comment_id).execute().data[0]
+    return comment_item(row)
 
 
 @app.get("/api/prds/{prd_id}/intake", response_model=list[IntakeAnswerOut])
@@ -548,6 +769,75 @@ def get_directory(org_id: UUID, auth=Depends(get_current_user)):
         "teams": [with_archived_flag(t) for t in teams],
         "members": members,
     }
+
+
+class NotificationOut(BaseModel):
+    id: UUID
+    type: str
+    prd_id: UUID
+    title: str
+    actor_id: Optional[UUID]
+    actor_name: Optional[str]
+    payload: dict
+    version_id: Optional[UUID]
+    round_id: Optional[UUID]
+    comment_id: Optional[UUID]
+    created_at: datetime
+    read_at: Optional[datetime]
+    count: int
+    updated_at: datetime
+
+
+class NotificationPage(Page[NotificationOut]):
+    unread_count: int
+
+
+class NotificationRead(RequestModel):
+    read: Literal[True]
+
+
+NOTIFICATION_COLUMNS = (
+    "id, prd_id, created_at, read_at, event_count, updated_at, prd(title), "
+    "event:prd_event(event_type, actor_id, actor_name, payload, version_id, round_id, comment_id)"
+)
+
+
+def notification_item(row):
+    event = row["event"]
+    return {
+        "id": row["id"], "type": event["event_type"], "prd_id": row["prd_id"], "title": row["prd"]["title"],
+        "actor_id": event["actor_id"], "actor_name": event["actor_name"], "payload": event["payload"],
+        "version_id": event["version_id"], "round_id": event["round_id"], "comment_id": event["comment_id"],
+        "created_at": row["created_at"], "read_at": row["read_at"],
+        "count": row["event_count"], "updated_at": row["updated_at"],
+    }
+
+
+@app.get("/api/notifications", response_model=NotificationPage)
+def list_notifications(unread_only: bool = False, params: PageParams = Depends(), auth=Depends(get_current_user)):
+    # The caller's inbox, most recent activity first, so a growing comment
+    # batch moves back up. RLS hides notifications about PRDs they can no
+    # longer see, from the items and the unread count alike.
+    client = auth["client"]
+    query = client.table("notification").select(NOTIFICATION_COLUMNS)
+    if unread_only:
+        query = query.is_("read_at", "null")
+    page = paginate(query, params, sort_column="updated_at")
+    unread = client.table("notification").select("id", count="exact", head=True).is_("read_at", "null").execute()
+    return {"items": [notification_item(r) for r in page["items"]], "next_cursor": page["next_cursor"],
+            "unread_count": unread.count or 0}
+
+
+@app.patch("/api/notifications/{notification_id}", response_model=NotificationOut)
+def mark_notification_read(notification_id: UUID, payload: NotificationRead, auth=Depends(get_current_user)):
+    # Marking read again succeeds and keeps the first read time.
+    client = auth["client"]
+    if not client.rpc("mark_notification_read", {"target": str(notification_id)}).execute().data:
+        raise ApiError(404, "Notification not found")
+    rows = client.table("notification").select(NOTIFICATION_COLUMNS).eq("id", str(notification_id)).execute().data
+    if not rows:
+        raise ApiError(404, "Notification not found")
+    return notification_item(rows[0])
 
 
 # Preview only (A03): returns {proposal, base_revision, generation_record_id}
