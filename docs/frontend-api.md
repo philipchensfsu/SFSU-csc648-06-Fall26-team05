@@ -105,7 +105,7 @@ submitted, or the last round was superseded by an edit). Use it for badges such 
 |---|---|---|---|
 | `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1, `my_role: "owner"`), in your organization | 403 `no_organization` if the account has none; 404 if `project_id` isn't one of **your** projects; 422 |
 | `GET /api/prds` | optional `?search=text` (matches title and content text); optional `?view=`: `owned` (PRDs you own), `shared` (PRDs you were invited to as editor or viewer: "Shared with me"), `needs_my_approval` (PRDs whose open round is waiting on your decision, also when another reviewer requested changes) or `waiting_for_approval` (PRDs you own with a round in review or changes requested) | 200 `PRD[]`, most recently updated first. Without `view`: every PRD you can see, which for an org admin is every PRD in the org | 422 unknown `view` |
-| `GET /api/prds/{id}` | | 200 `PRD` plus `approval` (below) | 404 |
+| `GET /api/prds/{id}` | | 200 `PRD` plus `approval` and `capabilities` (below) | 404 |
 | `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 |
 | `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
 
@@ -113,6 +113,18 @@ submitted, or the last round was superseded by an edit). Use it for badges such 
   `{ "round_id", "round_no", "version_id", "state", "required_count", "approved_count", "reviewers": [...] }`, where
   `reviewers` has the same shape as in a [review round](#reviews) (including each `explanation`). With nothing under
   review, the ids and `state` are `null`, the counts are `0` and `reviewers` is empty. An approved round keeps its counts.
+- **`capabilities`** (only on `GET /api/prds/{id}`) says what **you** may do right now. Use it to show or hide buttons
+  instead of working it out from `my_role`; the flags use the same rules the routes enforce.
+
+  | Flag | True when |
+  |---|---|
+  | `can_view`, `can_comment` | always (you can see the PRD; viewers comment too) |
+  | `can_edit`, `can_request_ai` | you're an owner, editor or org admin |
+  | `can_delete`, `can_assign` | you're an owner or org admin (`can_assign`: manage people, choose reviewers) |
+  | `can_submit_review` | you're an owner or org admin, the PRD has a saved, non-empty version, and no review is open |
+  | `can_approve` | you're a reviewer on the current round who hasn't decided, and the round is still on the current version |
+
+  Work-status, classification and routing flags come with Marco's E14 and A08.
 - **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). The backend
   still accepts it for now and will reject it with 422 once #62 is live.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in

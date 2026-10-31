@@ -306,8 +306,21 @@ class ApprovalSummary(BaseModel):
     reviewers: list[ReviewerOut]
 
 
+class Capabilities(BaseModel):
+    can_view: bool
+    can_comment: bool
+    can_edit: bool
+    can_delete: bool
+    can_assign: bool
+    can_submit_review: bool
+    can_approve: bool
+    can_request_ai: bool
+
+
 class PRDDetailOut(PRDOut):
     approval: ApprovalSummary
+    # What the caller may do now (E03); the same rules the routes enforce.
+    capabilities: Capabilities
 
 
 NO_APPROVAL = {"round_id": None, "round_no": None, "version_id": None, "state": None,
@@ -337,7 +350,8 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
     prd = with_my_role(client, auth["user"].id, response.data)[0]
-    return {**prd, "approval": approval_summary(client, prd_id)}
+    capabilities = client.rpc("prd_capabilities", {"target_prd": str(prd_id)}).execute().data
+    return {**prd, "approval": approval_summary(client, prd_id), "capabilities": capabilities}
 
 
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
