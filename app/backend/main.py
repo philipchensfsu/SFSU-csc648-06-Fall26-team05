@@ -696,3 +696,99 @@ def mark_notification_read(notification_id: UUID, payload: NotificationRead, aut
     if not rows:
         raise ApiError(404, "Notification not found")
     return notification_item(rows[0])
+
+
+UnitName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
+class DepartmentCreate(RequestModel):
+    name: UnitName
+
+
+class DepartmentUpdate(RequestModel):
+    name: Optional[UnitName] = None
+    head_id: Optional[UUID] = None
+    archived: Optional[bool] = None
+
+
+# Messages of the directory's end-state checks (20261029110000), which run
+# when the change commits.
+DIRECTORY_ERRORS = {
+    "A department head must be an active member of that department":
+        (422, "A department head must be an active member of that department.", "head_not_in_department"),
+    "A team lead must be an active member of that team":
+        (422, "A team lead must be an active member of that team.", "lead_not_in_team"),
+    "An archived department still has active members or teams":
+        (409, "Move this department's members and teams elsewhere before archiving it.", "department_not_empty"),
+    "An archived team still has active members":
+        (409, "Remove this team's members before archiving it.", "team_not_empty"),
+}
+
+
+def require_org_admin(client, org_id: UUID):
+    # 404 unless the caller is an active member; 403 unless also an admin.
+    if not client.table("organization").select("id").eq("id", str(org_id)).execute().data:
+        raise ApiError(404, "Organization not found")
+    if client.rpc("is_org_admin", {"target_org": str(org_id)}).execute().data is not True:
+        raise ApiError(403, "Only organization admins can change its structure.")
+
+
+def write_directory(run):
+    """Runs a directory write, turning the database's checks into readable errors."""
+    try:
+        return run()
+    except APIError as exc:
+        if exc.message in DIRECTORY_ERRORS:
+            raise ApiError(*DIRECTORY_ERRORS[exc.message])
+        if exc.code == "23505":
+            raise ApiError(409, "Another active department or team in this organization already has that name.",
+                           "name_taken")
+        # A foreign key or the team_member policy: the person, department or
+        # team isn't (an active) part of this organization.
+        if exc.code in ("23503", "42501"):
+            raise ApiError(422, "That person, department or team isn't part of this organization.",
+                           "not_in_organization")
+        raise
+
+
+def unit_changes(payload):
+    # Only the fields sent change; null clears head_id, lead_id or department_id.
+    changes = {key: str(value) if isinstance(value, UUID) else value
+               for key, value in payload.model_dump(exclude_unset=True).items()}
+    if "archived" in changes:
+        changes["archived_at"] = datetime.now(timezone.utc).isoformat() if changes.pop("archived") else None
+    if changes.get("name", "") is None:
+        raise ApiError(422, "name can't be null.", "validation_error")
+    return changes
+
+
+def update_unit(client, table, org_id: UUID, unit_id: UUID, changes, columns):
+    query = client.table(table)
+    if changes:
+        query = query.update(changes)
+    else:
+        query = query.select(columns)
+    rows = write_directory(lambda: query.eq("organization_id", str(org_id)).eq("id", str(unit_id)).execute().data)
+    if not rows:
+        raise ApiError(404, f"{table.capitalize()} not found")
+    return with_archived_flag({key: rows[0][key] for key in columns.split(", ")})
+
+
+DEPARTMENT_COLUMNS = "id, name, head_id, archived_at"
+
+
+@app.post("/api/organizations/{org_id}/departments", response_model=DirectoryDepartment, status_code=201)
+def create_department(org_id: UUID, payload: DepartmentCreate, auth=Depends(get_current_user)):
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    rows = write_directory(lambda: client.table("department")
+                           .insert({"organization_id": str(org_id), "name": payload.name}).execute().data)
+    return with_archived_flag({key: rows[0][key] for key in DEPARTMENT_COLUMNS.split(", ")})
+
+
+@app.patch("/api/organizations/{org_id}/departments/{department_id}", response_model=DirectoryDepartment)
+def update_department(org_id: UUID, department_id: UUID, payload: DepartmentUpdate, auth=Depends(get_current_user)):
+    # Rename, set or clear the head, archive or unarchive.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    return update_unit(client, "department", org_id, department_id, unit_changes(payload), DEPARTMENT_COLUMNS)
