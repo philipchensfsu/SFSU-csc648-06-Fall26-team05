@@ -110,6 +110,9 @@ class PRDUpdate(RequestModel):
     # generation_record_id accepts an AI proposal once A05 (#70) is in.
     description: Optional[str] = None
     generation_record_id: Optional[UUID] = None
+    # S03 save only: the reviewers an owner confirmed in the edit modal when
+    # saving edits to an approved PRD (E09, Decision 9).
+    confirmed_reviewer_ids: Optional[list[UUID]] = Field(default=None, max_length=50)
 
 
 # The S03 save (prd_save.save_prd: v2 documents, versions, server-derived
@@ -117,7 +120,7 @@ class PRDUpdate(RequestModel):
 # Until that cutover, PUT keeps the legacy update. Set PRD_SAVE_V2=true to
 # switch.
 LEGACY_ONLY_FIELDS = ("content_text", "status")
-SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id")
+SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id", "confirmed_reviewer_ids")
 
 
 def prd_save_v2_enabled() -> bool:
@@ -351,6 +354,8 @@ def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict
         # them a record id would only be checked for existence.
         raise ApiError(422, "Accepting AI proposals isn't available yet", code="proposal_acceptance_unavailable")
     fields = {name: getattr(payload, name) for name in ("title", "description", "content_json") if name in sent}
+    if payload.confirmed_reviewer_ids is not None:
+        fields["confirmed_reviewer_ids"] = payload.confirmed_reviewer_ids
     saved = prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
     # Like every PRD response, it carries the caller's role, read as them.
     return with_my_role(auth["client"], auth["user"].id, [saved])[0]
