@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from supabase_auth.errors import AuthError, AuthRetryableError
 
+from ai import chat, classification, preview, usage_gate
 from errors import ApiError, logger, register_error_handlers
 from supabase_client import supabase, user_client
 
@@ -112,6 +113,9 @@ class PRDOut(BaseModel):
     # The caller's access: their role on the PRD, or org_admin when they only
     # see it as an admin of its organization.
     my_role: Literal["owner", "editor", "viewer", "org_admin"]
+    # Routing (A08): not reviewed material and not an access grant.
+    owning_team_id: Optional[UUID] = None
+    priority: Optional[Literal["low", "medium", "high", "critical"]] = None
     status: str
     content_json: Optional[dict]
     content_text: Optional[str]
@@ -131,6 +135,42 @@ class IntakeAnswerOut(BaseModel):
     answer_text: Optional[str]
     skipped: bool
     answered_at: datetime
+
+
+class GenerateRequest(RequestModel):
+    # The revision the client last saw; the draft is built for it.
+    revision: int = Field(..., ge=1)
+
+
+class ChatMessage(RequestModel):
+    role: Literal["user", "assistant"]
+    # Earlier assistant replies can be up to MAX_ANSWER_CHARS, so history
+    # items allow that; a new message is still capped at MAX_MESSAGE_CHARS.
+    content: str = Field(..., min_length=1, max_length=chat.MAX_ANSWER_CHARS)
+
+
+class ClassificationRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+
+
+class ClassificationDecision(RequestModel):
+    decision: Literal["accepted", "rejected"]
+    # Only with "accepted": adjust the suggestion before it's applied.
+    team_id: Optional[UUID] = None
+    priority: Optional[Literal["low", "medium", "high", "critical"]] = None
+
+
+class RoutingUpdate(RequestModel):
+    owning_team_id: Optional[UUID]
+    priority: Optional[Literal["low", "medium", "high", "critical"]]
+
+
+class ChatRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+    message: str = Field(..., min_length=1, max_length=chat.MAX_MESSAGE_CHARS)
+    # Recent messages kept by the browser for this PRD only (no chat table).
+    # Untrusted: they reach the model as data, never as instructions.
+    history: list[ChatMessage] = Field(default_factory=list, max_length=chat.MAX_HISTORY_MESSAGES)
 
 
 @app.get("/api/health")
@@ -566,3 +606,66 @@ def get_directory(org_id: UUID, auth=Depends(get_current_user)):
         "teams": [with_archived_flag(t) for t in teams],
         "members": members,
     }
+
+
+# Preview only (A03): returns {proposal, base_revision, generation_record_id}
+# and saves nothing to the PRD. Accepting the proposal is a normal save (A05).
+# Records and staged proposals are written with the service-role client for
+# the verified user, the trusted-writer pattern reviewed on #55.
+@app.post("/api/prds/{prd_id}/generate")
+def generate_prd_preview(prd_id: UUID, payload: GenerateRequest, auth=Depends(get_current_user)):
+    return preview.generate_preview(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision
+    )
+
+
+# PRD chat, answer-only (A04 first slice). Anyone who can view the PRD may
+# ask; nothing is saved to it. Returns 503 ai_chat_unavailable until Om's
+# guardrail and prompt modules are in place (see ai/chat.py).
+@app.post("/api/prds/{prd_id}/ai/chat")
+def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_user)):
+    return chat.answer_chat(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
+        message=payload.message, history=[m.model_dump() for m in payload.history],
+        budget=usage_gate.RequestBudget(),
+    )
+
+
+# Owning team and priority (A08). Suggestion is a preview; only the owner or
+# an org admin decides or sets them. No version, no revision change.
+@app.post("/api/prds/{prd_id}/classification")
+def suggest_prd_routing(prd_id: UUID, payload: ClassificationRequest, auth=Depends(get_current_user)):
+    return classification.suggest_routing(auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id),
+                                          revision=payload.revision, budget=usage_gate.RequestBudget())
+
+
+@app.put("/api/prds/{prd_id}/classification/{suggestion_id}/decision", response_model=PRDOut)
+def decide_prd_routing(prd_id: UUID, suggestion_id: UUID, payload: ClassificationDecision,
+                       auth=Depends(get_current_user)):
+    sent = payload.model_fields_set
+    if payload.decision == "rejected" and ({"team_id", "priority"} & sent):
+        raise ApiError(422, "Only an accepted suggestion takes a team or priority", code="validation_error")
+    saved = classification.decide(supabase, str(auth["user"].id), str(prd_id), str(suggestion_id),
+                                  decision=payload.decision, team_id=payload.team_id, set_team="team_id" in sent,
+                                  priority=payload.priority)
+    return with_my_role(auth["client"], auth["user"].id, [saved])[0]
+
+
+@app.put("/api/prds/{prd_id}/routing", response_model=PRDOut)
+def set_prd_routing(prd_id: UUID, payload: RoutingUpdate, auth=Depends(get_current_user)):
+    client = auth["client"]
+    rows = client.table("prd").select("id, organization_id").eq("id", str(prd_id)).execute().data
+    if not rows:
+        raise ApiError(404, "PRD not found")
+    if client.rpc("can_manage_prd", {"target_prd_id": str(prd_id)}).execute().data is not True:
+        raise ApiError(403, "Only the PRD's owners or an org admin can set its team and priority.")
+    if payload.owning_team_id is not None:
+        team = (client.table("team").select("id").eq("id", str(payload.owning_team_id))
+                .eq("organization_id", rows[0]["organization_id"]).is_("archived_at", "null").execute().data)
+        if not team:
+            raise ApiError(422, "Choose an active team of this PRD's organization", code="invalid_team")
+    fields = {"owning_team_id": None if payload.owning_team_id is None else str(payload.owning_team_id),
+              "priority": payload.priority}
+    client.table("prd").update(fields).eq("id", str(prd_id)).execute()
+    saved = client.table("prd").select("*").eq("id", str(prd_id)).execute().data
+    return with_my_role(client, auth["user"].id, saved)[0]
