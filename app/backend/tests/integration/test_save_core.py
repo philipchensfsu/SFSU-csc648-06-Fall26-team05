@@ -61,7 +61,7 @@ def test_owners_editors_and_org_admins_save_with_a_version(cast, db, service, wh
     [(no, rev, by, origin, sections, summary)] = versions(db, cast["prd"])
     assert (no, rev, by, origin) == (1, 2, user.id, "pm_edit")
     assert sections == [s["attrs"]["type"] for s in DOC["content"]]
-    assert summary.startswith("Edited title")
+    assert summary == "Edited title, problem"
 
 
 @pytest.mark.parametrize("who, status, code", [
@@ -127,7 +127,7 @@ def test_each_save_is_noted_in_the_prds_ai_context(cast, db, service):
     save_prd(service, owner, cast["prd"], 1, title="Edited")
     save_prd(service, owner, cast["prd"], 2, content_json=DOC)
     log, version, by = context(db, cast["prd"])
-    assert log == ["Version 1: Edited title", "Version 2: Edited 1 section"] and version == 3 and by == "pm"
+    assert log == ["Version 1: Edited title", "Version 2: Edited problem"] and version == 3 and by == "pm"
     save_prd(service, owner, cast["prd"], 3, content_json=DOC)  # unchanged: no version, no note
     assert context(db, cast["prd"])[1] == 3
 
