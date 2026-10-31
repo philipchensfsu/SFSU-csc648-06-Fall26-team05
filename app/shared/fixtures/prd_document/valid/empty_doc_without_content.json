@@ -1,0 +1,48 @@
+{
+  "description": "An empty document without a content key, as TipTap getJSON() returns it. Same as content: [] (a saved draft with zero sections); validation and text extraction must agree.",
+  "document": {
+    "type": "doc"
+  },
+  "expect": {
+    "document_errors": [],
+    "generation_errors": [
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      }
+    ],
+    "content_text": ""
+  }
+}
