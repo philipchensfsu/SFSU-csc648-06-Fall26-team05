@@ -42,8 +42,7 @@ Every error has the same shape:
 | 500 | `database_error`, `internal_error` | A bug on our side | Show a generic error |
 | 503 | `service_unavailable` | Supabase (database or sign-in) is unreachable or overloaded | "Try again shortly"; safe to retry |
 
-AI routes add their own `ai_*` codes (see the Gemini client in `app/backend/ai/gemini_client.py`); they'll be listed
-here when the AI routes merge.
+AI routes add their own `ai_*` codes; see [Generation preview](#generation-preview-ai) for the full list.
 
 ## Health
 
@@ -193,6 +192,37 @@ Everything the org chart needs in one call. Only active members of the organizat
 Members are active members only, sorted by name. Archived departments and teams are included with `archived: true`
 so the chart can grey them out.
 
+## Generation preview (AI)
+
+`POST /api/prds/{id}/generate` drafts a whole PRD from its interview answers with Gemini. **It's a preview: nothing is
+saved.** The user accepts it through the normal save (accepting proposals arrives with #70); rejecting means
+discarding it.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int }`: the revision you last loaded | 200 `{ proposal: { title, description, content_json, doc_schema_version: 2, sources: [] }, base_revision, generation_record_id }` | Can edit the PRD |
+
+- **Needs** answers to `problem`, `target_users` and `goals`. It uses the title, the description and all seven
+  answers.
+- `content_json` is a v2 document with all nine sections ([prd-document-format.md](prd-document-format.md)).
+  `sources` is always empty for now.
+- Keep `generation_record_id`: it's how the save will know this content came from the AI.
+- **No streaming:** show a waiting state. A slow generation can still fail with 502/503; offer a retry.
+
+| Status | `code` | When | Suggested handling |
+|---|---|---|---|
+| 404 | `not_found` | You can't see the PRD | Show "not found" |
+| 403 | `forbidden` | You can view the PRD but not edit it | Hide Generate for viewers |
+| 409 | `stale_revision` | The PRD was saved after you loaded it, or while the draft was being written | Reload, then generate again |
+| 409 | `intake_changed` | The interview answers changed while the draft was being written | Show the message and a **Generate again** button. Keep this separate from `stale_revision` |
+| 422 | `intake_incomplete` | `problem`, `target_users` or `goals` is unanswered | Send the user back to the interview |
+| 422 | `validation_error` | Bad body (missing or non-positive `revision`, unknown field) | Show `detail` |
+| 429 | `ai_cooldown`, `ai_busy` | Per-user AI limits; the body and the `Retry-After` header include `retry_after` (seconds) | Disable AI actions until then |
+| 429 | `ai_disabled` | AI is switched off | Hide AI actions; manual editing works |
+| 429 | `ai_provider_rate_limited` | Gemini is rate limited | "Try again in a minute" |
+| 502 | `ai_provider_error`, `ai_invalid_output` | Gemini failed or returned an unusable draft | Offer a retry |
+| 503 | `ai_unavailable`, `ai_budget_exhausted` | AI isn't configured or is out of quota | Keep manual editing |
+
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD;
@@ -233,9 +263,9 @@ Next: admin routes for members, departments and teams (E02).
 
 ### AI (Marco)
 
-Drafts: #63 generation service, #67 AI records and staged proposals, #68 per-user AI usage gate, #69
-`POST /api/prds/{id}/generate` (generation preview), #70 accepting AI proposals through the normal save, #55 atomic
-save and version history. Marco adds their request/response details here as they merge.
+Open: #74 (saved context in generation), #75 (PRD chat), #70 (accepting AI proposals through the save), #81 (PUT
+through the S03 save, behind a switch), #84 (version history), #85 (AI section edits), #86 (owning team and priority).
+Each adds its entry here or in the main reference as it merges.
 
 ## Changes from the integration guide
 
