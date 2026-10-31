@@ -159,6 +159,38 @@ its review.
 - Posting notifies the PRD's owners and editors (`comment_added`, with `comment_id` and `version_id` set). Inbox
   `payload`: `{ section_type }`.
 
+### Reviews
+
+An owner (or org admin) submits the PRD's current saved version to reviewers they pick from the org. That opens a
+numbered **review round** tied to that version and moves the PRD to `in_review`. Reviewers approve or request
+changes (coming with E08).
+
+`ReviewRound`:
+
+```json
+{
+  "id": "uuid", "prd_id": "uuid", "round_no": 1, "version_id": "uuid", "version_no": 3,
+  "state": "in_review | changes_requested | approved | superseded", "owner_review_allowed": false,
+  "submitted_by": "uuid | null", "submitted_at": "…", "completed_at": "… | null",
+  "reviewers": [{ "user_id": "uuid", "name": "string | null", "department": "string | null",
+                  "state": "pending | approved | changes_requested", "decided_at": "… | null" }]
+}
+```
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `POST /api/prds/{id}/reviews` | `{ "revision": int, "version_id": "uuid", "reviewer_ids": ["uuid", …] }` (1–50) | 201 `{ "round": ReviewRound, "revision": int, "status": "in_review" }` | 404; 403 not an owner or org admin; 409 `stale_revision`, `stale_version`, `no_saved_version`, `review_in_progress`; 422 `empty_prd`, `not_in_organization`, `owner_cannot_review`, `validation_error` (no reviewers) |
+| `GET /api/prds/{id}/reviews?limit=25&cursor=` | | 200 `{ "items": ReviewRound[], "next_cursor": … }`, newest first, superseded rounds included | 404 |
+
+- Send the `revision` and `current_version_id` of the PRD you loaded.
+- Pick reviewers from the [organization directory](#organization-directory). Reviewers who aren't on the PRD yet
+  are added as **viewers**, so they can read and comment. Each reviewer gets a `submitted` notification.
+- **Owners can't review their own PRD**, unless the PRD's owners are everyone in the org (`owner_review_allowed`
+  is then `true`, and stays so for that round even if someone joins later).
+- One round at a time: while a round is `in_review`, `changes_requested` or `approved`, submitting again is 409
+  `review_in_progress`. Editing reviewed content supersedes the round (Marco's E09), and then the owner submits again.
+- The reviewer list is frozen when the round starts. Names and departments are as of submission.
+
 ## Intake answers
 
 The interview answers for a PRD, one per question.
@@ -227,7 +259,7 @@ so the chart can grey them out.
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD and
-comments; review notifications arrive with E07–E08). You never get one for your own action, and notifications
+comments and review submissions; decision notifications arrive with E08). You never get one for your own action, and notifications
 about a PRD you can no longer see are hidden from the list and the unread count.
 
 `Notification`:
@@ -250,7 +282,7 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   `unread_count` always counts all your unread notifications, whatever page or filter you asked for.
 - **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
-- **`payload` by type:** `member_added`: `{ user_id, role }`; `comment_added`: `{ section_type }`. Types still to come: `submitted`,
+- **`payload` by type:** `member_added`: `{ user_id, role }`; `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`. Types still to come:
   `approved`, `changes_requested`, `round_approved`, `superseded`, `work_status_changed`.
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
