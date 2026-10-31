@@ -282,8 +282,8 @@ Next: admin routes for members, departments and teams (E02).
 
 ### AI (Marco)
 
-Open: #74 (saved context in generation), #75 (PRD chat), #70 (accepting AI proposals through the save), #81 (PUT
-through the S03 save, behind a switch), #84 (version history), #85 (AI section edits), #86 (owning team and priority).
+Open: #74 (saved context in generation), #75 (PRD chat), #70 (accepting AI proposals through the save), #84
+(version history), #85 (AI section edits), #86 (owning team and priority).
 Each adds its entry here or in the main reference as it merges.
 
 ## Changes from the integration guide
