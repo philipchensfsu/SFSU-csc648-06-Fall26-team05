@@ -219,6 +219,41 @@ All routes: 404 if you're not an active member of the organization, 403 if you'r
   members, is 409 until they're moved out. Archived teams take no new members.
 - Team membership never changes anyone's org role or access to PRDs.
 
+### Managing members (admins)
+
+`PATCH /api/organizations/{id}/members/{user_id}` changes one member. Send only what changes; `null` clears
+`department_id`, `manager_id` or `title`.
+
+| Body field | Notes |
+|---|---|
+| `access_role` | `"member"` or `"admin"` |
+| `department_id` | a department of this organization (not archived), or `null` |
+| `manager_id` | an active member of this organization, or `null`; no loops |
+| `title` | up to 100 characters; `""` or `null` clears it |
+| `active` | `false` deactivates, `true` reactivates |
+| `replacement_manager_id` | only when deactivating someone who manages people: their new manager, or `null` for none |
+| `transfer_owner_to` | only when deactivating the only owner of some PRDs: an active member who becomes their owner |
+
+Response: 200 `{ "user_id", "active", "access_role", "department_id", "manager_id", "title" }`.
+
+| Status | `code` | When |
+|---|---|---|
+| 404 | `not_found` | You're not an active member of the organization, or the person isn't in it |
+| 403 | `forbidden` | You're a member but not an admin |
+| 409 | `last_admin` | Demoting or deactivating the organization's last active admin. Make someone else an admin first |
+| 409 | `has_direct_reports` | Deactivating someone who manages people without `replacement_manager_id`; the body lists them in `reports` (user ids) |
+| 409 | `owns_prds` | Deactivating the only owner of some PRDs without `transfer_owner_to`; the body lists them in `prds` (`[{ prd_id, title }]`) |
+| 409 | `active_elsewhere` | Reactivating someone who is now active in another organization (one per account) |
+| 409 | `department_not_empty`-style directory codes | e.g. moving someone into an archived department |
+| 422 | `manager_cycle`, `manager_inactive`, `not_in_organization`, `head_not_in_department` | Reporting lines would loop; the manager or replacement isn't an active member here; moving a department head out of their department |
+| 422 | `validation_error` | Unknown field, bad role, title too long |
+
+- **Deactivating** removes the person's access to every PRD in the organization at once (their roles stay, and come
+  back if they're reactivated). Their department-head and team-lead positions are cleared. Show the `reports` or
+  `prds` lists from a 409 so the admin can choose, then send the request again with the choice.
+- New owners from `transfer_owner_to` are recorded like a role change on each PRD.
+- The organization always keeps at least one active admin, even when two admins change each other at once.
+
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD;
@@ -252,10 +287,6 @@ about a PRD you can no longer see are hidden from the list and the unread count.
 ## Coming in open PRs
 
 Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
-
-### Organizations (Vineela)
-
-Next: admin routes for members (E02 part 2).
 
 ### AI (Marco)
 
