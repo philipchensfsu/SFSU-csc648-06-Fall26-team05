@@ -114,6 +114,9 @@ class PRDOut(BaseModel):
     # see it as an admin of its organization.
     my_role: Literal["owner", "editor", "viewer", "org_admin"]
     status: str
+    # The current review round's state, or null when nothing is under review
+    # (never submitted, or the last round was superseded).
+    review_state: Optional[Literal["in_review", "changes_requested", "approved"]] = None
     content_json: Optional[dict]
     content_text: Optional[str]
     doc_schema_version: int
@@ -191,14 +194,18 @@ def delete_project(project_id: UUID, auth=Depends(get_current_user)):
 
 
 def with_my_role(client, user_id, rows):
-    """Adds my_role to each visible PRD row."""
+    """Adds my_role and review_state to each visible PRD row."""
     ids = [row["id"] for row in rows]
-    roles = {}
+    roles, review_states = {}, {}
     if ids:
         members = client.table("prd_member").select("prd_id, role").eq("user_id", user_id).in_("prd_id", ids).execute()
         roles = {m["prd_id"]: m["role"] for m in members.data}
+        rounds = (client.table("review_round").select("prd_id, state")
+                  .in_("prd_id", ids).neq("state", "superseded").execute())
+        review_states = {r["prd_id"]: r["state"] for r in rounds.data}
     # Visible without a role on it means the caller is an admin of its org.
-    return [{**row, "my_role": roles.get(row["id"], "org_admin")} for row in rows]
+    return [{**row, "my_role": roles.get(row["id"], "org_admin"), "review_state": review_states.get(row["id"])}
+            for row in rows]
 
 
 @app.post("/api/prds", response_model=PRDOut, status_code=201)
@@ -243,12 +250,15 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
 @app.get("/api/prds", response_model=list[PRDOut])
 def list_prds(
     search: Optional[str] = None,
-    view: Optional[Literal["owned", "shared"]] = None,
+    view: Optional[Literal["owned", "shared", "needs_my_approval", "waiting_for_approval"]] = None,
     auth=Depends(get_current_user),
 ):
     # view=owned: PRDs the caller owns. view=shared: PRDs they were invited
-    # to as an editor or viewer ("Shared with me"). No view: everything
-    # they can see, including any PRD in their org if they're its admin.
+    # to as an editor or viewer ("Shared with me"). view=needs_my_approval:
+    # PRDs whose open round is waiting on the caller's decision.
+    # view=waiting_for_approval: PRDs the caller owns with a round still open
+    # (in review or changes requested). No view: everything they can see,
+    # including any PRD in their org if they're its admin.
     client = auth["client"]
     query = client.table("prd").select("*")
 
@@ -264,6 +274,15 @@ def list_prds(
         prds = [prd for prd in prds if prd["my_role"] == "owner"]
     elif view == "shared":
         prds = [prd for prd in prds if prd["my_role"] in ("editor", "viewer")]
+    elif view == "needs_my_approval":
+        pending = (client.table("review_slot").select("prd_id, round:review_round!inner(state)")
+                   .eq("reviewer_id", auth["user"].id).eq("state", "pending")
+                   .in_("round.state", ["in_review", "changes_requested"]).execute())
+        waiting_on_me = {slot["prd_id"] for slot in pending.data}
+        prds = [prd for prd in prds if prd["id"] in waiting_on_me]
+    elif view == "waiting_for_approval":
+        prds = [prd for prd in prds
+                if prd["my_role"] == "owner" and prd["review_state"] in ("in_review", "changes_requested")]
     return prds
 
 
