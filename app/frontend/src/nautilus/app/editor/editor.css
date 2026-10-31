@@ -1,0 +1,1229 @@
+/* After the interview: "Building your PRD" and the PRD editor. Builds on
+   workspace.css (buttons, chips, alerts, menus, dialogs) and flow.css (the
+   top bar and form fields); every class here starts with ne- and sits
+   inside .nw-root, except the menu filler, which renders into <body>. */
+
+/* ---- building your PRD -------------------------------------------------- */
+
+.ne-gen {
+  max-width: 1160px;
+  padding: 56px 24px 64px;
+  gap: 48px;
+}
+.ne-gen-main {
+  flex: 1 1 420px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.ne-gen-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ne-gen-title {
+  font-size: 34px;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.ne-gen-lede {
+  color: #3E5A60;
+  font-size: 16px;
+}
+
+.ne-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ne-meter {
+  position: relative;
+}
+.ne-meter-track {
+  height: 6px;
+  border-radius: 3px;
+  background: #DCEBEE;
+  overflow: hidden;
+}
+.ne-meter-fill {
+  height: 6px;
+  border-radius: 3px;
+  background: #1D6F7A;
+  transition: width 0.6s ease;
+}
+.ne-pfish {
+  position: absolute;
+  top: -7px;
+  transform: translateX(-88%);
+  transition: left 0.6s ease;
+  pointer-events: none;
+}
+.ne-pfish svg {
+  display: block;
+  overflow: visible;
+}
+.ne-pfish-bob {
+  display: block;
+  animation: ne-bob 2.6s ease-in-out infinite;
+}
+@keyframes ne-bob {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+.ne-pbubble {
+  position: absolute;
+  left: 26px;
+  top: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  border: 1.5px solid #4FAAB7;
+  opacity: 0;
+  animation: ne-pbubble 3.4s ease-in infinite;
+}
+.ne-pbubble-late {
+  left: 30px;
+  top: 2px;
+  animation-delay: 1.7s;
+}
+@keyframes ne-pbubble {
+  0% { opacity: 0; transform: translate(0, 0) scale(0.6); }
+  20% { opacity: 0.9; }
+  100% { opacity: 0; transform: translate(6px, -46px) scale(1); }
+}
+.ne-meter-text {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: #557479;
+}
+
+.ne-stages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ne-stage {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  padding: 10px 0;
+}
+.ne-stage-icon {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ne-stage.is-done .ne-stage-icon {
+  background: #102C33;
+  color: #FFFFFF;
+}
+.ne-stage.is-todo .ne-stage-icon {
+  border: 1px solid #C3DADE;
+}
+.ne-stage-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ne-stage-label {
+  font-weight: 500;
+  color: #102C33;
+}
+.ne-stage.is-todo .ne-stage-label {
+  color: #557479;
+}
+.ne-stage-detail {
+  font-size: 13px;
+  color: #557479;
+}
+.ne-spin {
+  animation: ne-spin 0.9s linear infinite;
+}
+@keyframes ne-spin {
+  to { transform: rotate(360deg); }
+}
+
+.ne-gen-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+.ne-gen-actions:empty {
+  display: none;
+}
+.ne-gen-note {
+  font-size: 13px;
+  color: #557479;
+}
+.ne-gen-error {
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid #F3C4B8;
+  background: #FCE6E1;
+  color: #8C2F1D;
+  font-size: 14px;
+}
+.ne-btn-48 {
+  gap: 8px;
+  height: 48px;
+  padding: 0 20px;
+  border-radius: 10px;
+  font-size: 15px;
+}
+.ne-btn-42 {
+  height: 42px;
+  padding: 0 16px;
+  border-radius: 9px;
+}
+
+/* The draft taking shape, section by section. */
+.ne-preview {
+  /* 460px plus the borders, as in the design (content-box there). */
+  flex: 1 1 462px;
+  min-width: 0;
+  background: #FFFFFF;
+  border: 1px solid #DCEBEE;
+  border-radius: 16px;
+  box-shadow: 0 24px 48px -28px rgba(16, 44, 51, 0.25);
+  overflow: hidden;
+}
+.ne-preview-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #DCEBEE;
+  background: #F7FBFC;
+}
+.ne-preview-head svg {
+  flex: none;
+  color: #557479;
+}
+.ne-preview-title {
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ne-preview-count {
+  margin-left: auto;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: #557479;
+  white-space: nowrap;
+}
+.ne-preview-list {
+  padding: 12px 20px 20px;
+  display: flex;
+  flex-direction: column;
+}
+.ne-preview-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px 0;
+  border-bottom: 1px solid #EDF5F6;
+}
+.ne-preview-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 14px;
+}
+.ne-preview-row svg {
+  margin-left: auto;
+}
+.ne-preview-num {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: #8FA9AD;
+}
+.ne-preview-name {
+  font-weight: 500;
+  color: #8FA9AD;
+}
+.ne-preview-item.is-reached .ne-preview-num {
+  color: #1D6F7A;
+}
+.ne-preview-item.is-reached .ne-preview-name {
+  color: #102C33;
+}
+.ne-preview-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding-left: 30px;
+}
+.ne-preview-lines span {
+  height: 6px;
+  width: 92%;
+  border-radius: 3px;
+  background: #D3F0F4;
+}
+.ne-preview-lines span + span {
+  width: 70%;
+}
+.ne-preview-lines.is-active {
+  animation: ne-pulse 1.2s ease-in-out infinite;
+}
+@keyframes ne-pulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 1; }
+}
+
+/* ---- editor: top bar ---------------------------------------------------- */
+
+.ne-bar .nf-bar-row {
+  padding: 10px 24px;
+}
+.ne-bar .nf-bar-actions {
+  gap: 10px;
+}
+.ne-status-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 2px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: #557479;
+}
+.ne-status-btn:hover,
+.ne-status-btn[aria-expanded="true"] {
+  background: #EDF5F6;
+  color: #102C33;
+}
+.ne-menu-blank {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+.ne-savestate {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: #0E6139;
+  white-space: nowrap;
+}
+.ne-savestate-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #1C9A62;
+}
+.ne-savestate.is-dirty {
+  color: #7A4300;
+}
+.ne-savestate.is-dirty .ne-savestate-dot {
+  background: #D98200;
+}
+.ne-savestate.is-saving {
+  color: #557479;
+}
+.ne-savestate.is-saving .ne-savestate-dot {
+  background: #8FA9AD;
+}
+.ne-viewonly {
+  font-size: 12px;
+  font-weight: 500;
+  color: #3E5A60;
+  border: 1px solid #DCEBEE;
+  border-radius: 6px;
+  padding: 1px 8px;
+  white-space: nowrap;
+}
+.ne-btn-38 {
+  gap: 6px;
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 8px;
+}
+.nw-btn-primary.ne-btn-38 {
+  padding: 0 14px;
+}
+
+.ne-alerts {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 16px 24px 0;
+}
+.ne-alert-action {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #8C2F1D;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---- editor: layout ------------------------------------------------------- */
+
+.ne-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.ne-outline {
+  flex: 1 1 236px;
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 24px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ne-outline-link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: #3E5A60;
+  font-size: 13px;
+}
+.ne-outline-link:hover {
+  color: #102C33;
+}
+.ne-outline-label {
+  padding: 0 8px;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #557479;
+}
+.ne-outline-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.ne-outline-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #3E5A60;
+  font-size: 13.5px;
+  text-align: left;
+}
+.ne-outline-item:hover {
+  background: #E9F3F5;
+  color: #102C33;
+}
+.ne-outline-item.is-current {
+  background: #E3F6F8;
+  color: #155E68;
+  font-weight: 600;
+}
+.ne-outline-num {
+  flex: none;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 400;
+  color: #557479;
+}
+.ne-outline-item.is-current .ne-outline-num {
+  color: #155E68;
+}
+.ne-outline-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ne-outline-flag {
+  flex: none;
+  margin-left: auto;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: #FFF1D6;
+  color: #7A4300;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+.ne-outline-answers {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 8px 0;
+  border: 0;
+  border-top: 1px solid #DCEBEE;
+  background: transparent;
+  color: #3E5A60;
+  font-size: 13px;
+  text-align: left;
+}
+.ne-outline-answers:hover {
+  color: #102C33;
+}
+
+.ne-main {
+  flex: 999 1 560px;
+  min-width: 0;
+  padding: 24px 16px 64px;
+}
+
+/* ---- editor: the document --------------------------------------------- */
+
+.ne-doc {
+  max-width: 780px;
+  margin: 0 auto;
+  padding: 48px 56px 56px;
+  border: 1px solid #DCEBEE;
+  border-radius: 16px;
+  background: #FFFFFF;
+  display: flex;
+  flex-direction: column;
+  gap: 40px;
+}
+.ne-doc-head {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-bottom: 28px;
+  border-bottom: 1px solid #DCEBEE;
+}
+.ne-kicker-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 30px;
+}
+.ne-kicker {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #557479;
+}
+.ne-title {
+  font-size: 38px;
+  line-height: 1.1;
+  letter-spacing: -0.03em;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.ne-lede {
+  font-size: 17px;
+  color: #3E5A60;
+}
+.ne-meta {
+  margin: 8px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 28px;
+  font-size: 13px;
+}
+.ne-meta div {
+  display: flex;
+  gap: 6px;
+}
+.ne-meta dt {
+  color: #557479;
+}
+.ne-meta dd {
+  margin: 0;
+}
+.ne-readonly-note {
+  font-size: 13px;
+  color: #557479;
+}
+.ne-details {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid #1D6F7A;
+  border-radius: 12px;
+  box-shadow: 0 0 0 3px #D3F0F4;
+}
+.ne-details .nf-input,
+.ne-details .nf-textarea {
+  width: 100%;
+}
+.ne-details .nf-textarea:focus {
+  box-shadow: 0 0 0 3px #D3F0F4;
+}
+
+.ne-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scroll-margin-top: 24px;
+}
+.ne-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+.ne-section-num {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 13px;
+  color: #557479;
+}
+.ne-section-title {
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+}
+.ne-editing-tag {
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #E3F6F8;
+  color: #155E68;
+  font-size: 12px;
+  font-weight: 500;
+}
+.ne-edit-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #1D6F7A;
+  font-size: 13px;
+  font-weight: 500;
+}
+.ne-edit-btn:hover {
+  background: #EDF5F6;
+  color: #102C33;
+}
+.ne-empty {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 14px 16px;
+  border: 1px dashed #C3DADE;
+  border-radius: 10px;
+  color: #557479;
+  font-size: 14px;
+}
+.ne-link-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1D6F7A;
+  font-size: 14px;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.ne-link-btn:hover {
+  color: #102C33;
+}
+
+/* Section text, shown or being edited. The base rules strip list styles
+   and margins, so they come back here. */
+.ne-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  color: #1A3A41;
+  overflow-wrap: anywhere;
+}
+.ne-content > * {
+  margin: 0;
+}
+.ne-content h3 {
+  padding-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #3E5A60;
+}
+.ne-content h4 {
+  font-size: 13px;
+  font-weight: 600;
+  color: #3E5A60;
+}
+.ne-content ul,
+.ne-content ol {
+  margin: 0;
+  padding-left: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ne-content ul {
+  list-style: disc;
+}
+.ne-content ol {
+  list-style: decimal;
+}
+.ne-content li::marker {
+  color: #557479;
+}
+.ne-content p {
+  margin: 0;
+}
+.ne-content strong {
+  font-weight: 600;
+}
+.ne-content blockquote {
+  margin: 0;
+  padding-left: 12px;
+  border-left: 3px solid #C3DADE;
+  color: #3E5A60;
+}
+.ne-content a {
+  color: #1D6F7A;
+}
+.ne-content table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.ne-table {
+  border: 1px solid #DCEBEE;
+  border-radius: 10px;
+  overflow-x: auto;
+}
+.ne-table table {
+  min-width: 520px;
+}
+.ne-content th {
+  padding: 10px 14px;
+  border-bottom: 1px solid #DCEBEE;
+  background: #F7FBFC;
+  color: #557479;
+  font-size: 12px;
+  font-weight: 500;
+  text-align: left;
+  vertical-align: bottom;
+}
+.ne-content td {
+  padding: 10px 14px;
+  border-bottom: 1px solid #EAF3F5;
+  vertical-align: top;
+}
+.ne-content tr:last-child td {
+  border-bottom: 0;
+}
+.ne-content td:first-child {
+  font-weight: 500;
+}
+.ne-content td.ne-id {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 13px;
+  font-weight: 400;
+  color: #155E68;
+  white-space: nowrap;
+}
+.ne-pri {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.ne-pri-must {
+  background: #102C33;
+  color: #FFFFFF;
+}
+.ne-pri-should {
+  background: #E3EFF1;
+  color: #3E5A60;
+}
+.ne-pri-could,
+.ne-pri-wont {
+  border: 1px solid #C3DADE;
+  background: #FFFFFF;
+  color: #3E5A60;
+}
+
+/* An assumption to confirm: amber, underlined with dashes. */
+.ne-content mark.nt-assumption {
+  padding: 0 2px;
+  border-radius: 2px;
+  border-bottom: 1.5px dashed #D98200;
+  background: #FFF1D6;
+  color: inherit;
+}
+.ne-content mark.nt-assumption.is-flash {
+  animation: ne-flash 1.4s ease-out;
+}
+@keyframes ne-flash {
+  0% { background: #FFD98A; box-shadow: 0 0 0 0 rgba(217, 130, 0, 0); }
+  30% { background: #FFD98A; box-shadow: 0 0 0 4px rgba(217, 130, 0, 0.3); }
+  100% { background: #FFF1D6; box-shadow: 0 0 0 0 rgba(217, 130, 0, 0); }
+}
+
+/* ---- editor: editing a section ------------------------------------------ */
+
+.ne-editbox {
+  border: 1px solid #1D6F7A;
+  border-radius: 12px;
+  box-shadow: 0 0 0 3px #D3F0F4;
+  background: #FFFFFF;
+  overflow: hidden;
+}
+.ne-editbox:focus-within {
+  box-shadow: 0 0 0 3px #B3EBF2;
+}
+.ne-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  border-bottom: 1px solid #DCEBEE;
+  background: #F7FBFC;
+}
+.ne-tool {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #3E5A60;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ne-tool:hover {
+  background: #EDF5F6;
+  color: #102C33;
+}
+.ne-tool[aria-pressed="true"] {
+  background: #E3EFF1;
+  color: #102C33;
+}
+.ne-tool-b {
+  font-weight: 700;
+}
+.ne-tool-i {
+  font-style: italic;
+}
+.ne-tool-u {
+  text-decoration: underline;
+}
+.ne-tool-num {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 12px;
+}
+.ne-tool-text {
+  width: auto;
+  gap: 6px;
+  padding: 0 10px;
+  background: #FFF1D6;
+  color: #7A4300;
+  font-size: 13px;
+  font-weight: 500;
+}
+.ne-tool-text:hover {
+  background: #FFE7BC;
+  color: #7A4300;
+}
+.ne-tool-sep {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  margin: 0 4px;
+  background: #DCEBEE;
+}
+.ne-tool-note {
+  margin-left: auto;
+  padding: 0 4px;
+  font-size: 12px;
+  color: #557479;
+}
+.ne-editable {
+  min-height: 96px;
+  padding: 16px 20px;
+  color: #102C33;
+  overflow-x: auto;
+}
+.ne-editable:focus,
+.ne-editable:focus-visible {
+  outline: none;
+}
+.ne-editable table {
+  border: 1px solid #DCEBEE;
+}
+/* TipTap renders the editable area as .ProseMirror inside .ne-editable. */
+.ne-editable.ProseMirror {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+/* Accepted AI text (the ai_generated mark): a faint underline, so it reads
+   as normal text but stays recognisable. */
+.ne-content .nt-ai-generated {
+  text-decoration: underline dotted #9CC4CB;
+  text-underline-offset: 3px;
+}
+.ne-edit-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 12px;
+  border-top: 1px solid #DCEBEE;
+  background: #F7FBFC;
+}
+.ne-edit-hint {
+  font-size: 12px;
+  color: #557479;
+}
+.ne-key {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  border: 1px solid #DCEBEE;
+  border-radius: 5px;
+  padding: 0 5px;
+  background: #FFFFFF;
+}
+.ne-edit-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+.ne-btn-34 {
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 7px;
+  font-size: 13px;
+}
+.ne-btn-ink {
+  border: 0;
+  background: #102C33;
+  color: #FFFFFF;
+  font-weight: 600;
+}
+.ne-btn-ink:hover:not(:disabled) {
+  background: #1A3A41;
+}
+
+/* ---- editor: review rail ------------------------------------------------ */
+
+.ne-rail {
+  flex: 1 1 300px;
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  overflow-y: auto;
+  padding: 24px 24px 24px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* Review / Ask AI tabs at the top of the rail. */
+.ne-rail-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #DCEBEE;
+  border-radius: 10px;
+  background: #F4F9FA;
+}
+.ne-rail-tab {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #3E5A60;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ne-rail-tab:hover {
+  color: #102C33;
+}
+.ne-rail-tab.is-active {
+  background: #FFFFFF;
+  color: #102C33;
+  box-shadow: 0 1px 2px rgba(16, 44, 51, 0.08);
+}
+.ne-rail-tab-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #FFF1D6;
+  color: #7A4300;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+}
+.ne-rail [role="tabpanel"] {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ne-card {
+  padding: 16px;
+  border: 1px solid #DCEBEE;
+  border-radius: 12px;
+  background: #FFFFFF;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ne-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ne-card-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.ne-card-title:focus {
+  outline: none;
+}
+.ne-card-count {
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #FFF1D6;
+  color: #7A4300;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 12px;
+  text-align: center;
+}
+.ne-card-count.is-zero {
+  background: #EAF3F5;
+  color: #3E5A60;
+}
+.ne-card-note {
+  font-size: 12.5px;
+  color: #557479;
+}
+.ne-assume-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ne-assume {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #F6E2BA;
+  border-radius: 10px;
+  background: #FFFBF2;
+}
+.ne-assume-jump {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #102C33;
+  text-align: left;
+}
+.ne-assume-where {
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11.5px;
+  color: #7A4300;
+}
+.ne-assume-text {
+  font-size: 13px;
+  line-height: 1.45;
+  color: #1A3A41;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.ne-assume-jump:hover .ne-assume-text {
+  text-decoration: underline;
+  text-decoration-color: #D98200;
+}
+.ne-assume-ok {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid #C3DADE;
+  border-radius: 7px;
+  background: #FFFFFF;
+  color: #102C33;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+.ne-assume-ok:hover {
+  border-color: #A9C9CE;
+  background: #F7FBFC;
+}
+.ne-assume-ok svg {
+  color: #1C9A62;
+}
+.ne-empty-list {
+  display: flex;
+  flex-direction: column;
+}
+.ne-empty-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 4px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #3E5A60;
+  font-size: 13.5px;
+  text-align: left;
+}
+.ne-empty-item:hover {
+  background: #F1F7F8;
+  color: #102C33;
+}
+
+/* ---- narrow screens ------------------------------------------------------- */
+
+/* The rail moves under the document. */
+@media (max-width: 1095px) {
+  .ne-rail {
+    flex-basis: 100%;
+    position: static;
+    max-height: none;
+    overflow: visible;
+    align-items: center;
+    padding: 0 16px 48px;
+  }
+  .ne-rail > * {
+    width: 100%;
+    max-width: 780px;
+  }
+  .ne-main {
+    padding-bottom: 24px;
+  }
+}
+
+/* The contents list gives way to the document; its links stay on top. */
+@media (max-width: 860px) {
+  .ne-outline {
+    flex-basis: 100%;
+    position: static;
+    max-height: none;
+    overflow: visible;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px 16px;
+    padding: 16px 16px 0;
+  }
+  .ne-outline-label,
+  .ne-outline-list {
+    display: none;
+  }
+  .ne-outline-answers {
+    padding: 0 8px;
+    border-top: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .ne-main {
+    padding: 12px 12px 24px;
+  }
+  .ne-doc {
+    padding: 28px 20px 32px;
+    gap: 32px;
+    border-radius: 14px;
+  }
+  .ne-title {
+    font-size: 30px;
+  }
+  .ne-section-title {
+    font-size: 20px;
+  }
+  .ne-hide-sm {
+    display: none;
+  }
+  .ne-rail {
+    padding: 0 12px 40px;
+  }
+}
+
+@media (max-width: 560px) {
+  .ne-gen {
+    padding: 32px 16px 40px;
+    gap: 32px;
+  }
+  .ne-gen-title {
+    font-size: 28px;
+  }
+  .ne-bar .nf-bar-row {
+    padding: 10px 16px;
+  }
+  .ne-alerts {
+    padding: 12px 16px 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ne-spin,
+  .ne-pfish-bob,
+  .ne-pfish .nw-tail,
+  .ne-pbubble,
+  .ne-preview-lines.is-active,
+  .ne-content mark.nt-assumption.is-flash {
+    animation: none;
+  }
+  .ne-meter-fill,
+  .ne-pfish {
+    transition: none;
+  }
+  .ne-pbubble {
+    display: none;
+  }
+  .ne-content mark.nt-assumption.is-flash {
+    outline: 2px solid #D98200;
+    outline-offset: 1px;
+  }
+}
