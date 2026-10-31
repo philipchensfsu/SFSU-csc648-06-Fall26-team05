@@ -24,7 +24,7 @@ class Directory:
 
 @pytest.fixture
 def directory(make_user, db):
-    alice, ben, erin, ada = (make_user() for _ in range(4))
+    alice, ben, erin, ada = (make_user(org=False) for _ in range(4))
     for user, name in ((alice, "Alice PM"), (ben, "Ben PM"), (erin, "Erin Eng"), (ada, "Ada Gone")):
         db.execute("update profile set full_name = %s where id = %s", (name, user.id))
     org = db.execute("insert into organization (name, created_by) values ('Org X', %s) returning id::text",
