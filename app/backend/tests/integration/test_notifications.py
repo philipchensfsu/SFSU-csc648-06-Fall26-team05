@@ -57,14 +57,20 @@ def test_repeating_an_invite_records_nothing_new(team, db):
     assert inbox(team["nia"])["unread_count"] == 1
 
 
-def test_role_changes_and_removals_are_recorded_without_notifying(team, db):
+def test_a_role_change_notifies_only_that_person(team, db):
     olive, prd, ed = team["olive"], team["prd"], team["ed"]
     invite(olive, prd, ed, "viewer")
+    assert events(db, prd) == [("member_role_changed", {"user_id": ed.id, "from": "editor", "to": "viewer"})]
+    [item] = inbox(ed)["items"]
+    assert item["type"] == "member_role_changed" and item["payload"] == {"user_id": ed.id, "from": "editor", "to": "viewer"}
+    for other in ("olive", "vic", "ada", "nia"):
+        assert inbox(team[other])["unread_count"] == 0
+
+
+def test_a_removal_is_recorded_without_notifying(team, db):
+    olive, prd, ed = team["olive"], team["prd"], team["ed"]
     assert olive.api("DELETE", f"/prds/{prd}/members/{ed.id}").status_code == 204
-    assert events(db, prd) == [
-        ("member_role_changed", {"user_id": ed.id, "from": "editor", "to": "viewer"}),
-        ("member_removed", {"user_id": ed.id, "role": "viewer"}),
-    ]
+    assert events(db, prd) == [("member_removed", {"user_id": ed.id, "role": "editor"})]
     assert db.execute("select count(*) from notification where prd_id = %s", (prd,)).fetchone()[0] == 0
 
 
