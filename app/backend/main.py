@@ -286,13 +286,58 @@ def list_prds(
     return prds
 
 
-@app.get("/api/prds/{prd_id}", response_model=PRDOut)
+class ReviewerOut(BaseModel):
+    user_id: UUID
+    name: Optional[str]
+    department: Optional[str]
+    state: Literal["pending", "approved", "changes_requested"]
+    decided_at: Optional[datetime]
+    explanation: Optional[str]
+    comment_id: Optional[UUID]
+
+
+class ApprovalSummary(BaseModel):
+    round_id: Optional[UUID]
+    round_no: Optional[int]
+    version_id: Optional[UUID]
+    state: Optional[Literal["in_review", "changes_requested", "approved"]]
+    required_count: int
+    approved_count: int
+    reviewers: list[ReviewerOut]
+
+
+class PRDDetailOut(PRDOut):
+    approval: ApprovalSummary
+
+
+NO_APPROVAL = {"round_id": None, "round_no": None, "version_id": None, "state": None,
+               "required_count": 0, "approved_count": 0, "reviewers": []}
+
+
+def approval_summary(client, prd_id: UUID):
+    """The current round's progress, or empty counts when nothing is under review."""
+    rows = (client.table("review_round").select(ROUND_COLUMNS)
+            .eq("prd_id", str(prd_id)).neq("state", "superseded").execute().data)
+    if not rows:
+        return NO_APPROVAL
+    current = round_item(rows[0])
+    return {
+        "round_id": current["id"], "round_no": current["round_no"], "version_id": current["version_id"],
+        "state": current["state"], "required_count": len(current["reviewers"]),
+        "approved_count": sum(r["state"] == "approved" for r in current["reviewers"]),
+        "reviewers": current["reviewers"],
+    }
+
+
+@app.get("/api/prds/{prd_id}", response_model=PRDDetailOut)
 def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
+    # The PRD with the caller's role and its approval summary (E11).
     client = auth["client"]
     response = client.table("prd").select("*").eq("id", str(prd_id)).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
-    return with_my_role(client, auth["user"].id, response.data)[0]
+    prd = with_my_role(client, auth["user"].id, response.data)[0]
+    return {**prd, "approval": approval_summary(client, prd_id)}
 
 
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
@@ -468,16 +513,6 @@ def add_comment(prd_id: UUID, payload: CommentIn, auth=Depends(get_current_user)
     }, COMMENT_ERRORS)
     row = client.table("prd_comment").select(COMMENT_COLUMNS).eq("id", comment_id).execute().data[0]
     return comment_item(row)
-
-
-class ReviewerOut(BaseModel):
-    user_id: UUID
-    name: Optional[str]
-    department: Optional[str]
-    state: Literal["pending", "approved", "changes_requested"]
-    decided_at: Optional[datetime]
-    explanation: Optional[str]
-    comment_id: Optional[UUID]
 
 
 class ReviewRoundOut(BaseModel):
