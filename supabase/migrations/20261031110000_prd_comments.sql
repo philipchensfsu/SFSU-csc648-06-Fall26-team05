@@ -14,7 +14,10 @@
 -- anyone's inbox: when a recipient still has an unread comment notification
 -- from the same person on the same PRD, started less than 10 minutes ago,
 -- its count goes up ("Ed left 3 comments") instead of a new one being
--- added. It keeps pointing at the first comment of the batch.
+-- added. It keeps pointing at the first comment of the batch, and moves
+-- to the top of the inbox, which now sorts by updated_at. A lock per PRD
+-- and commenter makes two of their comments arriving at once take turns,
+-- so the second joins the first one's batch.
 --
 -- The author's name and department are copied when posting, so a later
 -- name or department change doesn't rewrite who said what. Bodies are plain
@@ -26,7 +29,8 @@
 -- Applied to the hosted database by hand (docs/local-development.md,
 -- "Applying a migration to the hosted database"). Apply after
 -- 20261031100000_prd_events_notifications. Adds a table, a function and
--- two notification columns, and replaces record_prd_event.
+-- two notification columns, rebuilds the inbox index on updated_at, and
+-- replaces record_prd_event.
 
 create table prd_comment (
   id uuid primary key default gen_random_uuid(),
@@ -65,6 +69,10 @@ alter table prd_event
 alter table notification
   add column event_count integer not null default 1 check (event_count >= 1),
   add column updated_at timestamptz not null default now();
+
+-- The inbox sorts by the latest activity, so a growing batch comes back up.
+drop index notification_inbox;
+create index notification_inbox on notification (recipient_id, updated_at desc, id desc);
 
 -- As in 20261031100000, plus comment batching.
 create or replace function record_prd_event(
@@ -125,6 +133,9 @@ declare
   bumped uuid[] := '{}';
 begin
   if p_event_type = 'comment_added' and p_actor is not null then
+    -- One batch at a time per PRD and commenter, held until commit; the
+    -- update below then sees a batch another transaction just started.
+    perform pg_advisory_xact_lock(hashtextextended('nautilus.comment_batch:' || p_prd_id || ':' || p_actor, 0));
     with batch as (
       update notification n
       set event_count = n.event_count + 1, updated_at = now()

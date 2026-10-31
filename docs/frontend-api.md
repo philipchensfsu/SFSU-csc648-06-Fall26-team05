@@ -243,7 +243,7 @@ about a PRD you can no longer see are hidden from the list and the unread count.
 
 | Route | Body | Response | Errors |
 |---|---|---|---|
-| `GET /api/notifications?unread_only=false&limit=25&cursor=` | | 200 `{ "items": Notification[], "next_cursor": "string \| null", "unread_count": int }`, newest first | 400 `invalid_cursor` |
+| `GET /api/notifications?unread_only=false&limit=25&cursor=` | | 200 `{ "items": Notification[], "next_cursor": "string \| null", "unread_count": int }`, most recent activity first (`updated_at`) | 400 `invalid_cursor` |
 | `PATCH /api/notifications/{id}` | `{ "read": true }` | 200 `Notification`; repeating it succeeds and keeps the first `read_at` | 404 not yours (or the PRD is hidden from you); 422 anything but `read: true` |
 
 - **Paging:** `limit` is 1–100 (default 25). Send `next_cursor` back as `cursor` for the next page; `null` means the end.
@@ -254,7 +254,8 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   `approved`, `changes_requested`, `round_approved`, `superseded`, `work_status_changed`.
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
-  the first one and `updated_at` is when the latest arrived. Once read, the next comment starts a new notification.
+  the first one and `updated_at` is when the latest arrived; a growing batch moves back to the top of the inbox. Once
+  read, the next comment starts a new notification.
   Other types always have `count: 1`.
 - No realtime updates: refetch the unread count when the user navigates or on a timer.
 

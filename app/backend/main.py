@@ -750,13 +750,14 @@ def notification_item(row):
 
 @app.get("/api/notifications", response_model=NotificationPage)
 def list_notifications(unread_only: bool = False, params: PageParams = Depends(), auth=Depends(get_current_user)):
-    # The caller's inbox, newest first. RLS hides notifications about PRDs
-    # they can no longer see, from the items and the unread count alike.
+    # The caller's inbox, most recent activity first, so a growing comment
+    # batch moves back up. RLS hides notifications about PRDs they can no
+    # longer see, from the items and the unread count alike.
     client = auth["client"]
     query = client.table("notification").select(NOTIFICATION_COLUMNS)
     if unread_only:
         query = query.is_("read_at", "null")
-    page = paginate(query, params)
+    page = paginate(query, params, sort_column="updated_at")
     unread = client.table("notification").select("id", count="exact", head=True).is_("read_at", "null").execute()
     return {"items": [notification_item(r) for r in page["items"]], "next_cursor": page["next_cursor"],
             "unread_count": unread.count or 0}
