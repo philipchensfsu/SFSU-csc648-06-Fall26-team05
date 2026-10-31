@@ -254,10 +254,10 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
   }
 
   // Shared by the Editor's Save button and finishGeneration below: persists
-  // content_json/content_text/status to the real PRD row, using the
+  // content_json/content_text to the real PRD row, using the
   // revision the UI last saw for optimistic-concurrency (409 if someone
   // else saved first). Returns the promise so callers can show save state.
-  function savePrdContent(id, sections, status) {
+  function savePrdContent(id, sections) {
     const prd = prds.find((p) => p.id === id);
     if (!prd) return Promise.resolve();
     const contentJson = sectionsToContentJson(sections, prd.description);
@@ -265,8 +265,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
 
     function matchesRequestedSave(row) {
       const savedSections = row.content_json?.sections;
-      return row.status === status
-        && row.content_text === contentText
+      return row.content_text === contentText
         && row.content_json?.description === contentJson.description
         && Array.isArray(savedSections)
         && savedSections.length === contentJson.sections.length
@@ -283,7 +282,6 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
         revision: prd.revision,
         content_json: contentJson,
         content_text: contentText,
-        status,
       })
       .catch(async (error) => {
         if (error.status !== 409) throw error;
@@ -307,7 +305,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
 
   async function finishGeneration() {
     const sections = draftSectionsFromAnswers(activePrd.answers);
-    await savePrdContent(activePrd.id, sections, "in_review");
+    await savePrdContent(activePrd.id, sections);
     go("ready");
   }
 
@@ -362,10 +360,9 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
     content = (
       <Editor
         prd={activePrd}
-        // Edits keep it 'in_review' -- there's no "mark as final" action in
-        // this prototype yet. Returns the save promise so the Editor can
-        // show real saving/error state instead of assuming success.
-        onSave={(sections) => savePrdContent(activePrd.id, sections, "in_review")}
+        // Returns the save promise so the Editor can show real saving/error
+        // state instead of assuming success.
+        onSave={(sections) => savePrdContent(activePrd.id, sections)}
         onDashboard={() => showHome({ page: "dashboard" })}
         onExport={() => go("export")}
       />
