@@ -121,7 +121,26 @@ docker compose exec backend python -m pytest tests/integration -q  # integration
   without the change.
 - After changing `requirements-dev.txt`, rebuild with `docker compose up --build -V`.
 
-## 6. Running without Docker (optional)
+## 6. Demo data (v2)
+
+`app/backend/seed_demo.py` creates the demo account's data:
+- its organization (the account as admin);
+- three projects;
+- ten PRDs in the v2 document format (Tiptap JSON, see [prd-document-format.md](prd-document-format.md)), with their interview answers.
+
+PRD content goes through the save core, so each PRD with content has a real version and server-derived search text. No AI records are created.
+
+```
+docker compose exec -e DEMO_PASSWORD='<choose one>' backend python seed_demo.py
+```
+
+- **Prerequisites:** the local stack is running and `supabase db reset` has applied every migration (the save core, organizations and per-PRD roles).
+- **Login:** the demo login is `nautilus.demo@example.com`. An existing account keeps its password unless `DEMO_PASSWORD` is set. A new account without it gets a random password, printed once.
+- **Reruns:** safe. Each run replaces only the demo account's own PRDs and projects and reuses its organization. Other accounts are never touched. If the demo account is a non-admin member of someone else's organization, the seed stops.
+- **Local only by default:** it refuses a non-local `SUPABASE_URL` unless `--allow-hosted` is given. Seeding the hosted project is part of the hosted rollout plan, after its migrations and with Marco's go-ahead. Don't run it against production ad hoc.
+- **Today's editor:** it still reads the v1 format, so it shows these v2 documents as empty until the v2 editor lands. PRD responses include `description` only once #81 merges. Until then, the seeded descriptions are stored but not returned.
+
+## 7. Running without Docker (optional)
 
 > **Check your env files first.** Your existing `app/backend/.env` and `app/frontend/.env.local`
 > probably point at the hosted project, which is **production**. Replace them with the local values

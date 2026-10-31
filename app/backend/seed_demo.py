@@ -1,42 +1,58 @@
-"""Seed a demo PM account with 10 representative PRDs for the M2 vertical
-prototype ("seed approximately 10 representative PRD records; list and
-search them"). RLS only shows a PM their own PRDs, so everything is owned by
-one demo account whose login goes in the M2 submission's access info.
+"""Fresh v2 demo data for the demo account (replaces the M2 v1 seed).
 
-Usage (from app/backend, with .env set):
-    python seed_demo.py
+Creates or reuses, for one demo account only:
+- the account itself (login kept: an existing password is never changed
+  unless DEMO_PASSWORD is set);
+- its organization, with the account as admin (one org per account, #71);
+- its projects;
+- ten PRDs in the agreed v2 format (Tiptap JSON, docs/prd-document-format.md),
+  validated with the shared validator, with their interview answers.
 
-Re-runnable: it deletes the demo account's existing projects/PRDs (child
-rows cascade) and recreates them. It never touches anyone else's data.
+PRD content goes through the reviewed save core (prd_save.save_prd, #55), so
+every PRD with content gets a real version, server-derived content_text and
+a change-log note, exactly like a user's save. No AI records are created:
+nothing here claims AI involvement, so there are no ai_generated marks or
+generation records. Review status (in review, final, assigned) has no
+workflow yet (E07/E08), so it's set on the PRD after its save, as demo
+metadata only; no approvals are invented.
 
-The password is never stored in the repo. Set DEMO_PASSWORD to choose one;
-otherwise a new account gets a random password, printed once. Re-running
-against an existing account leaves its password alone unless DEMO_PASSWORD
-is set.
+Re-runnable: it deletes only PRDs and projects owned by the demo account
+(their versions, answers, roles and context cascade) and recreates them. The
+demo organization and membership are reused. Nobody else's data is touched,
+and it refuses to run if the demo account is a non-admin member of someone
+else's organization.
+
+Usage, from app/backend (the local stack is the default target):
+    python seed_demo.py                 # SUPABASE_* from the environment/.env
+    DEMO_PASSWORD=... python seed_demo.py
+
+It refuses non-local Supabase URLs unless --allow-hosted is given. Running it
+against the hosted project is part of the hosted rollout plan (Marco's
+go-ahead, after the migrations), not something to do ad hoc.
+
+The password is never stored in the repo. A new account without
+DEMO_PASSWORD gets a random password, printed once.
 """
 
-import html
+import argparse
 import os
-import re
 import secrets
-from datetime import datetime, timedelta, timezone
-
-from supabase_client import supabase
+import sys
+from urllib.parse import urlparse
 
 DEMO_EMAIL = os.environ.get("DEMO_EMAIL", "nautilus.demo@example.com")
 DEMO_NAME = "Nautilus Demo PM"
+DEMO_ORG = "Nautilus Demo"
+LOCAL_HOSTS = {"127.0.0.1", "localhost", "host.docker.internal"}
 
-SECTION_TITLES = {
-    "problem": "Problem Statement",
-    "goals": "Goals",
-    "non_goals": "Non-Goals",
-    "target_users": "Target Users",
-    "user_stories": "User Stories",
-    "requirements": "Requirements",
-    "success_metrics": "Success Metrics",
-    "risks": "Risks",
-    "open_questions": "Open Questions",
-}
+
+def section_order():
+    """The nine section types in the shared spec's standard order."""
+    from prd_document import section_types
+
+    return list(section_types())
+
+# --- demo content ---------------------------------------------------------------
 
 PROJECTS = ["Campus Life", "Internal Tools", "Community"]
 
@@ -268,118 +284,167 @@ PRDS = [
 ]
 
 
-def as_list(items):
-    return "<ul>" + "".join(f"<li>{html.escape(item)}</li>" for item in items) + "</ul>"
+
+# --- v2 documents ------------------------------------------------------------------
+
+def _text(text, marks=None):
+    node = {"type": "text", "text": text}
+    if marks:
+        node["marks"] = marks
+    return node
 
 
-def build_sections(content):
-    """Builds content_json's sections in the same shape the frontend saves
-    (see sectionsToContentJson in app/frontend/src/prototype/data.js)."""
+def _paragraph(*texts):
+    return {"type": "paragraph", "content": list(texts)}
+
+
+def build_document(content):
+    """A v2 document from the demo content: one section per type, in the
+    standard order, paragraphs for text and bullet lists for lists. The
+    target-users assumption uses the agreed assumption mark (option A: users
+    may add it; AI output never does)."""
     sections = []
-    for section_type, title in SECTION_TITLES.items():
+    for section_type in section_order():
         value = content[section_type]
-        body = as_list(value) if isinstance(value, list) else f"<p>{html.escape(value)}"
-        if section_type == "target_users" and content.get("assumption"):
-            # Renders as an "assumption to review" in the editor's outline.
-            body += f' <mark class="nt-assumption" data-assumption="1">{html.escape(content["assumption"])}</mark>'
-        if not isinstance(value, list):
-            body += "</p>"
-        sections.append({"type": section_type, "title": title, "html": body})
-    return sections
+        if isinstance(value, list):
+            body = [{"type": "bulletList", "content": [
+                {"type": "listItem", "content": [_paragraph(_text(item))]} for item in value]}]
+        else:
+            texts = [_text(value)]
+            if section_type == "target_users" and content.get("assumption"):
+                texts += [_text(" "), _text(content["assumption"], [{"type": "assumption"}])]
+            body = [_paragraph(*texts)]
+        sections.append({"type": "section", "attrs": {"type": section_type}, "content": body})
+    return {"type": "doc", "content": sections}
 
 
-def sections_to_text(sections):
-    """Mirrors sectionsToText in data.js: title, then the section's text."""
-    parts = []
-    for section in sections:
-        text = html.unescape(re.sub(r"<[^>]+>", " ", section["html"]))
-        parts.append(f"{section['title']}\n{' '.join(text.split())}")
-    return "\n\n".join(parts)
+def description_for(prd):
+    """A one-line summary for the card: the interview's problem answer, else
+    the document's problem statement."""
+    text = (prd["answers"].get("problem") or (prd["content"] or {}).get("problem") or "").strip()
+    return text[:2000] or None
 
 
-def find_demo_user():
+def check_documents():
+    """Every seeded document must pass the shared validator before anything
+    is written."""
+    from prd_document import validate_document
+
+    problems = []
+    for prd in PRDS:
+        if prd["content"]:
+            errors = validate_document(build_document(prd["content"]))
+            problems += [f"{prd['title']}: {e.code} at {e.path}" for e in errors]
+    if problems:
+        raise SystemExit("Demo documents don't validate:\n" + "\n".join(problems))
+
+
+# --- seeding -----------------------------------------------------------------------
+
+def require_local_target(allow_hosted):
+    host = urlparse(os.environ.get("SUPABASE_URL", "")).hostname
+    if host not in LOCAL_HOSTS and not allow_hosted:
+        raise SystemExit(f"Refusing to seed {host!r}: not a local stack. Hosted seeding is part of the rollout plan "
+                         "and needs --allow-hosted.")
+
+
+def find_demo_user(supabase):
     for user in supabase.auth.admin.list_users(per_page=1000):
         if user.email == DEMO_EMAIL:
             return user
     return None
 
 
-def ensure_demo_user():
+def ensure_demo_user(supabase):
+    """Returns (user, note). An existing account keeps its password unless
+    DEMO_PASSWORD is set. A new account without it gets a random one, which
+    is the only time a password is printed."""
     password = os.environ.get("DEMO_PASSWORD")
-    user = find_demo_user()
+    user = find_demo_user(supabase)
     if user:
         if password:
             supabase.auth.admin.update_user_by_id(user.id, {"password": password})
-            return user.id, password
-        return user.id, None
-
+            return user, "Existing account: password set from DEMO_PASSWORD."
+        return user, "Existing account: password unchanged (set DEMO_PASSWORD to reset it)."
+    generated = password is None
     password = password or secrets.token_urlsafe(12)
-    created = supabase.auth.admin.create_user(
-        {
-            "email": DEMO_EMAIL,
-            "password": password,
-            "email_confirm": True,
-            "user_metadata": {"full_name": DEMO_NAME},
-        }
-    )
-    return created.user.id, password
+    created = supabase.auth.admin.create_user({
+        "email": DEMO_EMAIL, "password": password, "email_confirm": True,
+        "user_metadata": {"full_name": DEMO_NAME},
+    })
+    if generated:
+        return created.user, f"New account. Demo password: {password}\nSave this now: it isn't stored anywhere else."
+    return created.user, "New account: password set from DEMO_PASSWORD."
 
 
-def main():
-    user_id, password = ensure_demo_user()
+def ensure_demo_org(supabase, user_id):
+    """The demo account's organization, as its admin. Reuses an existing
+    active membership; never takes over someone else's organization."""
+    rows = (supabase.table("organization_member").select("organization_id, access_role")
+            .eq("user_id", user_id).eq("active", True).execute().data)
+    if rows:
+        if rows[0]["access_role"] != "admin":
+            raise SystemExit(f"{DEMO_EMAIL} is a member (not admin) of another organization; not seeding into it.")
+        return rows[0]["organization_id"]
+    org_id = (supabase.table("organization").insert({"name": DEMO_ORG, "created_by": user_id})
+              .execute().data[0]["id"])
+    supabase.table("organization_member").insert(
+        {"organization_id": org_id, "user_id": user_id, "access_role": "admin"}).execute()
+    return org_id
 
-    # The signup trigger creates the profile; make sure it's a PM with a name.
-    supabase.table("profile").update({"full_name": DEMO_NAME, "role": "pm"}).eq("id", user_id).execute()
 
-    # Clear only this account's data. Deleting PRDs/projects cascades to
-    # intake_answer, prd_version, etc.
+def seed(supabase, allow_hosted=False):
+    import prd_save
+
+    require_local_target(allow_hosted)
+    check_documents()
+    user, note = ensure_demo_user(supabase)
+    user_id = user.id
+    supabase.table("profile").update({"full_name": DEMO_NAME}).eq("id", user_id).execute()
+    org_id = ensure_demo_org(supabase, user_id)
+
+    # Only the demo account's own rows. PRDs first (their roles, versions,
+    # answers and context cascade), then its projects.
     supabase.table("prd").delete().eq("owner_id", user_id).execute()
     supabase.table("project").delete().eq("owner_id", user_id).execute()
 
-    now = datetime.now(timezone.utc)
     project_ids = {}
-    for index, name in enumerate(PROJECTS):
-        stamp = (now - timedelta(days=21 - index)).isoformat()
-        row = {"name": name, "owner_id": user_id, "created_at": stamp, "updated_at": stamp}
-        project_ids[name] = supabase.table("project").insert(row).execute().data[0]["id"]
+    for name in PROJECTS:
+        project_ids[name] = (supabase.table("project").insert({"name": name, "owner_id": user_id})
+                             .execute().data[0]["id"])
 
-    for prd in PRDS:
-        updated = now - timedelta(days=prd["days_ago"], hours=prd["days_ago"] * 3)
-        created = updated - timedelta(days=2)
-        row = {
-            "title": prd["title"],
-            "owner_id": user_id,
+    # Oldest first, so "recently updated" ordering matches the story.
+    for prd in sorted(PRDS, key=lambda p: -p["days_ago"]):
+        row = (supabase.table("prd").insert({
+            "title": prd["title"], "owner_id": user_id, "organization_id": org_id,
             "project_id": project_ids.get(prd["project"]),
-            "status": prd["status"],
-            "created_at": created.isoformat(),
-            "updated_at": updated.isoformat(),
-        }
-        if prd["content"]:
-            sections = build_sections(prd["content"])
-            row["content_json"] = {"sections": sections}
-            row["content_text"] = sections_to_text(sections)
-        prd_id = supabase.table("prd").insert(row).execute().data[0]["id"]
-
-        answers = [
-            {
-                "prd_id": prd_id,
-                "question_key": key,
-                "answer_text": text,
-                "skipped": text == "",
-                "answered_at": created.isoformat(),
-            }
-            for key, text in prd["answers"].items()
-        ]
+        }).execute().data[0])
+        answers = [{"prd_id": row["id"], "question_key": key, "answer_text": text, "skipped": text == ""}
+                   for key, text in prd["answers"].items()]
         if answers:
             supabase.table("intake_answer").insert(answers).execute()
+        fields = {"description": description_for(prd)}
+        if prd["content"]:
+            fields["content_json"] = build_document(prd["content"])
+        prd_save.save_prd(supabase, user, row["id"], row["revision"], **fields)
+        if prd["status"] != "draft":
+            # Demo metadata only: there's no review workflow yet (E07/E08).
+            supabase.table("prd").update({"status": prd["status"]}).eq("id", row["id"]).execute()
 
-    print(f"Seeded {len(PROJECTS)} projects and {len(PRDS)} PRDs for {DEMO_EMAIL}")
-    if password:
-        print(f"Demo password: {password}")
-        print("Save this now -- it isn't stored anywhere else.")
-    else:
-        print("Existing account: password unchanged (set DEMO_PASSWORD to reset it).")
+    print(f"Seeded {len(PROJECTS)} projects and {len(PRDS)} PRDs for {DEMO_EMAIL} in {DEMO_ORG!r}")
+    print(note)
+    return org_id
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    parser.add_argument("--allow-hosted", action="store_true",
+                        help="allow a non-local SUPABASE_URL (hosted rollout only)")
+    args = parser.parse_args(argv)
+    from supabase_client import supabase
+
+    seed(supabase, allow_hosted=args.allow_hosted)
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
