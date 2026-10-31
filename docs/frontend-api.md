@@ -126,6 +126,7 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 - To leave a PRD, `DELETE` with your own `user_id`. Afterwards it's 404 for you unless you're an org admin.
 - An owner who demotes themselves loses the right to manage people straight away.
 - Pick invitees from the [organization directory](#organization-directory) (`members[].user_id`).
+- Inviting someone sends them a [notification](#notifications). Setting a role someone already has changes nothing.
 
 ## Intake answers
 
@@ -191,6 +192,36 @@ Everything the org chart needs in one call. Only active members of the organizat
 
 Members are active members only, sorted by name. Archived departments and teams are included with `archived: true`
 so the chart can grey them out.
+
+## Notifications
+
+Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD;
+review and comment notifications arrive with E06–E08). You never get one for your own action, and notifications
+about a PRD you can no longer see are hidden from the list and the unread count.
+
+`Notification`:
+
+```json
+{
+  "id": "uuid", "type": "member_added", "prd_id": "uuid", "title": "PRD title",
+  "actor_id": "uuid | null", "actor_name": "string | null", "payload": { "user_id": "uuid", "role": "editor" },
+  "version_id": "uuid | null", "round_id": "uuid | null", "comment_id": "uuid | null",
+  "created_at": "…", "read_at": "… | null"
+}
+```
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `GET /api/notifications?unread_only=false&limit=25&cursor=` | | 200 `{ "items": Notification[], "next_cursor": "string \| null", "unread_count": int }`, newest first | 400 `invalid_cursor` |
+| `PATCH /api/notifications/{id}` | `{ "read": true }` | 200 `Notification`; repeating it succeeds and keeps the first `read_at` | 404 not yours (or the PRD is hidden from you); 422 anything but `read: true` |
+
+- **Paging:** `limit` is 1–100 (default 25). Send `next_cursor` back as `cursor` for the next page; `null` means the end.
+  `unread_count` always counts all your unread notifications, whatever page or filter you asked for.
+- **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
+  are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
+- **`payload` by type:** `member_added`: `{ user_id, role }`. Types still to come: `comment_added`, `submitted`,
+  `approved`, `changes_requested`, `round_approved`, `superseded`, `work_status_changed`.
+- No realtime updates: refetch the unread count when the user navigates or on a timer.
 
 ## Coming in open PRs
 
