@@ -344,7 +344,9 @@ def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict
         # them a record id would only be checked for existence.
         raise ApiError(422, "Accepting AI proposals isn't available yet", code="proposal_acceptance_unavailable")
     fields = {name: getattr(payload, name) for name in ("title", "description", "content_json") if name in sent}
-    return prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
+    saved = prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
+    # Like every PRD response, it carries the caller's role, read as them.
+    return with_my_role(auth["client"], auth["user"].id, [saved])[0]
 
 
 @app.delete("/api/prds/{prd_id}", status_code=204)

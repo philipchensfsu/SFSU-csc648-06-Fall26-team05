@@ -19,6 +19,7 @@ from prd_save import SaveError
 PRD = "11111111-1111-4111-8111-111111111111"
 USER = SimpleNamespace(id="22222222-2222-4222-8222-222222222222", email="alice@example.com")
 ROW = {"id": PRD, "title": "Saved", "description": None, "owner_id": USER.id, "project_id": None,
+       "organization_id": "44444444-4444-4444-8444-444444444444",
        "status": "draft", "content_json": None, "content_text": None, "doc_schema_version": 2, "revision": 2,
        "created_at": "2026-10-30T00:00:00Z", "updated_at": "2026-10-30T00:00:00Z"}
 
@@ -32,6 +33,7 @@ def api(monkeypatch):
         return ROW
 
     monkeypatch.setattr(prd_save, "save_prd", fake_save)
+    monkeypatch.setattr(main, "with_my_role", lambda client, user_id, rows: [{**r, "my_role": "owner"} for r in rows])
     main.app.dependency_overrides[main.get_current_user] = lambda: {"user": USER, "client": None}
     yield TestClient(main.app), calls
     main.app.dependency_overrides.clear()
@@ -106,9 +108,10 @@ def test_save_errors_pass_through(api, v2, monkeypatch):
     assert (response.status_code, response.json()["code"]) == (409, "stale_revision")
 
 
-def test_the_response_includes_the_description(api, v2):
+def test_the_response_includes_the_description_and_my_role(api, v2):
     client, _ = api
-    assert "description" in put(client, {"revision": 1, "title": "New"}).json()
+    body = put(client, {"revision": 1, "title": "New"}).json()
+    assert "description" in body and body["my_role"] == "owner"
 
 
 # --- without it (today's default) ----------------------------------------------

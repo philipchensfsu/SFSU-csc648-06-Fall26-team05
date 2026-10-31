@@ -36,7 +36,7 @@ def test_owner_saves_partially_with_a_version_and_server_text(make_user, db):
 
     r = alice.api("PUT", f"/prds/{prd['id']}", json={"revision": 1, "title": "Renamed"})
     assert r.status_code == 200, r.text
-    assert r.json()["title"] == "Renamed" and r.json()["revision"] == 2
+    assert r.json()["title"] == "Renamed" and r.json()["revision"] == 2 and r.json()["my_role"] == "owner"
 
     r = alice.api("PUT", f"/prds/{prd['id']}", json={"revision": 2, "content_json": DOC, "description": "Short"})
     saved = r.json()
