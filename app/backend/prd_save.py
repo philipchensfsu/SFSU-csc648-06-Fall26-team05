@@ -7,6 +7,11 @@ database function, which does everything else in one transaction: lock the
 PRD, check access and the revision, verify AI provenance, write a permanent
 version and update the PRD.
 
+Accepting an AI proposal is the same save with origin="ai_generated" and its
+generation_record_id (A05): ai/acceptance.py checks the proposal and marks
+the sections accepted unchanged, and the database uses the proposal once in
+the save transaction.
+
 Not wired into any route yet. Today's PUT /api/prds/{id} keeps its direct
 update until the S03 cutover. Status is never part of a save (D6).
 
@@ -21,6 +26,7 @@ from uuid import UUID
 
 from postgrest.exceptions import APIError
 
+from ai import acceptance
 from errors import ApiError
 from prd_document import InvalidDocument, derive_content_text, load_spec, validate_title
 
@@ -35,6 +41,7 @@ DATABASE_ERRORS = {
     "NT409": (409, "This PRD changed since you last loaded it. Refresh and try again.", "stale_revision"),
     "NT422": (422, "The AI content in this save doesn't match a successful generation", "invalid_generation_record"),
     "NTREV": (409, "Approved PRDs can't be edited until reapproval is in place", "review_integration_pending"),
+    "NTPRP": acceptance.PROPOSAL_UNAVAILABLE,
 }
 
 
@@ -83,6 +90,19 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
         except InvalidDocument as invalid:
             raise SaveError(422, "The PRD document isn't valid", "invalid_document",
                             [error.to_dict() for error in invalid.errors]) from None
+
+    apply_context_patch = False
+    if generation_record_id is not None:
+        accepted = acceptance.prepare(service_client, actor_id=actor_id, prd_id=prd_id,
+                                      base_revision=base_revision, generation_record_id=generation_record_id,
+                                      title=title, description=description, content_json=content_json,
+                                      unset=UNSET)
+        content_json = accepted.content_json
+        apply_context_patch = accepted.apply_context_patch
+        if content_json is not UNSET:
+            # Validates the marked document too; the text itself is unchanged.
+            content_text = derive_content_text(content_json)
+    if content_json is not UNSET:
         ai_ids = sorted(generation_record_ids(content_json))
 
     params = {
@@ -99,6 +119,7 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
         "p_ai_generation_ids": ai_ids,
         "p_origin": origin,
         "p_generation_record_id": None if generation_record_id is None else str(generation_record_id),
+        "p_apply_context_patch": apply_context_patch,
     }
     try:
         response = service_client.rpc("save_prd", params).execute()

@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from supabase_auth.errors import AuthError, AuthRetryableError
 
+from ai import chat, preview, section_edit, usage_gate
 from errors import ApiError, logger, register_error_handlers
 from supabase_client import supabase, user_client
 
@@ -131,6 +132,34 @@ class IntakeAnswerOut(BaseModel):
     answer_text: Optional[str]
     skipped: bool
     answered_at: datetime
+
+
+class GenerateRequest(RequestModel):
+    # The revision the client last saw; the draft is built for it.
+    revision: int = Field(..., ge=1)
+
+
+class ChatMessage(RequestModel):
+    role: Literal["user", "assistant"]
+    # Earlier assistant replies can be up to MAX_ANSWER_CHARS, so history
+    # items allow that; a new message is still capped at MAX_MESSAGE_CHARS.
+    content: str = Field(..., min_length=1, max_length=chat.MAX_ANSWER_CHARS)
+
+
+class AiEditRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+    section_type: str
+    instruction: str = Field(..., min_length=1, max_length=section_edit.MAX_INSTRUCTION_CHARS)
+    # The same recent turns as the chat (browser memory, this PRD only).
+    session_messages: list[ChatMessage] = Field(default_factory=list, max_length=chat.MAX_HISTORY_MESSAGES)
+
+
+class ChatRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+    message: str = Field(..., min_length=1, max_length=chat.MAX_MESSAGE_CHARS)
+    # Recent messages kept by the browser for this PRD only (no chat table).
+    # Untrusted: they reach the model as data, never as instructions.
+    history: list[ChatMessage] = Field(default_factory=list, max_length=chat.MAX_HISTORY_MESSAGES)
 
 
 @app.get("/api/health")
@@ -566,3 +595,38 @@ def get_directory(org_id: UUID, auth=Depends(get_current_user)):
         "teams": [with_archived_flag(t) for t in teams],
         "members": members,
     }
+
+
+# Preview only (A03): returns {proposal, base_revision, generation_record_id}
+# and saves nothing to the PRD. Accepting the proposal is a normal save (A05).
+# Records and staged proposals are written with the service-role client for
+# the verified user, the trusted-writer pattern reviewed on #55.
+@app.post("/api/prds/{prd_id}/generate")
+def generate_prd_preview(prd_id: UUID, payload: GenerateRequest, auth=Depends(get_current_user)):
+    return preview.generate_preview(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision
+    )
+
+
+# PRD chat, answer-only (A04 first slice). Anyone who can view the PRD may
+# ask; nothing is saved to it. Returns 503 ai_chat_unavailable until Om's
+# guardrail and prompt modules are in place (see ai/chat.py).
+@app.post("/api/prds/{prd_id}/ai/chat")
+def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_user)):
+    return chat.answer_chat(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
+        message=payload.message, history=[m.model_dump() for m in payload.history],
+        budget=usage_gate.RequestBudget(),
+    )
+
+
+# AI section edit (A04): needs edit access; returns a staged proposal to
+# preview, never saves. Accept it through the normal save with its
+# generation_record_id (A05). 503 until Om's guardrail modules are in.
+@app.post("/api/prds/{prd_id}/ai-edit")
+def request_ai_edit(prd_id: UUID, payload: AiEditRequest, auth=Depends(get_current_user)):
+    return section_edit.propose_section_edit(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
+        section_type=payload.section_type, instruction=payload.instruction,
+        session_messages=[m.model_dump() for m in payload.session_messages], budget=usage_gate.RequestBudget(),
+    )
