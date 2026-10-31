@@ -164,13 +164,18 @@ def add_to_prd(db, prd, user, role):
     db.execute("insert into prd_member (prd_id, user_id, role) values (%s, %s, %s)", (prd, user.id, role))
 
 
-def save_version(db, prd, user):
+ONE_SECTION_DOC = ('{"type": "doc", "content": [{"type": "section", "attrs": {"type": "problem"}, '
+                   '"content": [{"type": "paragraph", "content": [{"type": "text", "text": "Why"}]}]}]}')
+EMPTY_DOC = '{"type": "doc", "content": []}'
+
+
+def save_version(db, prd, user, content=ONE_SECTION_DOC):
     """Adds the PRD's next saved version, as S03's save would, and makes it current. Returns its id."""
     version = db.execute(
         "insert into prd_version (prd_id, content_json, doc_schema_version, created_by, origin, version_no, saved_revision) "
-        "select %s, '{\"type\": \"doc\", \"content\": []}', 2, %s, 'pm_edit', "
+        "select %s, %s::jsonb, 2, %s, 'pm_edit', "
         "(select coalesce(max(version_no), 0) + 1 from prd_version where prd_id = %s), revision + 1 from prd where id = %s "
-        "returning id::text", (prd, user.id, prd, prd)).fetchone()[0]
+        "returning id::text", (prd, content, user.id, prd, prd)).fetchone()[0]
     db.execute("update prd set current_version_id = %s, revision = revision + 1 where id = %s", (version, prd))
     return version
 

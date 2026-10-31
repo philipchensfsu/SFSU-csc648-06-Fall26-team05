@@ -1,7 +1,6 @@
 """E10: PRD events and the inbox. One event per real change, notifications only
 for the fixed recipients, hidden once access goes, and nothing a client can forge."""
 
-import psycopg
 import pytest
 
 from conftest import add_to_prd, org_prd
@@ -108,12 +107,6 @@ def test_review_decisions_and_done_work_notify_owners(team, db):
     record(db, team["prd"], "work_status_changed", team["ed"], '{"status": "done"}')
     assert [i["type"] for i in inbox(team["olive"])["items"]] == ["work_status_changed", "changes_requested", "approved"]
     assert inbox(team["vic"])["unread_count"] == 0
-
-
-@pytest.mark.parametrize("event_type", ["submitted", "round_approved", "superseded"])
-def test_reviewer_events_wait_for_e07(team, db, event_type):
-    with pytest.raises(psycopg.errors.RaiseException):
-        record(db, team["prd"], event_type, team["olive"])
 
 
 def test_mark_read_is_idempotent_and_updates_the_count(team):
