@@ -75,7 +75,7 @@ def test_roles_revision_and_approved_status(make_user, make_org, db):
     assert (r.status_code, r.json()["code"]) == (409, "stale_revision")
     db.execute("update prd set status = 'final' where id = %s", (prd,))
     r = owner.api("PUT", f"/prds/{prd}", json={"revision": 2, "title": "After approval"})
-    assert (r.status_code, r.json()["code"]) == (409, "review_integration_pending")
+    assert (r.status_code, r.json()["code"]) == (409, "reapproval_required")
 
 
 def test_accepting_a_proposal_waits_for_a05(make_user):
