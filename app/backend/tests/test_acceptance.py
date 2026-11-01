@@ -169,7 +169,7 @@ def test_client_cannot_send_marks_for_the_proposal_itself():
     (proposal(status="expired"), 409, "proposal_unavailable"),
     (proposal(status="rejected"), 409, "proposal_unavailable"),
     (proposal(base_revision=2), 409, "stale_revision"),
-    (proposal(kind="ai_edit"), 422, "unsupported_proposal"),
+    (proposal(kind="review_suggestion"), 422, "unsupported_proposal"),
 ])
 def test_unusable_proposals_never_reach_the_save(row, status, code):
     service = FakeService(row)
