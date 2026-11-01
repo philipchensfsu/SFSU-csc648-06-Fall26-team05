@@ -3,7 +3,7 @@
 
 import { isAnswered } from "./questions.js";
 
-// The four values of the prd.status column (schema.sql), in workflow order.
+// The four values of the prd.status column (see supabase/migrations), in workflow order.
 export const STATUS_ORDER = ["draft", "in_review", "final", "assigned"];
 
 const STATUS_LABEL = {

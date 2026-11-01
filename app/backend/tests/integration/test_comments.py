@@ -1,6 +1,8 @@
 """E06: flat comments on a PRD's current saved version. Anyone who can view the
 PRD comments; owners and editors are notified; attribution is frozen at posting."""
 
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from conftest import add_to_prd, org_prd, save_version
@@ -160,7 +162,8 @@ def test_other_commenters_get_their_own_notification(team):
     post(team["vic"], team["prd"], team["version"])
     post(team["ed"], team["prd"], team["version"])
     post(team["vic"], team["prd"], team["version"])
-    assert notifications(team["olive"]) == [("comment_added", team["ed"].id, 1), ("comment_added", team["vic"].id, 2)]
+    # Vic's batch grew last, so it's on top.
+    assert notifications(team["olive"]) == [("comment_added", team["vic"].id, 2), ("comment_added", team["ed"].id, 1)]
 
 
 def test_reading_the_batch_starts_a_new_one(team):
@@ -177,3 +180,23 @@ def test_a_batch_closes_ten_minutes_after_its_first_comment(team, db):
     db.execute("update notification set created_at = now() - interval '11 minutes' where prd_id = %s", (team["prd"],))
     post(team["vic"], team["prd"], team["version"])
     assert notifications(team["olive"]) == [("comment_added", team["vic"].id, 1), ("comment_added", team["vic"].id, 1)]
+
+
+def test_a_growing_batch_moves_back_to_the_top(team, db):
+    post(team["vic"], team["prd"], team["version"], "First")
+    db.execute("select record_prd_event(%s, 'approved', %s)", (team["prd"], team["ed"].id))
+    assert [i["type"] for i in team["olive"].api("GET", "/notifications").json()["items"]] == [
+        "approved", "comment_added"]
+    post(team["vic"], team["prd"], team["version"], "Second")
+    items = team["olive"].api("GET", "/notifications").json()["items"]
+    assert [(i["type"], i["count"]) for i in items] == [("comment_added", 2), ("approved", 1)]
+
+
+def test_simultaneous_comments_from_one_person_share_a_batch(team):
+    with ThreadPoolExecutor(max_workers=3) as pool:
+        codes = list(pool.map(lambda n: post(team["vic"], team["prd"], team["version"], f"Quick {n}").status_code,
+                              range(3)))
+    assert codes == [201, 201, 201]
+    for who in ("olive", "ed"):
+        assert notifications(team[who]) == [("comment_added", team["vic"].id, 3)], who
+

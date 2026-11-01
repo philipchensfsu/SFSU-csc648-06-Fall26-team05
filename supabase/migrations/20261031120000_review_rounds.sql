@@ -17,9 +17,12 @@
 --   superseded, which S03/E09 does when reviewed content changes.
 -- - Each reviewer's name and department are copied at submission.
 --
--- open_review_round is the shared step that E09 (Marco) also calls from
--- save_prd when an owner applies edits to an approved PRD with a confirmed
--- reviewer list (Decision 9). It expects the caller to hold the PRD lock.
+-- E09 (Marco) calls these from save_prd, holding the PRD lock (Decision 9):
+-- - an edit while in review: continue_review_round supersedes the round and
+--   continues it on the new version with the same reviewers;
+-- - an owner's edit to an approved PRD, with the confirmed reviewer list:
+--   open_review_round(prd, actor, reviewers, true) after superseding the
+--   approved round.
 --
 -- record_prd_event now notifies reviewers: submitted -> the round's
 -- reviewers; round_approved -> owners and the round's reviewers;
@@ -34,7 +37,7 @@
 -- Errors raise P0001 with a fixed message the API maps: prd_not_found,
 -- prd_manage_forbidden, stale_revision, no_saved_version, stale_version,
 -- review_in_progress, empty_prd, no_reviewers, reviewer_not_in_organization,
--- owner_cannot_review.
+-- owner_cannot_review; continue_review_round raises approved_round_needs_owner.
 --
 -- Applied to the hosted database by hand (docs/local-development.md,
 -- "Applying a migration to the hosted database"). Apply after
@@ -88,6 +91,35 @@ grant select, insert, update, delete on review_round, review_slot to service_rol
 alter table prd_event
   add constraint prd_event_round_id_fkey
   foreign key (round_id) references review_round(id) on delete set null;
+
+-- Creates a round on the PRD's current version with one pending slot per
+-- reviewer, copying each reviewer's name and department. Shared by
+-- open_review_round and continue_review_round.
+create or replace function create_review_round(p_prd_id uuid, p_reviewers uuid[], p_owner_review_allowed boolean,
+                                               p_submitted_by uuid)
+returns uuid
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_row prd%rowtype;
+  new_round uuid;
+begin
+  select * into current_row from prd where id = p_prd_id;
+  insert into review_round (prd_id, round_no, version_id, owner_review_allowed, submitted_by)
+    values (p_prd_id, (select coalesce(max(round_no), 0) + 1 from review_round where prd_id = p_prd_id),
+            current_row.current_version_id, p_owner_review_allowed, p_submitted_by)
+    returning id into new_round;
+  insert into review_slot (round_id, prd_id, reviewer_id, reviewer_name, department_name)
+    select new_round, p_prd_id, r, p.full_name, d.name
+    from unnest(p_reviewers) r
+    join profile p on p.id = r
+    join organization_member om on om.organization_id = current_row.organization_id and om.user_id = r
+    left join department d on d.id = om.department_id;
+  return new_round;
+end;
+$$;
 
 -- Opens a review round on the PRD's current version and moves the PRD to
 -- in_review. The caller holds the PRD lock and has checked who may submit.
@@ -143,17 +175,8 @@ begin
     where not can_view_prd_as(r, p_prd_id)
     on conflict (prd_id, user_id) do nothing;
 
-  select coalesce(max(round_no), 0) + 1 into next_round_no from review_round where prd_id = p_prd_id;
-  insert into review_round (prd_id, round_no, version_id, owner_review_allowed, submitted_by)
-    values (p_prd_id, next_round_no, current_row.current_version_id, owners_are_everyone, p_actor)
-    returning id into new_round;
-
-  insert into review_slot (round_id, prd_id, reviewer_id, reviewer_name, department_name)
-    select new_round, p_prd_id, r, p.full_name, d.name
-    from unnest(reviewers) r
-    join profile p on p.id = r
-    join organization_member om on om.organization_id = current_row.organization_id and om.user_id = r
-    left join department d on d.id = om.department_id;
+  new_round := create_review_round(p_prd_id, reviewers, owners_are_everyone, p_actor);
+  select round_no into next_round_no from review_round where id = new_round;
 
   update prd set status = 'in_review' where id = p_prd_id;
 
@@ -192,6 +215,66 @@ begin
     raise exception 'stale_version';
   end if;
   return open_review_round(target_prd, auth.uid(), reviewer_ids);
+end;
+$$;
+
+-- E09's step when a PRD in review is edited (Decision 9): the open round is
+-- superseded and a continuation round starts on the new version with the
+-- same reviewers, so the PRD stays in review and nobody has to resubmit.
+-- Every decision is reset; the old round keeps its decisions and the
+-- explanation comments as history. Records no event: the caller (Marco's
+-- save, holding the PRD lock, after writing the new version) records one
+-- superseded event on old_round_id with payload.reviewer_ids =
+-- reset_reviewer_ids, which notifies everyone who had decided.
+--
+-- - No open round, or the round is already on the current version: nothing
+--   changes (old_round_id is null, or reset_reviewer_ids is empty).
+-- - An approved round isn't continued (raises approved_round_needs_owner):
+--   owners edit approved PRDs through the modal and open_review_round.
+-- - Reviewers who left the org, lost access, or became owners the round
+--   doesn't allow are dropped. The owner-review exception carries over.
+-- - If the new version is empty, or no reviewers are left, there's no
+--   continuation: the PRD goes back to draft (new_round_id is null).
+create or replace function continue_review_round(p_prd_id uuid, p_actor uuid)
+returns table (old_round_id uuid, new_round_id uuid, reset_reviewer_ids uuid[])
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_row prd%rowtype;
+  old_round review_round%rowtype;
+  reset uuid[];
+  keep uuid[];
+  continuation uuid;
+begin
+  select * into current_row from prd where id = p_prd_id;
+  select * into old_round from review_round where prd_id = p_prd_id and state <> 'superseded';
+  if not found or old_round.version_id = current_row.current_version_id then
+    return query select old_round.id, null::uuid, '{}'::uuid[];
+    return;
+  end if;
+  if old_round.state = 'approved' then
+    raise exception 'approved_round_needs_owner';
+  end if;
+
+  reset := array(select reviewer_id from review_slot
+                 where round_id = old_round.id and state <> 'pending' order by reviewer_id);
+  keep := array(select s.reviewer_id from review_slot s
+                where s.round_id = old_round.id
+                  and can_view_prd_as(s.reviewer_id, p_prd_id)
+                  and (old_round.owner_review_allowed or not exists (
+                    select 1 from prd_member pm
+                    where pm.prd_id = p_prd_id and pm.user_id = s.reviewer_id and pm.role = 'owner')));
+  update review_round set state = 'superseded' where id = old_round.id;
+
+  if cardinality(keep) = 0 or coalesce(jsonb_array_length((select content_json -> 'content' from prd_version
+                                                           where id = current_row.current_version_id)), 0) = 0 then
+    update prd set status = 'draft' where id = p_prd_id;
+  else
+    continuation := create_review_round(p_prd_id, keep, old_round.owner_review_allowed, old_round.submitted_by);
+  end if;
+  return query select old_round.id, continuation, reset;
 end;
 $$;
 
@@ -257,5 +340,6 @@ as $$
   select can_view_prd_as(auth.uid(), target_prd_id)
 $$;
 
-revoke execute on function open_review_round(uuid, uuid, uuid[], boolean) from public, anon, authenticated;
+revoke execute on function open_review_round(uuid, uuid, uuid[], boolean), create_review_round(uuid, uuid[], boolean, uuid),
+  continue_review_round(uuid, uuid) from public, anon, authenticated;
 grant execute on function submit_prd_review(uuid, integer, uuid, uuid[]) to authenticated, service_role;
