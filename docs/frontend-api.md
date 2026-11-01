@@ -42,8 +42,7 @@ Every error has the same shape:
 | 500 | `database_error`, `internal_error` | A bug on our side | Show a generic error |
 | 503 | `service_unavailable` | Supabase (database or sign-in) is unreachable or overloaded | "Try again shortly"; safe to retry |
 
-AI routes add their own `ai_*` codes (see the Gemini client in `app/backend/ai/gemini_client.py`); they'll be listed
-here when the AI routes merge.
+AI routes add their own `ai_*` codes; see [Generation preview](#generation-preview-ai) for the full list.
 
 ## Health
 
@@ -147,6 +146,37 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 - Pick invitees from the [organization directory](#organization-directory) (`members[].user_id`).
 - Inviting someone sends them a [notification](#notifications). Setting a role someone already has changes nothing.
 
+### Comments
+
+Flat comments on a PRD's saved version. Anyone who can view the PRD (owners, editors, viewers, org admins) can read
+and post them. New comments go on the PRD's **current** version; older comments stay readable and carry their
+`version_no` for a "v2" label. No replies, edits, deletes or mentions. Comments never change the PRD, its revision or
+its review.
+
+`Comment`:
+
+```json
+{
+  "id": "uuid", "prd_id": "uuid", "version_id": "uuid", "version_no": 3, "section_type": "goals | null",
+  "author": { "id": "uuid | null", "name": "string | null", "department": "string | null" },
+  "body": "plain text", "created_at": "…"
+}
+```
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `GET /api/prds/{id}/comments?version_id=&limit=25&cursor=` | | 200 `{ "items": Comment[], "next_cursor": "string \| null" }`, **oldest first**; without `version_id`, every version's comments | 404 if you can't see the PRD; 400 `invalid_cursor` |
+| `POST /api/prds/{id}/comments` | `{ "version_id": "uuid", "section_type": null \| "<section type>", "body": "1–5,000 chars" }` | 201 `Comment` | 404; 409 `no_saved_version` (the PRD has never been saved: disable the comment box); 409 `stale_version` (someone saved since: reload, keep the draft, post again); 422 `validation_error` (blank or too-long body, unknown section) |
+
+- Send the `current_version_id` from the PRD you loaded as `version_id`.
+- `section_type` is one of the nine section types in [`prd-document-format.md`](prd-document-format.md), or `null`
+  for the whole PRD.
+- **`body` is plain text: escape it when rendering**, and keep line breaks.
+- `author.name` and `author.department` are frozen when the comment is posted, so later renames or department
+  moves don't change them.
+- Posting notifies the PRD's owners and editors (`comment_added`, with `comment_id` and `version_id` set). Inbox
+  `payload`: `{ section_type }`.
+
 ## Intake answers
 
 The interview answers for a PRD, one per question.
@@ -212,10 +242,60 @@ Everything the org chart needs in one call. Only active members of the organizat
 Members are active members only, sorted by name. Archived departments and teams are included with `archived: true`
 so the chart can grey them out.
 
+## Generation preview (AI)
+
+`POST /api/prds/{id}/generate` drafts a whole PRD from its interview answers with Gemini. **It's a preview: nothing is
+saved.** The user accepts it through the normal save (accepting proposals arrives with #70); rejecting means
+discarding it.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int }`: the revision you last loaded | 200 `{ proposal: { title, description, content_json, doc_schema_version: 2, sources: [] }, base_revision, generation_record_id }` | Can edit the PRD |
+
+- **Needs** answers to `problem`, `target_users` and `goals`. It uses the title, the description, all seven
+  answers and the PRD's saved AI context (decisions, constraints, open questions, summary).
+- `content_json` is a v2 document with all nine sections ([prd-document-format.md](prd-document-format.md)).
+  `sources` is always empty for now.
+- Keep `generation_record_id`: it's how the save will know this content came from the AI.
+- **No streaming:** show a waiting state. A slow generation can still fail with 502/503; offer a retry.
+
+| Status | `code` | When | Suggested handling |
+|---|---|---|---|
+| 404 | `not_found` | You can't see the PRD | Show "not found" |
+| 403 | `forbidden` | You can view the PRD but not edit it | Hide Generate for viewers |
+| 409 | `stale_revision` | The PRD was saved after you loaded it, or while the draft was being written | Reload, then generate again |
+| 409 | `intake_changed` | The interview answers changed while the draft was being written | Show the message and a **Generate again** button. Keep this separate from `stale_revision` |
+| 422 | `intake_incomplete` | `problem`, `target_users` or `goals` is unanswered | Send the user back to the interview |
+| 422 | `invalid_context` | The PRD's saved AI context is malformed | Show `detail` |
+| 422 | `validation_error` | Bad body (missing or non-positive `revision`, unknown field) | Show `detail` |
+| 429 | `ai_cooldown`, `ai_busy` | Per-user AI limits; the body and the `Retry-After` header include `retry_after` (seconds) | Disable AI actions until then |
+| 429 | `ai_disabled` | AI is switched off | Hide AI actions; manual editing works |
+| 429 | `ai_provider_rate_limited` | Gemini is rate limited | "Try again in a minute" |
+| 502 | `ai_provider_error`, `ai_invalid_output` | Gemini failed or returned an unusable draft | Offer a retry |
+| 503 | `ai_unavailable`, `ai_budget_exhausted` | AI isn't configured or is out of quota | Keep manual editing |
+
+## PRD chat (AI)
+
+`POST /api/prds/{id}/ai/chat` answers questions about one PRD. **Answers only: it never changes the PRD.** Edit
+suggestions come later, through the same proposal and save flow as generation.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int, "message": "1–2000 chars", "history": [ { "role": "user" \| "assistant", "content": "1–8000 chars" } ] }` (at most 20 history items) | 200 `{ kind: "answer" \| "blocked" \| "clarification", message, base_revision, generation_record_id }` | Can view the PRD |
+
+- `blocked` and `clarification` carry a fixed message; show it like an answer.
+- Keep `history` in the browser for the open PRD only, and clear it when another PRD opens.
+- **Disabled until Om's guardrail and prompt modules are in** (#80): until then it returns 503 `ai_chat_unavailable`.
+- Same limits as generation: one AI request per user at a time, a short cooldown, no streaming.
+- Errors: 404 `not_found`, 409 `stale_revision`, 422 `validation_error`, 422 `ai_output_blocked` (the AI declined;
+  suggest rewording), 503 `ai_chat_unavailable` (hide the chat), and the shared AI codes from the generation table
+  (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`,
+  `ai_unavailable`, `ai_budget_exhausted`).
+
 ## Notifications
 
-Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD;
-review and comment notifications arrive with E06–E08). You never get one for your own action, and notifications
+Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD and
+comments; review notifications arrive with E07–E08). You never get one for your own action, and notifications
 about a PRD you can no longer see are hidden from the list and the unread count.
 
 `Notification`:
@@ -225,21 +305,26 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   "id": "uuid", "type": "member_added", "prd_id": "uuid", "title": "PRD title",
   "actor_id": "uuid | null", "actor_name": "string | null", "payload": { "user_id": "uuid", "role": "editor" },
   "version_id": "uuid | null", "round_id": "uuid | null", "comment_id": "uuid | null",
-  "created_at": "…", "read_at": "… | null"
+  "created_at": "…", "read_at": "… | null", "count": 1, "updated_at": "…"
 }
 ```
 
 | Route | Body | Response | Errors |
 |---|---|---|---|
-| `GET /api/notifications?unread_only=false&limit=25&cursor=` | | 200 `{ "items": Notification[], "next_cursor": "string \| null", "unread_count": int }`, newest first | 400 `invalid_cursor` |
+| `GET /api/notifications?unread_only=false&limit=25&cursor=` | | 200 `{ "items": Notification[], "next_cursor": "string \| null", "unread_count": int }`, most recent activity first (`updated_at`) | 400 `invalid_cursor` |
 | `PATCH /api/notifications/{id}` | `{ "read": true }` | 200 `Notification`; repeating it succeeds and keeps the first `read_at` | 404 not yours (or the PRD is hidden from you); 422 anything but `read: true` |
 
 - **Paging:** `limit` is 1–100 (default 25). Send `next_cursor` back as `cursor` for the next page; `null` means the end.
   `unread_count` always counts all your unread notifications, whatever page or filter you asked for.
 - **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
-- **`payload` by type:** `member_added`: `{ user_id, role }`. Types still to come: `comment_added`, `submitted`,
+- **`payload` by type:** `member_added`: `{ user_id, role }`; `comment_added`: `{ section_type }`. Types still to come: `submitted`,
   `approved`, `changes_requested`, `round_approved`, `superseded`, `work_status_changed`.
+- **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
+  one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
+  the first one and `updated_at` is when the latest arrived; a growing batch moves back to the top of the inbox. Once
+  read, the next comment starts a new notification.
+  Other types always have `count: 1`.
 - No realtime updates: refetch the unread count when the user navigates or on a timer.
 
 ## Coming in open PRs
@@ -252,9 +337,8 @@ Next: admin routes for members, departments and teams (E02).
 
 ### AI (Marco)
 
-Drafts: #63 generation service, #67 AI records and staged proposals, #68 per-user AI usage gate, #69
-`POST /api/prds/{id}/generate` (generation preview), #70 accepting AI proposals through the normal save, #55 atomic
-save and version history. Marco adds their request/response details here as they merge.
+Open: #84 (version history), #85 (AI section edits), #86 (owning team and priority), #106 (save events, draft).
+Each adds its entry here or in the main reference as it merges.
 
 ## Changes from the integration guide
 
