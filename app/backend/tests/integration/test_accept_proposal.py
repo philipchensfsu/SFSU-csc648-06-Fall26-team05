@@ -12,7 +12,6 @@ import threading
 import time
 from pathlib import Path
 
-import psycopg
 import pytest
 from supabase import create_client
 
@@ -20,7 +19,7 @@ from ai import preview, records
 from ai.acceptance import AcceptanceError
 from ai.gemini_client import GeminiResult
 from ai.generation import GenerationProposal
-from conftest import ANON_KEY, DB_URL, SERVICE_KEY, SUPABASE_URL, org_prd
+from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL, connect_db, org_prd
 from prd_save import SaveError, save_prd
 
 FIXTURES = Path(__file__).resolve().parents[2].parent / "shared" / "fixtures" / "prd_document" / "valid"
@@ -232,7 +231,7 @@ def test_racing_save_gives_409_with_no_partial_acceptance(make_user, db, service
     alice = make_user()
     prd, record_id = staged(alice, service, {"decisions": ["Weekly digest first"]})
     outcome = {}
-    with psycopg.connect(DB_URL) as other:  # a concurrent save holding the PRD lock
+    with connect_db() as other:  # a concurrent save holding the PRD lock
         other.execute("select 1 from prd where id = %s for update", (prd["id"],))
 
         def run():

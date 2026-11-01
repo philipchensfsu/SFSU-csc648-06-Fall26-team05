@@ -203,10 +203,13 @@ def test_rejecting_someone_elses_proposal_looks_like_missing():
 
 def test_context_limits_match_the_migration():
     parents = Path(__file__).resolve().parents
-    # In the backend container app/backend is /app, so there is no repo root.
-    path = parents[3] / "supabase" / "migrations" / "20261030121000_ai_records.sql" if len(parents) > 3 else None
-    if path is None or not path.exists():
-        pytest.skip("migrations aren't mounted here (the backend container mounts only app/backend)")
+    # The repo root in a checkout (CI); /supabase in the backend container
+    # (compose.yaml mounts it read-only).
+    roots = ([parents[3] / "supabase"] if len(parents) > 3 else []) + [Path("/supabase")]
+    paths = [root / "migrations" / "20261030121000_ai_records.sql" for root in roots]
+    path = next((p for p in paths if p.exists()), None)
+    if path is None:
+        pytest.skip("migrations aren't available here (no repo root and no /supabase mount)")
     sql = path.read_text()
     assert "max_items := 50; max_chars := 500;" in sql
     assert "max_items := 20; max_chars := 300;" in sql

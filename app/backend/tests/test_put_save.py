@@ -8,6 +8,7 @@ Run from app/backend with: python -m pytest tests/test_put_save.py
 """
 
 from types import SimpleNamespace
+from uuid import UUID
 
 from uuid import UUID
 
@@ -70,6 +71,18 @@ def test_only_the_fields_sent_reach_the_save(api, v2, body, fields):
     assert call["fields"] == fields and call["revision"] == body["revision"] and call["prd_id"] == PRD
 
 
+def test_a_generation_record_id_accepts_the_proposal_through_the_same_save(api, v2):
+    client, calls = api
+    record = "33333333-3333-4333-8333-333333333333"
+    response = put(client, {"revision": 4, "title": "T", "content_json": {"type": "doc", "content": []},
+                            "generation_record_id": record})
+    assert response.status_code == 200, response.text
+    [call] = calls
+    assert call["fields"] == {"title": "T", "content_json": {"type": "doc", "content": []},
+                              "origin": "ai_generated", "generation_record_id": UUID(record)}
+    assert call["revision"] == 4
+
+
 def test_the_actor_is_the_verified_user_not_a_request_value(api, v2):
     client, calls = api
     put(client, {"revision": 1, "title": "New"})
@@ -80,8 +93,6 @@ def test_the_actor_is_the_verified_user_not_a_request_value(api, v2):
     ({"revision": 1, "status": "final"}, "status_not_allowed"),
     ({"revision": 1, "status": "draft", "title": "x"}, "status_not_allowed"),
     ({"revision": 1, "content_text": "client text"}, "validation_error"),
-    ({"revision": 1, "generation_record_id": "33333333-3333-4333-8333-333333333333"},
-     "proposal_acceptance_unavailable"),
     ({"revision": 1, "owner_id": USER.id}, "validation_error"),  # unknown field
 ])
 def test_refused_before_the_save(api, v2, body, code):

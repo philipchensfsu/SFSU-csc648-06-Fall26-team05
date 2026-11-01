@@ -19,9 +19,10 @@ import { draftFromAnswers } from "../nautilus/app/editor/draftFromAnswers";
 // The editor carries TipTap, so it loads only when a PRD is opened.
 const EditorPage = lazy(() => import("../nautilus/app/editor/EditorPage"));
 
-// App renders this workspace only after Supabase confirms a signed-in user.
-// `userName` and `userId` come from that session in App.jsx.
-function Prototype({ initialUser = null, userName = "", userId = null, onLogOut }) {
+// App renders this workspace only after Supabase confirms a signed-in user
+// who is in an organization (OrgGate). `userName` and `userId` come from that
+// session; `organization` is { organization_id, name, access_role }.
+function Prototype({ initialUser = null, userName = "", userId = null, organization = null, onNoOrganization, onLogOut }) {
   const user = initialUser;
   const [screen, setScreen] = useState("dashboard");
   // Which workspace page the "dashboard" screen shows: { page: "dashboard" },
@@ -160,7 +161,14 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
         setPrds((current) => [prd, ...current.filter((p) => p.id !== prd.id)]);
       });
     }
-    const row = await draftCreator.current(payload);
+    let row;
+    try {
+      row = await draftCreator.current(payload);
+    } catch (error) {
+      // The account lost its organization (e.g. deactivated) since signing in.
+      if (error.code === "no_organization") onNoOrganization?.();
+      throw error;
+    }
     setInterviewStart(null);
     go("interview", row.id);
   }
@@ -419,6 +427,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
     <Workspace
       view={home}
       account={{ email: user, name: userName }}
+      organization={organization}
       userId={userId}
       prds={prds}
       prdsLoaded={prdsLoaded}
