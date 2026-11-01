@@ -3,10 +3,9 @@ belongs to one organization, which GET /api/me returns."""
 
 from concurrent.futures import ThreadPoolExecutor
 
-import httpx
 import psycopg
 
-from conftest import API_URL, data_api
+from conftest import API_URL, data_api, http
 
 
 def create_org(user, name="Acme"):
@@ -86,7 +85,7 @@ def test_blank_or_long_names_are_rejected(make_user):
 
 
 def test_signed_out_callers_cannot_create_organizations():
-    assert httpx.post(f"{API_URL}/organizations", json={"name": "Acme"}).status_code == 401
+    assert http.post(f"{API_URL}/organizations", json={"name": "Acme"}).status_code == 401
     assert data_api("POST", "rpc/create_organization", json={"org_name": "Acme"}).status_code in (401, 403, 404)
 
 

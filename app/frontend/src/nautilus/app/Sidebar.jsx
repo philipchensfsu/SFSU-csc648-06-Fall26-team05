@@ -6,6 +6,7 @@ import {
   IconFolder,
   IconGrid,
   IconMenu,
+  IconPeople,
   IconPlus,
   IconSearch,
   IconSignOut,
@@ -38,6 +39,7 @@ function NavItem({ icon, current, count, kbd, onClick, children }) {
 function Sidebar({
   page,
   account,
+  organization,
   prdCount,
   projectCount,
   recent,
@@ -111,6 +113,21 @@ function Sidebar({
           </NavItem>
         </nav>
 
+        {organization?.access_role === "admin" ? (
+          <nav className="nw-nav" aria-labelledby="nw-org-h">
+            <h2 id="nw-org-h" className="nw-side-label">
+              {organization.name}
+            </h2>
+            <NavItem
+              icon={<IconPeople />}
+              current={page === "people"}
+              onClick={() => onNavigate({ page: "people" })}
+            >
+              People
+            </NavItem>
+          </nav>
+        ) : null}
+
         {recent.length ? (
           <section className="nw-recent" aria-labelledby="nw-recent-h">
             <h2 id="nw-recent-h" className="nw-side-label">
@@ -133,7 +150,13 @@ function Sidebar({
           <Avatar initials={initialsOf(account.name, account.email)} size="md" />
           <div className="nw-account-text">
             <span className="nw-account-name">{account.name || account.email}</span>
-            {account.name ? <span className="nw-account-sub">{account.email}</span> : null}
+            {organization ? (
+              <span className="nw-account-sub">
+                {organization.access_role === "admin" ? "Admin" : "Member"} · {organization.name}
+              </span>
+            ) : account.name ? (
+              <span className="nw-account-sub">{account.email}</span>
+            ) : null}
           </div>
           <MenuButton
             label="Account"

@@ -9,7 +9,7 @@ from dataclasses import dataclass
 import psycopg
 import pytest
 
-from conftest import DB_URL
+from conftest import connect_db
 
 
 @dataclass
@@ -43,7 +43,7 @@ def org(make_user, db):
 
 def commit(*statements):
     """Runs the statements as one transaction. Returns the violated constraint name, or None if it committed."""
-    with psycopg.connect(DB_URL) as conn:
+    with connect_db() as conn:
         try:
             with conn.transaction():
                 for sql, params in statements:
@@ -157,7 +157,7 @@ def test_concurrent_changes_that_form_a_cycle_together_are_rejected(org):
     first_done = threading.Event()
 
     def first():
-        with psycopg.connect(DB_URL) as conn, conn.transaction():
+        with connect_db() as conn, conn.transaction():
             conn.execute(*manager(org.alice, org.ben))
             time.sleep(1.5)  # hold the org lock while the second change starts
         first_done.set()

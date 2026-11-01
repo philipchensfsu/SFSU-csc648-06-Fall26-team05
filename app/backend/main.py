@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from postgrest import ReturnMethod
 from postgrest.exceptions import APIError
@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from supabase_auth.errors import AuthError, AuthRetryableError
 
 import prd_save
+import prd_versions
 from ai import chat, preview, usage_gate
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
@@ -102,12 +103,13 @@ class PRDUpdate(RequestModel):
     revision: int
     title: Optional[str] = Field(default=None, max_length=200)
     content_json: Optional[dict] = None
-    # Legacy save only: the S03 save derives content_text and never takes a
-    # status (D6).
+    # Legacy save only: the S03 save derives content_text itself.
     content_text: Optional[str] = None
+    # Refused (422 status_not_allowed): status changes only through review
+    # (Decision 6). Kept as a field so the error names it.
     status: Optional[str] = None
     # S03 save only (PRD_SAVE_V2): description is its own column there, and
-    # generation_record_id accepts an AI proposal once A05 (#70) is in.
+    # generation_record_id accepts an AI proposal (A05).
     description: Optional[str] = None
     generation_record_id: Optional[UUID] = None
 
@@ -317,11 +319,61 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
     return with_my_role(client, auth["user"].id, response.data)[0]
 
 
+class VersionActor(BaseModel):
+    id: UUID
+    name: Optional[str]
+
+
+class VersionOut(BaseModel):
+    id: UUID
+    version_no: int
+    saved_revision: Optional[int]
+    actor: Optional[VersionActor]  # null: the person was deleted, or the pre-history checkpoint
+    origin: str
+    created_at: datetime
+    changed_sections: list[str]
+    change_summary: Optional[str]
+
+
+class VersionPage(BaseModel):
+    items: list[VersionOut]
+    next_cursor: Optional[str]
+
+
+class VersionDetail(VersionOut):
+    title: Optional[str]
+    description: Optional[str]
+    content_json: Optional[dict]
+    doc_schema_version: int
+    generation_record_id: Optional[UUID]
+
+
+# S04: read-only history. RLS decides who can see a PRD's versions; there's
+# no restore (scheduled separately).
+@app.get("/api/prds/{prd_id}/versions", response_model=VersionPage)
+def list_prd_versions(
+    prd_id: UUID,
+    limit: int = Query(prd_versions.DEFAULT_LIMIT, ge=1, le=prd_versions.MAX_LIMIT),
+    cursor: Optional[str] = None,
+    auth=Depends(get_current_user),
+):
+    return prd_versions.list_versions(auth["client"], str(prd_id), limit=limit, cursor=cursor)
+
+
+@app.get("/api/prds/{prd_id}/versions/{version_id}", response_model=VersionDetail)
+def get_prd_version(prd_id: UUID, version_id: UUID, auth=Depends(get_current_user)):
+    return prd_versions.get_version(auth["client"], str(prd_id), str(version_id))
+
+
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
 def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user)):
     sent = payload.model_fields_set
     if prd_save_v2_enabled():
         return save_prd_v2(prd_id, payload, sent, auth)
+    if "status" in sent:
+        # Same refusal as the S03 save: status changes only through review.
+        raise ApiError(422, "A PRD's status changes only through review. Don't send status when saving.",
+                       code="status_not_allowed")
     unsupported = [name for name in SAVE_CORE_ONLY_FIELDS if name in sent]
     if unsupported:
         raise ApiError(422, f"{unsupported[0]} can't be saved yet", code="validation_error")
@@ -361,11 +413,14 @@ def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict
                        code="status_not_allowed")
     if "content_text" in sent:
         raise ApiError(422, "content_text is derived by the server; don't send it", code="validation_error")
-    if payload.generation_record_id is not None:
-        # Accepting a proposal needs A05's once-only checks (#70); without
-        # them a record id would only be checked for existence.
-        raise ApiError(422, "Accepting AI proposals isn't available yet", code="proposal_acceptance_unavailable")
     fields = {name: getattr(payload, name) for name in ("title", "description", "content_json") if name in sent}
+    if payload.generation_record_id is not None:
+        # Accepting an AI proposal (A05): the same save, which checks the
+        # proposal (the requester's, this PRD, this base revision), marks
+        # the sections accepted unchanged and uses it once in the
+        # transaction (ai/acceptance.py and save_prd).
+        fields["origin"] = "ai_generated"
+        fields["generation_record_id"] = payload.generation_record_id
     saved = prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
     # Like every PRD response, it carries the caller's role, read as them.
     return with_my_role(auth["client"], auth["user"].id, [saved])[0]
@@ -522,6 +577,8 @@ class ReviewerOut(BaseModel):
     department: Optional[str]
     state: Literal["pending", "approved", "changes_requested"]
     decided_at: Optional[datetime]
+    explanation: Optional[str]
+    comment_id: Optional[UUID]
 
 
 class ReviewRoundOut(BaseModel):
@@ -544,7 +601,7 @@ class ReviewSubmitIn(RequestModel):
     reviewer_ids: list[UUID] = Field(..., min_length=1, max_length=50)
 
 
-class ReviewSubmitted(BaseModel):
+class ReviewResult(BaseModel):
     round: ReviewRoundOut
     revision: int
     status: str
@@ -568,12 +625,14 @@ REVIEW_ERRORS = {
 
 ROUND_COLUMNS = ("id, prd_id, round_no, version_id, state, owner_review_allowed, submitted_by, submitted_at, "
                  "completed_at, version:prd_version(version_no), "
-                 "slots:review_slot(reviewer_id, reviewer_name, department_name, state, decided_at)")
+                 "slots:review_slot(reviewer_id, reviewer_name, department_name, state, decided_at, comment_id, "
+                 "comment:prd_comment(body))")
 
 
 def round_item(row):
     reviewers = [{"user_id": s["reviewer_id"], "name": s["reviewer_name"], "department": s["department_name"],
-                  "state": s["state"], "decided_at": s["decided_at"]} for s in row["slots"]]
+                  "state": s["state"], "decided_at": s["decided_at"], "comment_id": s["comment_id"],
+                  "explanation": (s["comment"] or {}).get("body")} for s in row["slots"]]
     reviewers.sort(key=lambda r: ((r["name"] or "").lower(), r["user_id"]))
     item = {k: row[k] for k in ("id", "prd_id", "round_no", "version_id", "state", "owner_review_allowed",
                                 "submitted_by", "submitted_at", "completed_at")}
@@ -591,7 +650,7 @@ def list_review_rounds(prd_id: UUID, params: PageParams = Depends(), auth=Depend
     return {"items": [round_item(r) for r in page["items"]], "next_cursor": page["next_cursor"]}
 
 
-@app.post("/api/prds/{prd_id}/reviews", response_model=ReviewSubmitted, status_code=201)
+@app.post("/api/prds/{prd_id}/reviews", response_model=ReviewResult, status_code=201)
 def submit_review(prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_current_user)):
     # Owners and org admins submit the current version to the reviewers they
     # choose; the PRD moves to in_review.
@@ -601,6 +660,45 @@ def submit_review(prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_curren
         "reviewer_ids": [str(r) for r in payload.reviewer_ids],
     }, REVIEW_ERRORS)
     row = client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id).execute().data[0]
+    prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
+    return {"round": round_item(row), **prd}
+
+
+class ReviewDecisionIn(RequestModel):
+    version_id: UUID
+    decision: Literal["approved", "changes_requested"]
+    explanation: Optional[str] = Field(default=None, max_length=5000)
+    section_type: Optional[str] = None
+
+
+# Errors raised by decide_review (P0001 with a fixed message).
+DECISION_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "round_not_found": (404, "Review round not found", None),
+    "round_not_current": (409, "This review round was replaced by a newer one.", "round_not_current"),
+    "stale_version": (409, "The PRD changed since this round was submitted. Refresh to see the current review.",
+                      "stale_version"),
+    "not_a_reviewer": (403, "You're not a reviewer on this round.", None),
+    "owner_cannot_review": (403, "Owners can't review their own PRD.", "owner_cannot_review"),
+    "invalid_decision": (422, "The decision must be approved or changes_requested.", "validation_error"),
+    "invalid_explanation": (422, "Requesting changes needs an explanation, up to 5,000 characters.",
+                            "validation_error"),
+    "invalid_section": (422, "section_type must be null or one of the PRD's nine section types.", "validation_error"),
+    "decision_already_made": (409, "You already decided on this round; a decision can't be changed.",
+                              "decision_already_made"),
+}
+
+
+@app.put("/api/prds/{prd_id}/reviews/{round_id}/decision", response_model=ReviewResult)
+def decide_review(prd_id: UUID, round_id: UUID, payload: ReviewDecisionIn, auth=Depends(get_current_user)):
+    # A reviewer approves or requests changes on the round's version. Returns
+    # the round and the PRD's status (final once every reviewer approved).
+    client = auth["client"]
+    call_function(client, "decide_review", {
+        "target_prd": str(prd_id), "target_round": str(round_id), "target_version": str(payload.version_id),
+        "decision": payload.decision, "explanation": payload.explanation, "target_section": payload.section_type,
+    }, DECISION_ERRORS)
+    row = client.table("review_round").select(ROUND_COLUMNS).eq("id", str(round_id)).execute().data[0]
     prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
     return {"round": round_item(row), **prd}
 
@@ -927,6 +1025,164 @@ def mark_notification_read(notification_id: UUID, payload: NotificationRead, aut
     if not rows:
         raise ApiError(404, "Notification not found")
     return notification_item(rows[0])
+
+
+UnitName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
+class DepartmentCreate(RequestModel):
+    name: UnitName
+
+
+class DepartmentUpdate(RequestModel):
+    name: Optional[UnitName] = None
+    head_id: Optional[UUID] = None
+    archived: Optional[bool] = None
+
+
+class TeamCreate(RequestModel):
+    name: UnitName
+    department_id: Optional[UUID] = None
+
+
+class TeamUpdate(RequestModel):
+    name: Optional[UnitName] = None
+    department_id: Optional[UUID] = None
+    lead_id: Optional[UUID] = None
+    archived: Optional[bool] = None
+
+
+# Messages of the directory's end-state checks (20261029110000), which run
+# when the change commits.
+DIRECTORY_ERRORS = {
+    "A department head must be an active member of that department":
+        (422, "A department head must be an active member of that department.", "head_not_in_department"),
+    "A team lead must be an active member of that team":
+        (422, "A team lead must be an active member of that team.", "lead_not_in_team"),
+    "An archived department still has active members or teams":
+        (409, "Move this department's members and teams elsewhere before archiving it.", "department_not_empty"),
+    "An archived team still has active members":
+        (409, "Remove this team's members before archiving it.", "team_not_empty"),
+}
+
+
+def require_org_admin(client, org_id: UUID):
+    # 404 unless the caller is an active member; 403 unless also an admin.
+    if not client.table("organization").select("id").eq("id", str(org_id)).execute().data:
+        raise ApiError(404, "Organization not found")
+    if client.rpc("is_org_admin", {"target_org": str(org_id)}).execute().data is not True:
+        raise ApiError(403, "Only organization admins can change its structure.")
+
+
+def write_directory(run):
+    """Runs a directory write, turning the database's checks into readable errors."""
+    try:
+        return run()
+    except APIError as exc:
+        if exc.message in DIRECTORY_ERRORS:
+            raise ApiError(*DIRECTORY_ERRORS[exc.message])
+        if exc.code == "23505":
+            raise ApiError(409, "Another active department or team in this organization already has that name.",
+                           "name_taken")
+        # A foreign key or the team_member policy: the person, department or
+        # team isn't (an active) part of this organization.
+        if exc.code in ("23503", "42501"):
+            raise ApiError(422, "That person, department or team isn't part of this organization.",
+                           "not_in_organization")
+        raise
+
+
+def unit_changes(payload):
+    # Only the fields sent change; null clears head_id, lead_id or department_id.
+    changes = {key: str(value) if isinstance(value, UUID) else value
+               for key, value in payload.model_dump(exclude_unset=True).items()}
+    if "archived" in changes:
+        changes["archived_at"] = datetime.now(timezone.utc).isoformat() if changes.pop("archived") else None
+    if changes.get("name", "") is None:
+        raise ApiError(422, "name can't be null.", "validation_error")
+    return changes
+
+
+def update_unit(client, table, org_id: UUID, unit_id: UUID, changes, columns):
+    query = client.table(table)
+    if changes:
+        query = query.update(changes)
+    else:
+        query = query.select(columns)
+    rows = write_directory(lambda: query.eq("organization_id", str(org_id)).eq("id", str(unit_id)).execute().data)
+    if not rows:
+        raise ApiError(404, f"{table.capitalize()} not found")
+    return with_archived_flag({key: rows[0][key] for key in columns.split(", ")})
+
+
+DEPARTMENT_COLUMNS = "id, name, head_id, archived_at"
+TEAM_COLUMNS = "id, name, department_id, lead_id, archived_at"
+
+
+@app.post("/api/organizations/{org_id}/departments", response_model=DirectoryDepartment, status_code=201)
+def create_department(org_id: UUID, payload: DepartmentCreate, auth=Depends(get_current_user)):
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    rows = write_directory(lambda: client.table("department")
+                           .insert({"organization_id": str(org_id), "name": payload.name}).execute().data)
+    return with_archived_flag({key: rows[0][key] for key in DEPARTMENT_COLUMNS.split(", ")})
+
+
+@app.patch("/api/organizations/{org_id}/departments/{department_id}", response_model=DirectoryDepartment)
+def update_department(org_id: UUID, department_id: UUID, payload: DepartmentUpdate, auth=Depends(get_current_user)):
+    # Rename, set or clear the head, archive or unarchive.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    return update_unit(client, "department", org_id, department_id, unit_changes(payload), DEPARTMENT_COLUMNS)
+
+
+@app.post("/api/organizations/{org_id}/teams", response_model=DirectoryTeam, status_code=201)
+def create_team(org_id: UUID, payload: TeamCreate, auth=Depends(get_current_user)):
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    fields = {"organization_id": str(org_id), "name": payload.name,
+              "department_id": str(payload.department_id) if payload.department_id else None}
+    rows = write_directory(lambda: client.table("team").insert(fields).execute().data)
+    return with_archived_flag({key: rows[0][key] for key in TEAM_COLUMNS.split(", ")})
+
+
+@app.patch("/api/organizations/{org_id}/teams/{team_id}", response_model=DirectoryTeam)
+def update_team(org_id: UUID, team_id: UUID, payload: TeamUpdate, auth=Depends(get_current_user)):
+    # Rename, move to another department (or none), set or clear the lead,
+    # archive or unarchive.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    return update_unit(client, "team", org_id, team_id, unit_changes(payload), TEAM_COLUMNS)
+
+
+def team_in_org(client, org_id: UUID, team_id: UUID):
+    rows = (client.table("team").select("archived_at")
+            .eq("organization_id", str(org_id)).eq("id", str(team_id)).execute().data)
+    if not rows:
+        raise ApiError(404, "Team not found")
+    return rows[0]
+
+
+@app.put("/api/organizations/{org_id}/teams/{team_id}/members/{user_id}", status_code=204)
+def add_team_member(org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
+    # Puts an active member on the team; already on it is fine.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    if team_in_org(client, org_id, team_id)["archived_at"]:
+        raise ApiError(409, "This team is archived.", "team_archived")
+    link = {"organization_id": str(org_id), "team_id": str(team_id), "user_id": str(user_id)}
+    write_directory(lambda: client.table("team_member").upsert(link, ignore_duplicates=True,
+                                                                returning=ReturnMethod.minimal).execute())
+
+
+@app.delete("/api/organizations/{org_id}/teams/{team_id}/members/{user_id}", status_code=204)
+def remove_team_member(org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
+    # Takes someone off the team; their org membership stays. Not on it is fine.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    team_in_org(client, org_id, team_id)
+    write_directory(lambda: client.table("team_member").delete(returning=ReturnMethod.minimal)
+                    .eq("team_id", str(team_id)).eq("user_id", str(user_id)).execute())
 
 
 # Preview only (A03): returns {proposal, base_revision, generation_record_id}
