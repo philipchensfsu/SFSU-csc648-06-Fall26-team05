@@ -49,7 +49,8 @@ class FakeUserClient:
 
 @pytest.fixture(autouse=True)
 def settings(monkeypatch):
-    for name in ("AI_ENABLED", "AI_COOLDOWN_SECONDS", "AI_LEASE_SECONDS", "GEMINI_MODEL"):
+    for name in ("AI_ENABLED", "AI_COOLDOWN_SECONDS", "AI_LEASE_SECONDS", "GEMINI_MODEL",
+                 "AI_REQUEST_BUDGET_SECONDS", "AI_SCOPE_TIMEOUT_SECONDS", "AI_MAIN_TIMEOUT_SECONDS"):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -205,3 +206,47 @@ def test_disabled_renders_without_retry_after():
     response = render(AIError(429, "ai_disabled"))
     assert response.status_code == 429
     assert response.json()["code"] == "ai_disabled" and "retry_after" not in response.json()
+
+
+# --- the request budget and the lease -------------------------------------------------
+
+
+def test_defaults_fit_inside_vercels_300_seconds_and_the_lease_outlasts_the_budget():
+    assert usage_gate.DEFAULT_REQUEST_BUDGET_SECONDS == 170 and usage_gate.lease_seconds() == 200
+    scope_worst = 2 * usage_gate.DEFAULT_SCOPE_TIMEOUT_SECONDS + gemini_client.RETRY_DELAY_SECONDS
+    main_worst = 2 * usage_gate.DEFAULT_MAIN_TIMEOUT_SECONDS + gemini_client.RETRY_DELAY_SECONDS
+    assert scope_worst + main_worst + usage_gate.CLEANUP_ALLOWANCE_SECONDS <= usage_gate.DEFAULT_REQUEST_BUDGET_SECONDS
+    assert usage_gate.DEFAULT_REQUEST_BUDGET_SECONDS < usage_gate.lease_seconds() < 300
+
+
+def test_lease_follows_the_budget_and_never_falls_below_it(monkeypatch, caplog):
+    monkeypatch.setenv("AI_REQUEST_BUDGET_SECONDS", "120")
+    assert usage_gate.lease_seconds() == 150
+    monkeypatch.setenv("AI_LEASE_SECONDS", "100")
+    with caplog.at_level(logging.ERROR, logger="nautilus.ai"):
+        assert usage_gate.lease_seconds() == 150
+    assert "must outlast" in caplog.text
+
+
+class Clock:
+    def __init__(self):
+        self.now = 0.0
+
+    def __call__(self):
+        return self.now
+
+
+def test_budget_gives_the_wanted_timeout_while_there_is_room():
+    budget = usage_gate.RequestBudget(170, clock=Clock())
+    assert budget.call_timeout(10) == 10 and budget.call_timeout(60) == 60
+
+
+def test_budget_shrinks_then_refuses_calls_it_cannot_finish():
+    clock = Clock()
+    budget = usage_gate.RequestBudget(170, clock=clock)
+    clock.now = 120  # 170 - 120 - 20 - 1 = 29 s left for two attempts
+    assert budget.call_timeout(60) == pytest.approx(14.5)
+    clock.now = 140  # 9 s left: under the 5 s minimum per attempt
+    with pytest.raises(AIError) as info:
+        budget.call_timeout(60)
+    assert info.value.code == "ai_provider_error"
