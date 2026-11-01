@@ -1,6 +1,6 @@
 -- E09 reapproval in the save (Marco), on Vineela's review rounds (#93).
 --
--- Replaces save_prd (20261031180000_save_events.sql) with the same function
+-- Replaces save_prd (20261101032000_save_events.sql) with the same function
 -- plus Decision 9, using continue_review_round and open_review_round from
 -- 20261031120000_review_rounds.sql (agreed with Vineela on 2026-10-31):
 --
@@ -23,7 +23,7 @@
 -- messages like no_reviewers or owner_cannot_review) pass through to the API.
 --
 -- Same trust boundary as before: service role only, for the verified user.
--- Apply after 20261031120000_review_rounds and 20261031180000_save_events.
+-- Apply after 20261031120000_review_rounds and 20261101032000_save_events.
 -- Replaces one function (new parameter); no data changes.
 
 drop function save_prd(uuid, uuid, integer, boolean, text, boolean, text, boolean,

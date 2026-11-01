@@ -1,4 +1,4 @@
-"""E09 reapproval in the save (20261031190000_e09_reapproval.sql) against the
+"""E09 reapproval in the save (20261101032100_e09_reapproval.sql) against the
 local stack, on Vineela's review rounds (#93): continue_review_round for an
 edit in review, open_review_round for an owner's confirmed edit to an
 approved PRD, and exactly one event per save either way.
@@ -159,7 +159,7 @@ def test_approved_prds_take_only_an_owners_confirmed_edit(team, db, service):
     assert (no_list.value.status_code, no_list.value.code) == (409, "reapproval_required")
     with pytest.raises(SaveError) as empty:
         save(service, db, team["olive"], team["prd"], title="Empty list", confirmed_reviewer_ids=[])
-    assert (empty.value.status_code, empty.value.code) == (422, "no_reviewers")
+    assert (empty.value.status_code, empty.value.code) == (422, "validation_error")  # as on POST /reviews
     assert state(db, team["prd"]) == before and events_after_submit(db, team["prd"]) == []
 
 
