@@ -169,3 +169,12 @@ def test_a_raw_id_is_never_accepted_as_the_actor(actor):
     with pytest.raises(TypeError):
         save_prd(service, actor, PRD, 1, title="New title")
     assert service.calls == []
+
+
+def test_an_empty_doc_without_content_saves_with_empty_text():
+    # TipTap's getJSON() omits content for an empty document; this used to
+    # crash derive_content_text (KeyError) after passing validation.
+    service = FakeService()
+    save_prd(service, USER, PRD, 1, content_json={"type": "doc"})
+    params = service.calls[0][1]
+    assert params["p_content_json"] == {"type": "doc"} and params["p_content_text"] == ""

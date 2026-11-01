@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import sys
@@ -17,7 +18,7 @@ from supabase_auth.errors import AuthError, AuthRetryableError
 
 import prd_save
 import prd_versions
-from ai import chat, preview, usage_gate
+from ai import chat, classification, preview, usage_gate
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
@@ -103,9 +104,10 @@ class PRDUpdate(RequestModel):
     revision: int
     title: Optional[str] = Field(default=None, max_length=200)
     content_json: Optional[dict] = None
-    # Legacy save only: the S03 save derives content_text and never takes a
-    # status (D6).
+    # Legacy save only: the S03 save derives content_text itself.
     content_text: Optional[str] = None
+    # Refused (422 status_not_allowed): status changes only through review
+    # (Decision 6). Kept as a field so the error names it.
     status: Optional[str] = None
     # S03 save only (PRD_SAVE_V2): description is its own column there, and
     # generation_record_id accepts an AI proposal (A05).
@@ -135,7 +137,13 @@ class PRDOut(BaseModel):
     # The caller's access: their role on the PRD, or org_admin when they only
     # see it as an admin of its organization.
     my_role: Literal["owner", "editor", "viewer", "org_admin"]
+    # Routing (A08): not reviewed material and not an access grant.
+    owning_team_id: Optional[UUID] = None
+    priority: Optional[Literal["low", "medium", "high", "critical"]] = None
     status: str
+    # The current review round's state, or null when nothing is under review
+    # (never submitted, or the last round was superseded).
+    review_state: Optional[Literal["in_review", "changes_requested", "approved"]] = None
     content_json: Optional[dict]
     content_text: Optional[str]
     doc_schema_version: int
@@ -166,6 +174,22 @@ class ChatMessage(RequestModel):
     # Earlier assistant replies can be up to MAX_ANSWER_CHARS, so history
     # items allow that; a new message is still capped at MAX_MESSAGE_CHARS.
     content: str = Field(..., min_length=1, max_length=chat.MAX_ANSWER_CHARS)
+
+
+class ClassificationRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+
+
+class ClassificationDecision(RequestModel):
+    decision: Literal["accepted", "rejected"]
+    # Only with "accepted": adjust the suggestion before it's applied.
+    team_id: Optional[UUID] = None
+    priority: Optional[Literal["low", "medium", "high", "critical"]] = None
+
+
+class RoutingUpdate(RequestModel):
+    owning_team_id: Optional[UUID]
+    priority: Optional[Literal["low", "medium", "high", "critical"]]
 
 
 class ChatRequest(RequestModel):
@@ -233,14 +257,18 @@ def delete_project(project_id: UUID, auth=Depends(get_current_user)):
 
 
 def with_my_role(client, user_id, rows):
-    """Adds my_role to each visible PRD row."""
+    """Adds my_role and review_state to each visible PRD row."""
     ids = [row["id"] for row in rows]
-    roles = {}
+    roles, review_states = {}, {}
     if ids:
         members = client.table("prd_member").select("prd_id, role").eq("user_id", user_id).in_("prd_id", ids).execute()
         roles = {m["prd_id"]: m["role"] for m in members.data}
+        rounds = (client.table("review_round").select("prd_id, state")
+                  .in_("prd_id", ids).neq("state", "superseded").execute())
+        review_states = {r["prd_id"]: r["state"] for r in rounds.data}
     # Visible without a role on it means the caller is an admin of its org.
-    return [{**row, "my_role": roles.get(row["id"], "org_admin")} for row in rows]
+    return [{**row, "my_role": roles.get(row["id"], "org_admin"), "review_state": review_states.get(row["id"])}
+            for row in rows]
 
 
 @app.post("/api/prds", response_model=PRDOut, status_code=201)
@@ -285,12 +313,15 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
 @app.get("/api/prds", response_model=list[PRDOut])
 def list_prds(
     search: Optional[str] = None,
-    view: Optional[Literal["owned", "shared"]] = None,
+    view: Optional[Literal["owned", "shared", "needs_my_approval", "waiting_for_approval"]] = None,
     auth=Depends(get_current_user),
 ):
     # view=owned: PRDs the caller owns. view=shared: PRDs they were invited
-    # to as an editor or viewer ("Shared with me"). No view: everything
-    # they can see, including any PRD in their org if they're its admin.
+    # to as an editor or viewer ("Shared with me"). view=needs_my_approval:
+    # PRDs whose open round is waiting on the caller's decision.
+    # view=waiting_for_approval: PRDs the caller owns with a round still open
+    # (in review or changes requested). No view: everything they can see,
+    # including any PRD in their org if they're its admin.
     client = auth["client"]
     query = client.table("prd").select("*")
 
@@ -306,16 +337,70 @@ def list_prds(
         prds = [prd for prd in prds if prd["my_role"] == "owner"]
     elif view == "shared":
         prds = [prd for prd in prds if prd["my_role"] in ("editor", "viewer")]
+    elif view == "needs_my_approval":
+        pending = (client.table("review_slot").select("prd_id, round:review_round!inner(state)")
+                   .eq("reviewer_id", auth["user"].id).eq("state", "pending")
+                   .in_("round.state", ["in_review", "changes_requested"]).execute())
+        waiting_on_me = {slot["prd_id"] for slot in pending.data}
+        prds = [prd for prd in prds if prd["id"] in waiting_on_me]
+    elif view == "waiting_for_approval":
+        prds = [prd for prd in prds
+                if prd["my_role"] == "owner" and prd["review_state"] in ("in_review", "changes_requested")]
     return prds
 
 
-@app.get("/api/prds/{prd_id}", response_model=PRDOut)
+class ReviewerOut(BaseModel):
+    user_id: UUID
+    name: Optional[str]
+    department: Optional[str]
+    state: Literal["pending", "approved", "changes_requested"]
+    decided_at: Optional[datetime]
+    explanation: Optional[str]
+    comment_id: Optional[UUID]
+
+
+class ApprovalSummary(BaseModel):
+    round_id: Optional[UUID]
+    round_no: Optional[int]
+    version_id: Optional[UUID]
+    state: Optional[Literal["in_review", "changes_requested", "approved"]]
+    required_count: int
+    approved_count: int
+    reviewers: list[ReviewerOut]
+
+
+class PRDDetailOut(PRDOut):
+    approval: ApprovalSummary
+
+
+NO_APPROVAL = {"round_id": None, "round_no": None, "version_id": None, "state": None,
+               "required_count": 0, "approved_count": 0, "reviewers": []}
+
+
+def approval_summary(client, prd_id: UUID):
+    """The current round's progress, or empty counts when nothing is under review."""
+    rows = (client.table("review_round").select(ROUND_COLUMNS)
+            .eq("prd_id", str(prd_id)).neq("state", "superseded").execute().data)
+    if not rows:
+        return NO_APPROVAL
+    current = round_item(rows[0])
+    return {
+        "round_id": current["id"], "round_no": current["round_no"], "version_id": current["version_id"],
+        "state": current["state"], "required_count": len(current["reviewers"]),
+        "approved_count": sum(r["state"] == "approved" for r in current["reviewers"]),
+        "reviewers": current["reviewers"],
+    }
+
+
+@app.get("/api/prds/{prd_id}", response_model=PRDDetailOut)
 def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
+    # The PRD with the caller's role and its approval summary (E11).
     client = auth["client"]
     response = client.table("prd").select("*").eq("id", str(prd_id)).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
-    return with_my_role(client, auth["user"].id, response.data)[0]
+    prd = with_my_role(client, auth["user"].id, response.data)[0]
+    return {**prd, "approval": approval_summary(client, prd_id)}
 
 
 class VersionActor(BaseModel):
@@ -369,6 +454,10 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
     sent = payload.model_fields_set
     if prd_save_v2_enabled():
         return save_prd_v2(prd_id, payload, sent, auth)
+    if "status" in sent:
+        # Same refusal as the S03 save: status changes only through review.
+        raise ApiError(422, "A PRD's status changes only through review. Don't send status when saving.",
+                       code="status_not_allowed")
     unsupported = [name for name in SAVE_CORE_ONLY_FIELDS if name in sent]
     if unsupported:
         raise ApiError(422, f"{unsupported[0]} can't be saved yet", code="validation_error")
@@ -566,14 +655,6 @@ def add_comment(prd_id: UUID, payload: CommentIn, auth=Depends(get_current_user)
     return comment_item(row)
 
 
-class ReviewerOut(BaseModel):
-    user_id: UUID
-    name: Optional[str]
-    department: Optional[str]
-    state: Literal["pending", "approved", "changes_requested"]
-    decided_at: Optional[datetime]
-
-
 class ReviewRoundOut(BaseModel):
     id: UUID
     prd_id: UUID
@@ -594,7 +675,7 @@ class ReviewSubmitIn(RequestModel):
     reviewer_ids: list[UUID] = Field(..., min_length=1, max_length=50)
 
 
-class ReviewSubmitted(BaseModel):
+class ReviewResult(BaseModel):
     round: ReviewRoundOut
     revision: int
     status: str
@@ -618,12 +699,23 @@ REVIEW_ERRORS = {
 
 ROUND_COLUMNS = ("id, prd_id, round_no, version_id, state, owner_review_allowed, submitted_by, submitted_at, "
                  "completed_at, version:prd_version(version_no), "
-                 "slots:review_slot(reviewer_id, reviewer_name, department_name, state, decided_at)")
+                 "slots:review_slot(reviewer_id, reviewer_name, department_name, state, decided_at, comment_id, "
+                 "comment:prd_comment(body))")
+
+
+def first_row(query, not_found: str):
+    """The first row of a read, or 404. After a database function succeeds, its
+    own row could still be unreadable (e.g. access lost in between)."""
+    rows = query.execute().data
+    if not rows:
+        raise ApiError(404, not_found)
+    return rows[0]
 
 
 def round_item(row):
     reviewers = [{"user_id": s["reviewer_id"], "name": s["reviewer_name"], "department": s["department_name"],
-                  "state": s["state"], "decided_at": s["decided_at"]} for s in row["slots"]]
+                  "state": s["state"], "decided_at": s["decided_at"], "comment_id": s["comment_id"],
+                  "explanation": (s["comment"] or {}).get("body")} for s in row["slots"]]
     reviewers.sort(key=lambda r: ((r["name"] or "").lower(), r["user_id"]))
     item = {k: row[k] for k in ("id", "prd_id", "round_no", "version_id", "state", "owner_review_allowed",
                                 "submitted_by", "submitted_at", "completed_at")}
@@ -641,7 +733,7 @@ def list_review_rounds(prd_id: UUID, params: PageParams = Depends(), auth=Depend
     return {"items": [round_item(r) for r in page["items"]], "next_cursor": page["next_cursor"]}
 
 
-@app.post("/api/prds/{prd_id}/reviews", response_model=ReviewSubmitted, status_code=201)
+@app.post("/api/prds/{prd_id}/reviews", response_model=ReviewResult, status_code=201)
 def submit_review(prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_current_user)):
     # Owners and org admins submit the current version to the reviewers they
     # choose; the PRD moves to in_review.
@@ -650,8 +742,48 @@ def submit_review(prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_curren
         "target_prd": str(prd_id), "base_revision": payload.revision, "target_version": str(payload.version_id),
         "reviewer_ids": [str(r) for r in payload.reviewer_ids],
     }, REVIEW_ERRORS)
-    row = client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id).execute().data[0]
-    prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
+    row = first_row(client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id), "Review round not found")
+    prd = first_row(client.table("prd").select("revision, status").eq("id", str(prd_id)), "PRD not found")
+    return {"round": round_item(row), **prd}
+
+
+class ReviewDecisionIn(RequestModel):
+    version_id: UUID
+    decision: Literal["approved", "changes_requested"]
+    explanation: Optional[str] = Field(default=None, max_length=5000)
+    section_type: Optional[str] = None
+
+
+# Errors raised by decide_review (P0001 with a fixed message).
+DECISION_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "round_not_found": (404, "Review round not found", None),
+    "round_not_current": (409, "This review round was replaced by a newer one.", "round_not_current"),
+    "stale_version": (409, "The PRD changed since this round was submitted. Refresh to see the current review.",
+                      "stale_version"),
+    "not_a_reviewer": (403, "You're not a reviewer on this round.", None),
+    "owner_cannot_review": (403, "Owners can't review their own PRD.", "owner_cannot_review"),
+    "invalid_decision": (422, "The decision must be approved or changes_requested.", "validation_error"),
+    "invalid_explanation": (422, "Requesting changes needs an explanation, up to 5,000 characters.",
+                            "validation_error"),
+    "invalid_section": (422, "section_type must be null or one of the PRD's nine section types.", "validation_error"),
+    "decision_already_made": (409, "You already decided on this round; a decision can't be changed.",
+                              "decision_already_made"),
+}
+
+
+@app.put("/api/prds/{prd_id}/reviews/{round_id}/decision", response_model=ReviewResult)
+def decide_review(prd_id: UUID, round_id: UUID, payload: ReviewDecisionIn, auth=Depends(get_current_user)):
+    # A reviewer approves or requests changes on the round's version. Returns
+    # the round and the PRD's status (final once every reviewer approved).
+    client = auth["client"]
+    call_function(client, "decide_review", {
+        "target_prd": str(prd_id), "target_round": str(round_id), "target_version": str(payload.version_id),
+        "decision": payload.decision, "explanation": payload.explanation, "target_section": payload.section_type,
+    }, DECISION_ERRORS)
+    row = first_row(client.table("review_round").select(ROUND_COLUMNS).eq("id", str(round_id)),
+                    "Review round not found")
+    prd = first_row(client.table("prd").select("revision, status").eq("id", str(prd_id)), "PRD not found")
     return {"round": round_item(row), **prd}
 
 
@@ -1015,6 +1147,10 @@ DIRECTORY_ERRORS = {
         (409, "Move this department's members and teams elsewhere before archiving it.", "department_not_empty"),
     "An archived team still has active members":
         (409, "Remove this team's members before archiving it.", "team_not_empty"),
+    "Reporting lines would form a cycle":
+        (422, "That manager would make the reporting lines loop back.", "manager_cycle"),
+    "An active member reports to an inactive manager":
+        (422, "A manager must be an active member of the organization.", "manager_inactive"),
 }
 
 
@@ -1048,10 +1184,11 @@ def unit_changes(payload):
     # Only the fields sent change; null clears head_id, lead_id or department_id.
     changes = {key: str(value) if isinstance(value, UUID) else value
                for key, value in payload.model_dump(exclude_unset=True).items()}
+    for field in ("name", "archived"):
+        if field in changes and changes[field] is None:
+            raise ApiError(422, f"{field} can't be null.", "validation_error")
     if "archived" in changes:
         changes["archived_at"] = datetime.now(timezone.utc).isoformat() if changes.pop("archived") else None
-    if changes.get("name", "") is None:
-        raise ApiError(422, "name can't be null.", "validation_error")
     return changes
 
 
@@ -1134,7 +1271,80 @@ def remove_team_member(org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(
     require_org_admin(client, org_id)
     team_in_org(client, org_id, team_id)
     write_directory(lambda: client.table("team_member").delete(returning=ReturnMethod.minimal)
-                    .eq("team_id", str(team_id)).eq("user_id", str(user_id)).execute())
+                    .eq("organization_id", str(org_id)).eq("team_id", str(team_id))
+                    .eq("user_id", str(user_id)).execute())
+
+
+class MemberUpdate(RequestModel):
+    access_role: Optional[Literal["member", "admin"]] = None
+    department_id: Optional[UUID] = None
+    manager_id: Optional[UUID] = None
+    title: Optional[Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)]] = None
+    active: Optional[bool] = None
+    # Only when deactivating someone (see MEMBER_ADMIN_ERRORS).
+    replacement_manager_id: Optional[UUID] = None
+    transfer_owner_to: Optional[UUID] = None
+
+
+class MemberOut(BaseModel):
+    user_id: UUID
+    active: bool
+    access_role: Literal["member", "admin"]
+    department_id: Optional[UUID]
+    manager_id: Optional[UUID]
+    title: Optional[str]
+
+
+# Errors raised by update_org_member (P0001 with a fixed message).
+MEMBER_ADMIN_ERRORS = {
+    "org_admin_required": (403, "Only organization admins can change members.", None),
+    "member_not_found": (404, "Member not found", None),
+    "last_admin": (409, "The organization needs at least one active admin. Make someone else an admin first.",
+                   "last_admin"),
+    "has_direct_reports": (409, "This person manages people. Send replacement_manager_id (or null) for them.",
+                           "has_direct_reports"),
+    "owns_prds": (409, "This person is the only owner of some PRDs. Send transfer_owner_to with a new owner.",
+                  "owns_prds"),
+    "invalid_replacement": (422, "The replacement must be another active member of this organization.",
+                            "not_in_organization"),
+    "invalid_change": (422, "Unknown member field.", "validation_error"),
+}
+
+# Which list a 409 carries in its body.
+AFFECTED_KEYS = {"has_direct_reports": "reports", "owns_prds": "prds"}
+
+
+@app.patch("/api/organizations/{org_id}/members/{user_id}", response_model=MemberOut)
+def update_member(org_id: UUID, user_id: UUID, payload: MemberUpdate, auth=Depends(get_current_user)):
+    # Change a member's role, department, manager, title or active flag.
+    # Only the fields sent change; null clears department, manager or title.
+    client = auth["client"]
+    if not client.table("organization").select("id").eq("id", str(org_id)).execute().data:
+        raise ApiError(404, "Organization not found")
+    changes = {key: str(value) if isinstance(value, UUID) else value
+               for key, value in payload.model_dump(exclude_unset=True).items()}
+    if changes.get("title") == "":
+        changes["title"] = None
+    params = {"target_org": str(org_id), "target_user": str(user_id), "changes": changes}
+
+    def run():
+        try:
+            return client.rpc("update_org_member", params).execute()
+        except APIError as exc:
+            if exc.message in MEMBER_ADMIN_ERRORS:
+                error = ApiError(*MEMBER_ADMIN_ERRORS[exc.message])
+                if exc.message in AFFECTED_KEYS:
+                    # The function lists what's affected in the error detail.
+                    error.extra = {AFFECTED_KEYS[exc.message]: json.loads(exc.details or "[]")}
+                raise error
+            if exc.code == "23505":  # one active membership per account
+                raise ApiError(409, "This person is already active in another organization.", "active_elsewhere")
+            raise
+
+    write_directory(run)
+    rows = (client.table("organization_member").select("user_id, active, access_role, department_id, manager_id, title")
+            .eq("organization_id", str(org_id)).eq("user_id", str(user_id)).execute().data)
+    return rows[0]
 
 
 # Preview only (A03): returns {proposal, base_revision, generation_record_id}
@@ -1158,3 +1368,46 @@ def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_u
         message=payload.message, history=[m.model_dump() for m in payload.history],
         budget=usage_gate.RequestBudget(),
     )
+
+
+# Owning team and priority (A08). Suggestion is a preview; only the owner or
+# an org admin decides or sets them. No version, no revision change.
+@app.post("/api/prds/{prd_id}/classification")
+def suggest_prd_routing(prd_id: UUID, payload: ClassificationRequest, auth=Depends(get_current_user)):
+    return classification.suggest_routing(auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id),
+                                          revision=payload.revision, budget=usage_gate.RequestBudget())
+
+
+@app.put("/api/prds/{prd_id}/classification/{suggestion_id}/decision", response_model=PRDOut)
+def decide_prd_routing(prd_id: UUID, suggestion_id: UUID, payload: ClassificationDecision,
+                       auth=Depends(get_current_user)):
+    sent = payload.model_fields_set
+    if payload.decision == "rejected" and ({"team_id", "priority"} & sent):
+        raise ApiError(422, "Only an accepted suggestion takes a team or priority", code="validation_error")
+    saved = classification.decide(supabase, str(auth["user"].id), str(prd_id), str(suggestion_id),
+                                  decision=payload.decision, team_id=payload.team_id, set_team="team_id" in sent,
+                                  priority=payload.priority)
+    return with_my_role(auth["client"], auth["user"].id, [saved])[0]
+
+
+# Errors raised by set_prd_routing (P0001 with a fixed message).
+ROUTING_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "routing_forbidden": (403, "Only the PRD's owners or an org admin can set its team and priority.", "forbidden"),
+    "invalid_team": (422, "Choose an active team of this PRD's organization", "invalid_team"),
+    "invalid_priority": (422, "Unknown priority", "validation_error"),
+}
+
+
+@app.put("/api/prds/{prd_id}/routing", response_model=PRDOut)
+def set_prd_routing(prd_id: UUID, payload: RoutingUpdate, auth=Depends(get_current_user)):
+    # Owners and org admins, an active team of the PRD's org (or none). The
+    # database function checks both under the PRD lock; clients can't write
+    # these columns directly (S02 grants).
+    client = auth["client"]
+    row = call_function(client, "set_prd_routing", {
+        "target_prd": str(prd_id),
+        "new_team": None if payload.owning_team_id is None else str(payload.owning_team_id),
+        "new_priority": payload.priority,
+    }, ROUTING_ERRORS)
+    return with_my_role(client, auth["user"].id, [row])[0]
