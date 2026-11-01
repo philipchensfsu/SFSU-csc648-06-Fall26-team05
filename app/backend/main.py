@@ -113,6 +113,9 @@ class PRDUpdate(RequestModel):
     # generation_record_id accepts an AI proposal (A05).
     description: Optional[str] = None
     generation_record_id: Optional[UUID] = None
+    # S03 save only: the reviewers an owner confirmed in the edit modal when
+    # saving edits to an approved PRD (E09, Decision 9).
+    confirmed_reviewer_ids: Optional[list[UUID]] = Field(default=None, max_length=50)
 
 
 # The S03 save (prd_save.save_prd: v2 documents, versions, server-derived
@@ -120,7 +123,7 @@ class PRDUpdate(RequestModel):
 # Until that cutover, PUT keeps the legacy update. Set PRD_SAVE_V2=true to
 # switch.
 LEGACY_ONLY_FIELDS = ("content_text", "status")
-SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id")
+SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id", "confirmed_reviewer_ids")
 
 
 def prd_save_v2_enabled() -> bool:
@@ -141,12 +144,28 @@ class PRDOut(BaseModel):
     # The current review round's state, or null when nothing is under review
     # (never submitted, or the last round was superseded).
     review_state: Optional[Literal["in_review", "changes_requested", "approved"]] = None
+    # E14: not_started | in_progress | done; changes only while approved.
+    work_status: Optional[str] = None
     content_json: Optional[dict]
     content_text: Optional[str]
     doc_schema_version: int
     revision: int
     created_at: datetime
     updated_at: datetime
+
+
+WorkStatus = Literal["not_started", "in_progress", "done"]
+
+
+class WorkStatusIn(RequestModel):
+    # Compare-and-set: the status the caller last saw, and the new one.
+    from_: WorkStatus = Field(..., alias="from")
+    to: WorkStatus
+
+
+class WorkStatusOut(PRDOut):
+    can_update_work_status: bool
+    changed_since_approval: bool
 
 
 class IntakeAnswerIn(RequestModel):
@@ -504,9 +523,47 @@ def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict
         # transaction (ai/acceptance.py and save_prd).
         fields["origin"] = "ai_generated"
         fields["generation_record_id"] = payload.generation_record_id
+    if payload.confirmed_reviewer_ids is not None:
+        fields["confirmed_reviewer_ids"] = payload.confirmed_reviewer_ids
     saved = prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
     # Like every PRD response, it carries the caller's role, read as them.
     return with_my_role(auth["client"], auth["user"].id, [saved])[0]
+
+
+# Errors raised by set_prd_work_status (P0001 with a fixed message).
+WORK_STATUS_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "work_status_forbidden": (403, "Only the PRD's owners and org admins can change its work status.", "forbidden"),
+    "not_approved": (409, "Work status can change only while the PRD is approved.", "not_approved"),
+    "stale_work_status": (409, "The work status changed since you loaded it. Refresh and try again.",
+                          "stale_work_status"),
+    "invalid_work_status": (422, "Unknown work status.", "validation_error"),
+    "invalid_transition": (422, "Work status moves from not started to in progress, in progress to done, or done "
+                                "back to in progress.", "invalid_transition"),
+}
+
+
+@app.put("/api/prds/{prd_id}/work-status", response_model=WorkStatusOut)
+def set_work_status(prd_id: UUID, payload: WorkStatusIn, auth=Depends(get_current_user)):
+    # E14: owners and org admins (M3), only while approved, compare-and-set.
+    # Doesn't change the revision, make a version or touch the review.
+    client = auth["client"]
+    row = call_function(client, "set_prd_work_status",
+                        {"target_prd": str(prd_id), "from_status": payload.from_, "to_status": payload.to},
+                        WORK_STATUS_ERRORS)
+    saved = with_my_role(client, auth["user"].id, [row])[0]
+    return {**saved, **work_status_flags(client, prd_id)}
+
+
+def work_status_flags(client, prd_id) -> dict:
+    """What the caller may do with the work status now, and whether an
+    approved PRD has been edited since (asked as the caller)."""
+    return {
+        "can_update_work_status": client.rpc("can_update_work_status", {"target_prd": str(prd_id)}).execute().data
+        is True,
+        "changed_since_approval": client.rpc("prd_changed_since_approval",
+                                             {"target_prd": str(prd_id)}).execute().data is True,
+    }
 
 
 @app.delete("/api/prds/{prd_id}", status_code=204)

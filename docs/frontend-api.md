@@ -134,7 +134,9 @@ the same `PUT /api/prds/{id}` goes through the S03 save. The switch is off until
 v2 documents first.
 
 - **Body:** `{ "revision": int, "title"?, "description"?: string | null, "content_json"?: v2 document,
-  "generation_record_id"?: uuid }`. Only the fields you send change; `description: null` clears it.
+  "generation_record_id"?: uuid, "confirmed_reviewer_ids"?: [uuid] }`. Only the fields you send change;
+  `description: null` clears it. `confirmed_reviewer_ids` (1–50) is only for edits to an approved PRD (E09,
+  below).
 - **Response:** 200 `PRD`, now including `description`, with the new `revision`. The server derives `content_text`
   and keeps a version for each save that changes something. A save that changes nothing returns the PRD unchanged.
 - **Errors:**
@@ -143,8 +145,7 @@ v2 documents first.
   - 422 `invalid_title` / `invalid_description`;
   - 422 `status_not_allowed` if `status` is sent; 422 for `content_text` (the server derives it);
   - 403 viewer; 404 not visible; 409 `stale_revision`;
-  - 409 `review_integration_pending` for approved PRDs (`final`, `assigned`) until reapproval (E09) exists. Draft and
-    in-review PRDs save, and their status doesn't change.
+  - E09 (approved PRDs and reviews): see **Saving during or after a review** below.
 - **Accepting an AI proposal (A05):** send the proposal's `generation_record_id` with the save, plus the title,
   description and `content_json` the person kept (edited or not), and `revision` = the preview's `base_revision`.
   - Sections accepted exactly as proposed get the `ai_generated` mark (the editor's AI highlight); edited sections
@@ -154,6 +155,48 @@ v2 documents first.
   - Errors: 409 `proposal_unavailable` (already used, expired, or not yours: discard the preview); 409
     `stale_revision` (the PRD changed since the preview: generate again); 422 `invalid_generation_record` (the
     document carries an `ai_generated` mark the server didn't add).
+
+**Saving during or after a review (E09, Decision 9).** Title, description and content edits interact with
+[reviews](#reviews):
+
+| PRD state when you save | What happens | Response |
+|---|---|---|
+| `draft`, or no open round | A normal save | 200 `PRD` |
+| A round is open (`in_review` or `changes_requested`) | The round is superseded and continues on the new version with the same reviewers, all back to pending. The PRD stays `in_review`. If no reviewer can still take part, or the save empties the document, the PRD goes back to `draft` | 200 `PRD` (check `status`) |
+| Approved (`final` or `assigned`), sent **without** `confirmed_reviewer_ids` | Nothing is saved | 409 `reapproval_required` |
+| Approved, sent **with** `confirmed_reviewer_ids` by an **owner** | Saved; the approved round is superseded and a new round starts with the confirmed reviewers. The PRD goes to `in_review` | 200 `PRD` (`status: "in_review"`) |
+| Approved, saved by an editor or org admin (not an owner) | Nothing is saved | 403 `owner_required` |
+
+- **The edit modal (approved PRDs):** on 409 `reapproval_required`, keep the edits and show the modal "Your edits need
+  new approval". Prefill it with the reviewers of the latest round (`GET /api/prds/{id}/reviews`, first item). The
+  owner can add or remove people, then **Apply edits** resends the same save with `confirmed_reviewer_ids`.
+  **Discard** drops the edits; nothing is saved.
+- Reviewer list errors: 422 `no_reviewers` (empty list), `reviewer_not_in_organization`, `owner_cannot_review`, and
+  `empty_prd` (an approved PRD can't be resubmitted empty). 422 `confirmed_reviewers_not_allowed` if you send a list
+  for a PRD that isn't approved.
+- **Notifications:** an edit during a review notifies everyone who had approved or requested changes (`superseded`).
+  Reviewers who hadn't decided get nothing new. An approved PRD's new round notifies the confirmed reviewers
+  (`submitted`, `resubmitted: true`). Each save records one event.
+- A save that changes nothing never needs a reviewer list and never touches the review.
+
+### Work status (E14)
+
+`work_status` on every PRD: `not_started` (default), `in_progress` or `done`. It tracks work on an **approved** PRD
+and is separate from review state. Changing it doesn't change the revision, make a version or reset a review.
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `PUT /api/prds/{id}/work-status` | `{ "from": status, "to": status }`: `from` is the status you last saw | 200 `PRD` plus `can_update_work_status` and `changed_since_approval` | 404; 403 `forbidden`; 409 `not_approved` (the PRD isn't `final`/`assigned`); 409 `stale_work_status` (someone changed it: reload); 422 `invalid_transition`; 422 `validation_error` (unknown status) |
+
+- **Who (M3):** the PRD's **owners and org admins**. Decided by Vineela and Marco on 2026-10-31: v1.2 also lets
+  assigned implementers change it, but implementer assignments are deferred, so editors, viewers and reviewers get 403.
+- **Allowed changes:** not started → in progress, in progress → done, done → in progress (reopen).
+- **Only while approved.** When an approved PRD is edited and goes back to review (E09), its work status is kept but
+  frozen until the new round is approved. `changed_since_approval: true` means it was approved before and has been
+  edited since: show a "changed since approval" banner.
+- Moving to `done` notifies the PRD's owners (`work_status_changed`, payload `{ from, to, status }`), except the
+  person who changed it. Other changes are recorded without notifications.
+- Clients can't write `work_status` through other routes or the Data API.
 
 ### People on a PRD
 
@@ -241,7 +284,8 @@ requests changes; when everyone has approved, the PRD becomes `final`.
   new version with the same reviewers, all back to pending; the PRD stays `in_review`. Reviewers who had decided get a
   `superseded` notification. The old round keeps its decisions and explanations, so show superseded rounds as history
   (`GET .../reviews`). Reviewers who left are dropped; if none remain, or the PRD is emptied, it goes back to `draft`.
-  Edits to an approved PRD are owner-only and go through a modal to confirm the reviewers.
+  Edits to an approved PRD are owner-only and go through a modal to confirm the reviewers. Request and response
+  details: [Saving during or after a review](#prds).
 - The reviewer list is frozen when the round starts. Names and departments are as of submission.
 - **Deciding:** send the round's `version_id`. **Requesting changes needs an `explanation`**; it's saved as a comment
   on that version (optionally on one section) and shown as the reviewer's `explanation`. An approval can carry an
@@ -461,15 +505,22 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   `unread_count` always counts all your unread notifications, whatever page or filter you asked for.
 - **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
-- **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`; `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`;
-  `approved`: `{ round_no }`; `changes_requested`: `{ round_no, section_type }`; `round_approved`:
-  `{ round_no, reviewer_id }` (the last approver). Coming with Marco's E09/E14: `superseded`, `work_status_changed`.
+- **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`;
+  `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`; `approved`: `{ round_no }`;
+  `changes_requested`: `{ round_no, section_type }`; `round_approved`: `{ round_no, reviewer_id }` (the last
+  approver); `superseded` (an edit reset a review; `round_id` is the superseded round): `{ reviewer_ids,
+  continued, version_no, changed, generation_record_id? }`, where `continued` is `false` when the PRD went back
+  to draft; `work_status_changed`: `{ from, to, status }` (only `done` notifies, the owners).
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
   the first one and `updated_at` is when the latest arrived; a growing batch moves back to the top of the inbox. Once
   read, the next comment starts a new notification.
   Other types always have `count: 1`.
 - No realtime updates: refetch the unread count when the user navigates or on a timer.
+- **Saves never notify.** Each save that changes something records one event for the PRD's history: `version_saved`
+  (`{ version_no, changed }`, where `changed` lists `title`, `description` and section types) or, when it accepts
+  an AI proposal, `ai_applied` (the same plus `generation_record_id`). Neither creates a notification, so they never
+  appear in the inbox.
 
 ## Coming in open PRs
 

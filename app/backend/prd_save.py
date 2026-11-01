@@ -40,9 +40,26 @@ DATABASE_ERRORS = {
     "NT403": (403, "You can view this PRD but not edit it", "forbidden"),
     "NT409": (409, "This PRD changed since you last loaded it. Refresh and try again.", "stale_revision"),
     "NT422": (422, "The AI content in this save doesn't match a successful generation", "invalid_generation_record"),
-    "NTREV": (409, "Approved PRDs can't be edited until reapproval is in place", "review_integration_pending"),
+    "NTREV": (409, "This PRD is approved. Confirm its reviewers to save your edits; they'll be asked to approve "
+                   "again.", "reapproval_required"),
+    "NTOWN": (403, "Only the PRD's owners can edit it after approval.", "owner_required"),
+    "NTCRL": (422, "Only an approved PRD takes a confirmed reviewer list.", "confirmed_reviewers_not_allowed"),
     "NTPRP": acceptance.PROPOSAL_UNAVAILABLE,
 }
+
+
+# Review errors from Vineela's open_review_round / continue_review_round (#93),
+# raised as P0001 with a fixed message when a save resets or restarts a review.
+REVIEW_ERRORS = {
+    "no_reviewers": (422, "Choose at least one reviewer for the new approval.", "no_reviewers"),
+    "reviewer_not_in_organization": (422, "Every reviewer must be an active member of the PRD's organization.",
+                                     "reviewer_not_in_organization"),
+    "owner_cannot_review": (422, "Owners can't review their own PRD.", "owner_cannot_review"),
+    "empty_prd": (422, "An approved PRD can't be resubmitted empty.", "empty_prd"),
+    "approved_round_needs_owner": DATABASE_ERRORS["NTREV"],
+}
+
+MAX_CONFIRMED_REVIEWERS = 50
 
 
 class SaveError(ApiError):
@@ -57,7 +74,8 @@ class SaveError(ApiError):
 
 
 def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title=UNSET, description=UNSET,
-             content_json=UNSET, origin: str = "pm_edit", generation_record_id=None) -> dict:
+             content_json=UNSET, origin: str = "pm_edit", generation_record_id=None,
+             confirmed_reviewer_ids=None) -> dict:
     """Saves the given fields of one PRD and returns the saved row.
 
     verified_user is auth["user"] from get_current_user: the actor comes from
@@ -65,6 +83,9 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
 
     Fields left as UNSET keep their current value. description=None clears it.
     A save that changes nothing returns the current row without a new revision.
+
+    confirmed_reviewer_ids is the reviewer list an owner confirmed in the edit
+    modal; only an approved PRD takes one (E09, Decision 9).
     """
     actor_id = verified_actor_id(verified_user)
     if isinstance(base_revision, bool) or not isinstance(base_revision, int) or base_revision < 1:
@@ -73,6 +94,15 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
         raise SaveError(422, "Unknown save origin", "validation_error")
     if (origin == "ai_generated") != (generation_record_id is not None):
         raise SaveError(422, "Only an AI save names a generation record, and it must", "validation_error")
+
+    reviewers = None
+    if confirmed_reviewer_ids is not None:
+        try:
+            reviewers = [str(UUID(str(r))) for r in confirmed_reviewer_ids]
+        except (TypeError, ValueError):
+            raise SaveError(422, "confirmed_reviewer_ids must be user ids", "validation_error") from None
+        if len(reviewers) > MAX_CONFIRMED_REVIEWERS:
+            raise SaveError(422, f"At most {MAX_CONFIRMED_REVIEWERS} reviewers", "validation_error")
 
     if title is not UNSET:
         problems = validate_title(title)
@@ -123,11 +153,14 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
         "p_origin": origin,
         "p_generation_record_id": None if generation_record_id is None else str(generation_record_id),
         "p_apply_context_patch": apply_context_patch,
+        "p_confirmed_reviewers": reviewers,
     }
     try:
         response = service_client.rpc("save_prd", params).execute()
     except APIError as exc:
         known = DATABASE_ERRORS.get(exc.code or "")
+        if known is None and exc.code == "P0001":
+            known = REVIEW_ERRORS.get(exc.message or "")
         if known is None:
             raise  # the shared S01 handler turns it into a safe 4xx/500
         status, detail, code = known

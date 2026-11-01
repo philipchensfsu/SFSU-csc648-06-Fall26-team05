@@ -10,6 +10,8 @@ Run from app/backend with: python -m pytest tests/test_put_save.py
 from types import SimpleNamespace
 from uuid import UUID
 
+from uuid import UUID
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -57,6 +59,9 @@ def v2(monkeypatch):
     ({"revision": 1, "description": None}, {"description": None}),
     ({"revision": 1, "content_json": {"type": "doc", "content": []}}, {"content_json": {"type": "doc", "content": []}}),
     ({"revision": 3, "title": "T", "description": "D"}, {"title": "T", "description": "D"}),
+    # E09: the reviewers an owner confirmed in the edit modal (approved PRDs).
+    ({"revision": 2, "title": "T", "confirmed_reviewer_ids": ["44444444-4444-4444-8444-444444444444"]},
+     {"title": "T", "confirmed_reviewer_ids": [UUID("44444444-4444-4444-8444-444444444444")]}),
 ])
 def test_only_the_fields_sent_reach_the_save(api, v2, body, fields):
     client, calls = api
@@ -129,7 +134,8 @@ def test_the_response_includes_the_description_and_my_role(api, v2):
 
 
 @pytest.mark.parametrize("field, value", [("description", "D"),
-                                          ("generation_record_id", "33333333-3333-4333-8333-333333333333")])
+                                          ("generation_record_id", "33333333-3333-4333-8333-333333333333"),
+                                          ("confirmed_reviewer_ids", ["44444444-4444-4444-8444-444444444444"])])
 def test_legacy_save_refuses_save_core_fields(api, monkeypatch, field, value):
     monkeypatch.delenv("PRD_SAVE_V2", raising=False)
     client, calls = api
