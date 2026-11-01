@@ -109,12 +109,12 @@ Every PRD belongs to its creator's organization. `my_role` is the caller's acces
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
   [`docs/prd-document-format.md`](prd-document-format.md).
 
-**S03 save (draft, #81; not on `develop`, not deployed).** When the backend runs with `PRD_SAVE_V2=true`, the
-same `PUT /api/prds/{id}` goes through the S03 save. The switch is off until the cutover: the editor must send v2
-documents first.
+**S03 save (on `develop` behind a switch, #81; off in production).** When the backend runs with `PRD_SAVE_V2=true`,
+the same `PUT /api/prds/{id}` goes through the S03 save. The switch is off until the cutover: the editor must send
+v2 documents first.
 
-- **Body:** `{ "revision": int, "title"?, "description"?: string | null, "content_json"?: v2 document }`. Only the
-  fields you send change; `description: null` clears it.
+- **Body:** `{ "revision": int, "title"?, "description"?: string | null, "content_json"?: v2 document,
+  "generation_record_id"?: uuid }`. Only the fields you send change; `description: null` clears it.
 - **Response:** 200 `PRD`, now including `description`, with the new `revision`. The server derives `content_text`
   and keeps a version for each save that changes something. A save that changes nothing returns the PRD unchanged.
 - **Errors:**
@@ -125,8 +125,15 @@ documents first.
   - 403 viewer; 404 not visible; 409 `stale_revision`;
   - 409 `review_integration_pending` for approved PRDs (`final`, `assigned`) until reapproval (E09) exists. Draft and
     in-review PRDs save, and their status doesn't change.
-- **Accepting an AI proposal:** send `generation_record_id` with the save. Until A05 (#70) is in, this returns 422
-  `proposal_acceptance_unavailable`.
+- **Accepting an AI proposal (A05):** send the proposal's `generation_record_id` with the save, plus the title,
+  description and `content_json` the person kept (edited or not), and `revision` = the preview's `base_revision`.
+  - Sections accepted exactly as proposed get the `ai_generated` mark (the editor's AI highlight); edited sections
+    don't. The version records the save as AI-assisted either way.
+  - A proposal can be used once, by the person who asked for it, at the revision it was made for. Resending the same
+    acceptance after a lost response returns the saved PRD instead of an error.
+  - Errors: 409 `proposal_unavailable` (already used, expired, or not yours: discard the preview); 409
+    `stale_revision` (the PRD changed since the preview: generate again); 422 `invalid_generation_record` (the
+    document carries an `ai_generated` mark the server didn't add).
 
 ### People on a PRD
 
@@ -309,7 +316,7 @@ All routes: 404 if you're not an active member of the organization, 403 if you'r
 ## Generation preview (AI)
 
 `POST /api/prds/{id}/generate` drafts a whole PRD from its interview answers with Gemini. **It's a preview: nothing is
-saved.** The user accepts it through the normal save (accepting proposals arrives with #70); rejecting means
+saved.** The user accepts it through the normal save (`generation_record_id` on `PUT`, see the S03 save); rejecting means
 discarding it.
 
 | Body | Response | Who |
@@ -320,7 +327,8 @@ discarding it.
   answers and the PRD's saved AI context (decisions, constraints, open questions, summary).
 - `content_json` is a v2 document with all nine sections ([prd-document-format.md](prd-document-format.md)).
   `sources` is always empty for now.
-- Keep `generation_record_id`: it's how the save will know this content came from the AI.
+- Keep `generation_record_id`: send it with the save that accepts the draft, so the server knows this content came
+  from the AI.
 - **No streaming:** show a waiting state. A slow generation can still fail with 502/503; offer a retry.
 
 | Status | `code` | When | Suggested handling |

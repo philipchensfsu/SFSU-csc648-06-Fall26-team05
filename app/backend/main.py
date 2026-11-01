@@ -107,7 +107,7 @@ class PRDUpdate(RequestModel):
     content_text: Optional[str] = None
     status: Optional[str] = None
     # S03 save only (PRD_SAVE_V2): description is its own column there, and
-    # generation_record_id accepts an AI proposal once A05 (#70) is in.
+    # generation_record_id accepts an AI proposal (A05).
     description: Optional[str] = None
     generation_record_id: Optional[UUID] = None
 
@@ -361,11 +361,14 @@ def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict
                        code="status_not_allowed")
     if "content_text" in sent:
         raise ApiError(422, "content_text is derived by the server; don't send it", code="validation_error")
-    if payload.generation_record_id is not None:
-        # Accepting a proposal needs A05's once-only checks (#70); without
-        # them a record id would only be checked for existence.
-        raise ApiError(422, "Accepting AI proposals isn't available yet", code="proposal_acceptance_unavailable")
     fields = {name: getattr(payload, name) for name in ("title", "description", "content_json") if name in sent}
+    if payload.generation_record_id is not None:
+        # Accepting an AI proposal (A05): the same save, which checks the
+        # proposal (the requester's, this PRD, this base revision), marks
+        # the sections accepted unchanged and uses it once in the
+        # transaction (ai/acceptance.py and save_prd).
+        fields["origin"] = "ai_generated"
+        fields["generation_record_id"] = payload.generation_record_id
     saved = prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
     # Like every PRD response, it carries the caller's role, read as them.
     return with_my_role(auth["client"], auth["user"].id, [saved])[0]
