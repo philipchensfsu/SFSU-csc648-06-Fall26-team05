@@ -334,3 +334,12 @@ def test_command_line_check(tmp_path, capsys):
     assert "empty_text at /content/0/content/0/content/0/text" in capsys.readouterr().out
     assert prd_document.main([str(FIXTURES / "valid" / "marks.json")]) == 0
     assert prd_document.main([]) == 2
+
+
+def test_a_doc_without_content_is_an_empty_document():
+    # TipTap's getJSON() omits "content" for an empty document. It means the
+    # same as content: [], so validation and text extraction must agree. Not
+    # a shared fixture: the editor writes it back as content: [], so an exact
+    # round-trip comparison would fail on a document that hasn't changed.
+    assert validate_document({"type": "doc"}) == []
+    assert derive_content_text({"type": "doc"}) == ""

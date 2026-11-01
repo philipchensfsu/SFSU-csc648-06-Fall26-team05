@@ -206,3 +206,12 @@ def test_bad_confirmed_reviewer_lists_are_refused_before_the_database(bad):
     with pytest.raises(SaveError) as caught:
         save_prd(service, USER, PRD, 1, title="t", confirmed_reviewer_ids=bad)
     assert caught.value.code == "validation_error" and service.calls == []
+
+
+def test_an_empty_doc_without_content_saves_with_empty_text():
+    # TipTap's getJSON() omits content for an empty document; this used to
+    # crash derive_content_text (KeyError) after passing validation.
+    service = FakeService()
+    save_prd(service, USER, PRD, 1, content_json={"type": "doc"})
+    params = service.calls[0][1]
+    assert params["p_content_json"] == {"type": "doc"} and params["p_content_text"] == ""
