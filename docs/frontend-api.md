@@ -165,8 +165,8 @@ v2 documents first.
   - Errors: 409 `proposal_unavailable` (already used, expired, or not yours: discard the preview); 409
     `stale_revision` (the PRD changed since the preview: generate again); 422 `invalid_generation_record` (the
     document carries an `ai_generated` mark the server didn't add); 422 `unsupported_proposal` (this kind of AI
-    proposal can't be accepted through the save yet: discard it). Today only whole drafts from Generate are
-    accepted; section edits (#85) and review suggestions (#110) add theirs as they merge.
+    proposal can't be accepted through the save yet: discard it). Whole drafts from Generate, section edits
+    and review suggestions are accepted.
 
 **Saving during or after a review (E09, Decision 9).** Title, description and content edits interact with
 [reviews](#reviews):
@@ -491,6 +491,59 @@ suggestions come later, through the same proposal and save flow as generation.
   (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`,
   `ai_unavailable`, `ai_budget_exhausted`).
 
+## AI section edits
+
+`POST /api/prds/{id}/ai-edit` asks the AI to rewrite **one section** and returns a proposal to preview. **Nothing is
+saved**; the person accepts it through the normal save or discards it.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int, "section_type": "goals", "instruction": "1–2000 chars", "session_messages": [ { "role": "user" \| "assistant", "content": "1–8000 chars" } ] }` (at most 20; the chat's recent turns) | 200 `{ kind: "proposal" \| "blocked" \| "clarification", message, proposal, base_revision, generation_record_id }`. `proposal` is `{ section_type, section, content_json }` (null unless `kind` is `"proposal"`) | **Can edit** the PRD (viewers can still chat; they get 403 here) |
+
+- `message` explains the change. `content_json` is the saved document with only that section replaced (or inserted in
+  the standard order), ready to preview.
+- **Accept** by saving `content_json` with `generation_record_id` (see the S03 save): unchanged, or with only that
+  section edited. Other sections, the title and the description must not change in that save, so save manual edits
+  first. An unchanged section gets the AI highlight; an edited one doesn't. Reject by discarding.
+- A save in between makes the proposal stale (409). The PRD must already be in the v2 format.
+- `session_messages` uses `content`, like the chat's `history` (the integration guide v0.1 example says `text`).
+- Like the chat, it returns 503 `ai_chat_unavailable` until Om's guardrail modules are in (#80).
+- **Frontend (Om/Aksh):** the editor's Rewrite / Expand / Shorten / Improve / Insert actions each map to `ai-edit`
+  with the section's `type` and an instruction (the action, plus any selected text). Lock editing while the request
+  runs.
+- Errors: as for the chat, plus 403 `forbidden` (can't edit), 409 `document_not_v2` (hide AI edits for that PRD),
+  and on accept 422 `proposal_scope` (the save changed something besides that section: save manual edits first,
+  then accept).
+
+## Revision suggestions from review feedback (E12)
+
+`POST /api/prds/{id}/review-suggestions` asks the AI how to address chosen review comments and returns one proposal to
+preview, with an explanation. **Nothing is saved, and nothing about the review changes**: the AI can't approve,
+reject, reply to or resolve anything.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int, "feedback_ids": [uuid] (1–20), "instruction"?: "≤ 2000 chars" }` | 200 `{ explanation, proposal: { section_types, sections, content_json }, base_revision, generation_record_id }` | **Owners only** (Backend Tasks v1.2). Editors, viewers, reviewers and org admins who aren't owners get 403 `owner_required` |
+
+- `feedback_ids` are **comment ids** ([Comments](#comments)), all on this PRD's **current version**. A reviewer's
+  change-request explanation is a comment too, so use its `comment_id`.
+- `proposal.sections` are only the sections the AI changed; `content_json` is the saved document with those replaced
+  (or inserted in the standard order), ready to preview. `explanation` says how the changes address the feedback and
+  what it didn't act on.
+- **Accept** by saving `content_json` with `generation_record_id` (see the S03 save), unchanged or with those sections
+  edited. Other sections, the title and the description must not change in that save (422 `proposal_scope`).
+  Sections accepted unchanged get the AI highlight. Reject by discarding.
+- Accepting is a normal edit: during a review it continues the round like any other save (E09).
+- **Which button flag to use:** `capabilities.can_request_review_suggestions` (on `GET /api/prds/{id}`), **not**
+  `can_request_ai`. It's true only for an owner, on a PRD with a saved v2 version and at least one comment on that
+  version; `can_request_ai` is broader (editors too) and covers Generate and section edits. AI being off still comes
+  back as `ai_disabled` from this route.
+- Errors: 404; 403 `owner_required`; 409 `stale_revision` (the PRD changed: reload, pick comments again); 409
+  `document_not_v2`; 422 `invalid_feedback` (an id isn't a comment on this PRD you can see); 422
+  `feedback_not_current` (a comment is on an older version); 422 `validation_error`; plus the shared AI codes
+  (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`,
+  `ai_unavailable`, `ai_budget_exhausted`).
+
 ## Owning team and priority (A08)
 
 Neither is reviewed material: changing them doesn't change the revision, make a version or reset a review (Decision 9).
@@ -558,7 +611,7 @@ Not on `develop` yet. Shapes can still change in review; each PR updates its ent
 
 ### AI (Marco)
 
-Open: #85 (AI section edits), #106 (save events), #110 (review suggestions, draft).
+Open: #106 (save events).
 Each adds its entry here or in the main reference as it merges.
 
 ### Version history (Marco, draft, #84)
