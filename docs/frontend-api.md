@@ -412,6 +412,24 @@ suggestions come later, through the same proposal and save flow as generation.
   (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`,
   `ai_unavailable`, `ai_budget_exhausted`).
 
+## Owning team and priority (A08)
+
+Neither is reviewed material: changing them doesn't change the revision, make a version or reset a review (Decision 9).
+The owning team grants no access. PRD responses add `owning_team_id` and `priority` (`low` | `medium` | `high` |
+`critical`, or null).
+
+| Route | Body | Response | Who |
+|---|---|---|---|
+| `POST /api/prds/{id}/classification` | `{ "revision": int }` | 200 `{ suggestion: { id, team_id, priority, rationale }, base_revision, generation_record_id }`. A preview: nothing on the PRD changes | Owner or org admin |
+| `PUT /api/prds/{id}/classification/{suggestion_id}/decision` | `{ "decision": "accepted" \| "rejected", "team_id"?, "priority"? }` (adjustments only with `accepted`; `team_id: null` means no team) | 200 `PRD` | Owner or org admin |
+| `PUT /api/prds/{id}/routing` | `{ "owning_team_id": uuid \| null, "priority": ... \| null }` | 200 `PRD` | Owner or org admin |
+
+- The suggestion uses AI (same limits and AI error codes as generation). It needs saved content (422 `needs_content`)
+  and at least one active team in the org (422 `no_teams`). A save while it runs gives 409 `stale_revision`.
+- A suggestion is decided once: a second decision is 409 `suggestion_unavailable`.
+- A team must be an active team of the PRD's org (422 `invalid_team`). Editors and viewers get 403.
+- Clients can't write `owning_team_id` or `priority` directly (Data API); use these routes.
+
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD or
@@ -454,8 +472,7 @@ Not on `develop` yet. Shapes can still change in review; each PR updates its ent
 
 ### AI (Marco)
 
-Open: #84 (version history), #85 (AI section edits), #86 (owning team and priority), #106 (save events), #108
-(accepting AI proposals through PUT), #110 (review suggestions, draft).
+Open: #85 (AI section edits), #106 (save events), #110 (review suggestions, draft).
 Each adds its entry here or in the main reference as it merges.
 
 ### Version history (Marco, draft, #84)
