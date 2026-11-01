@@ -1,3 +1,4 @@
+import json
 import os
 import re
 import sys
@@ -1063,6 +1064,10 @@ DIRECTORY_ERRORS = {
         (409, "Move this department's members and teams elsewhere before archiving it.", "department_not_empty"),
     "An archived team still has active members":
         (409, "Remove this team's members before archiving it.", "team_not_empty"),
+    "Reporting lines would form a cycle":
+        (422, "That manager would make the reporting lines loop back.", "manager_cycle"),
+    "An active member reports to an inactive manager":
+        (422, "A manager must be an active member of the organization.", "manager_inactive"),
 }
 
 
@@ -1096,10 +1101,11 @@ def unit_changes(payload):
     # Only the fields sent change; null clears head_id, lead_id or department_id.
     changes = {key: str(value) if isinstance(value, UUID) else value
                for key, value in payload.model_dump(exclude_unset=True).items()}
+    for field in ("name", "archived"):
+        if field in changes and changes[field] is None:
+            raise ApiError(422, f"{field} can't be null.", "validation_error")
     if "archived" in changes:
         changes["archived_at"] = datetime.now(timezone.utc).isoformat() if changes.pop("archived") else None
-    if changes.get("name", "") is None:
-        raise ApiError(422, "name can't be null.", "validation_error")
     return changes
 
 
@@ -1182,7 +1188,80 @@ def remove_team_member(org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(
     require_org_admin(client, org_id)
     team_in_org(client, org_id, team_id)
     write_directory(lambda: client.table("team_member").delete(returning=ReturnMethod.minimal)
-                    .eq("team_id", str(team_id)).eq("user_id", str(user_id)).execute())
+                    .eq("organization_id", str(org_id)).eq("team_id", str(team_id))
+                    .eq("user_id", str(user_id)).execute())
+
+
+class MemberUpdate(RequestModel):
+    access_role: Optional[Literal["member", "admin"]] = None
+    department_id: Optional[UUID] = None
+    manager_id: Optional[UUID] = None
+    title: Optional[Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)]] = None
+    active: Optional[bool] = None
+    # Only when deactivating someone (see MEMBER_ADMIN_ERRORS).
+    replacement_manager_id: Optional[UUID] = None
+    transfer_owner_to: Optional[UUID] = None
+
+
+class MemberOut(BaseModel):
+    user_id: UUID
+    active: bool
+    access_role: Literal["member", "admin"]
+    department_id: Optional[UUID]
+    manager_id: Optional[UUID]
+    title: Optional[str]
+
+
+# Errors raised by update_org_member (P0001 with a fixed message).
+MEMBER_ADMIN_ERRORS = {
+    "org_admin_required": (403, "Only organization admins can change members.", None),
+    "member_not_found": (404, "Member not found", None),
+    "last_admin": (409, "The organization needs at least one active admin. Make someone else an admin first.",
+                   "last_admin"),
+    "has_direct_reports": (409, "This person manages people. Send replacement_manager_id (or null) for them.",
+                           "has_direct_reports"),
+    "owns_prds": (409, "This person is the only owner of some PRDs. Send transfer_owner_to with a new owner.",
+                  "owns_prds"),
+    "invalid_replacement": (422, "The replacement must be another active member of this organization.",
+                            "not_in_organization"),
+    "invalid_change": (422, "Unknown member field.", "validation_error"),
+}
+
+# Which list a 409 carries in its body.
+AFFECTED_KEYS = {"has_direct_reports": "reports", "owns_prds": "prds"}
+
+
+@app.patch("/api/organizations/{org_id}/members/{user_id}", response_model=MemberOut)
+def update_member(org_id: UUID, user_id: UUID, payload: MemberUpdate, auth=Depends(get_current_user)):
+    # Change a member's role, department, manager, title or active flag.
+    # Only the fields sent change; null clears department, manager or title.
+    client = auth["client"]
+    if not client.table("organization").select("id").eq("id", str(org_id)).execute().data:
+        raise ApiError(404, "Organization not found")
+    changes = {key: str(value) if isinstance(value, UUID) else value
+               for key, value in payload.model_dump(exclude_unset=True).items()}
+    if changes.get("title") == "":
+        changes["title"] = None
+    params = {"target_org": str(org_id), "target_user": str(user_id), "changes": changes}
+
+    def run():
+        try:
+            return client.rpc("update_org_member", params).execute()
+        except APIError as exc:
+            if exc.message in MEMBER_ADMIN_ERRORS:
+                error = ApiError(*MEMBER_ADMIN_ERRORS[exc.message])
+                if exc.message in AFFECTED_KEYS:
+                    # The function lists what's affected in the error detail.
+                    error.extra = {AFFECTED_KEYS[exc.message]: json.loads(exc.details or "[]")}
+                raise error
+            if exc.code == "23505":  # one active membership per account
+                raise ApiError(409, "This person is already active in another organization.", "active_elsewhere")
+            raise
+
+    write_directory(run)
+    rows = (client.table("organization_member").select("user_id, active, access_role, department_id, manager_id, title")
+            .eq("organization_id", str(org_id)).eq("user_id", str(user_id)).execute().data)
+    return rows[0]
 
 
 # Preview only (A03): returns {proposal, base_revision, generation_record_id}
