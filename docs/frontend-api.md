@@ -409,8 +409,30 @@ Next: admin routes for members (E02 part 2).
 
 ### AI (Marco)
 
-Open: #84 (version history), #85 (AI section edits), #86 (owning team and priority), #106 (save events, draft).
+Open: #84 (version history), #85 (AI section edits), #86 (owning team and priority), #106 (save events), #108
+(accepting AI proposals through PUT), #110 (review suggestions, draft).
 Each adds its entry here or in the main reference as it merges.
+
+### Version history (Marco, draft, #84)
+
+Read-only history of a PRD's saves (S04). Every save that changes the title, description or document keeps a
+permanent snapshot (since the S03 save core). There's no restore; don't show a Restore control.
+
+| Route | Query | Response | Errors |
+|---|---|---|---|
+| `GET /api/prds/{id}/versions` | `limit` (1–100, default 25), `cursor` | 200 `{ items: [Version], next_cursor }`, newest first | 404 if you can't see the PRD; 422 bad `limit` or `cursor` |
+| `GET /api/prds/{id}/versions/{version_id}` | | 200 `Version` plus `title`, `description`, `content_json`, `doc_schema_version`, `generation_record_id` | 404 if you can't see the PRD, or the version isn't one of **this** PRD's |
+
+`Version`: `{ id, version_no, saved_revision, actor: { id, name } | null, origin, created_at, changed_sections, change_summary }`
+
+- **Pages:** send `next_cursor` back as `cursor` for the next page; it's `null` on the last page. Cursors are opaque.
+  Pages are stable: a save made while you page doesn't shift them.
+- **`origin`:** `pm_edit`, `ai_generated` (an accepted AI proposal, saved by `actor`) or `checkpoint`.
+- **`actor`:** `null` for the checkpoint that kept content saved before history existed, and for people whose account
+  was deleted. `name` can be `null` if they never set one.
+- **`changed_sections`:** section types whose content changed. `change_summary` is a short line such as "Edited title,
+  problem" (wording may still change).
+- **Who can see it:** anyone who can view the PRD (owner, editor, viewer, org admin), the same as the PRD itself.
 
 ## Changes from the integration guide
 
