@@ -93,14 +93,15 @@ def ensure_person(supabase, key, name, password):
     return user_id
 
 
-def sign_in(address, password):
+def sign_in(url, anon_key, address, password):
     """A client acting as that account, through RLS, like the API's user_client."""
     from supabase import create_client
-    from supabase_client import SUPABASE_ANON_KEY, SUPABASE_URL, user_client
 
-    session = create_client(SUPABASE_URL, SUPABASE_ANON_KEY).auth.sign_in_with_password(
+    session = create_client(url, anon_key).auth.sign_in_with_password(
         {"email": address, "password": password}).session
-    return user_client(session.access_token)
+    client = create_client(url, anon_key)
+    client.postgrest.auth(session.access_token)
+    return client
 
 
 def ensure_unit(supabase, table, org_id, name, extra=None):
@@ -169,7 +170,7 @@ def ensure_solo_org(supabase, password):
             {"organization_id": org_id, "user_id": user_id, "access_role": "admin"}).execute()
 
 
-def seed(supabase, allow_hosted=False):
+def seed(supabase, allow_hosted=False, anon_key=None):
     password = os.environ.get("DEMO_PASSWORD")
     if not password:
         raise SystemExit("Set DEMO_PASSWORD: every demo account signs in with it to take its review actions.")
@@ -180,8 +181,12 @@ def seed(supabase, allow_hosted=False):
     ids = {key: ensure_person(supabase, key, name, password) for key, name, *_ in PEOPLE}
     build_directory(supabase, org_id, ids)
 
-    owner_client = sign_in(seed_demo.DEMO_EMAIL, password)
-    clients = {key: sign_in(email(key), password) for key in {a[1] for acts in REVIEWS.values() for a in acts
+    # Same project as the service client; the anon key defaults to the backend's.
+    url = str(supabase.supabase_url)
+    if anon_key is None:
+        from supabase_client import SUPABASE_ANON_KEY as anon_key
+    owner_client = sign_in(url, anon_key, seed_demo.DEMO_EMAIL, password)
+    clients = {key: sign_in(url, anon_key, email(key), password) for key in {a[1] for acts in REVIEWS.values() for a in acts
                                                        if a[0] in ("comment", "decide")}}
     play_reviews(supabase, org_id, owner_client, clients, ids)
     ensure_solo_org(supabase, password)
