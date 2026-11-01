@@ -28,6 +28,9 @@ services:
       SUPABASE_ANON_KEY: *anon-key
       SUPABASE_SERVICE_ROLE_KEY: *service-role-key
       WATCHFILES_FORCE_POLLING: ${DOCKER_POLLING:-false}
+      # The v2 save (PUT /api/prds/{id}). Off by default, as in production;
+      # run `PRD_SAVE_V2=true docker compose up` to try it.
+      PRD_SAVE_V2: ${PRD_SAVE_V2:-false}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
