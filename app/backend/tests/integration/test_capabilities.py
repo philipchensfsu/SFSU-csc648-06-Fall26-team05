@@ -21,10 +21,15 @@ def team(make_user, make_org, db):
     return dict(ada=ada, olive=olive, ed=ed, vic=vic, rae=rae, ray=ray, org=org, prd=prd, version=version)
 
 
+# The E03 flags this file covers; E14/A08 flags are tested in test_prd_read_model.py.
+E03_FLAGS = ("can_view", "can_comment", "can_edit", "can_delete", "can_assign", "can_submit_review", "can_approve",
+             "can_request_ai")
+
+
 def caps(user, prd):
     r = user.api("GET", f"/prds/{prd}")
     assert r.status_code == 200, r.text
-    return r.json()["capabilities"]
+    return {name: value for name, value in r.json()["capabilities"].items() if name in E03_FLAGS}
 
 
 def on(flags):

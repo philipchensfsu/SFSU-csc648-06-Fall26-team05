@@ -413,12 +413,40 @@ class Capabilities(BaseModel):
     can_submit_review: bool
     can_approve: bool
     can_request_ai: bool
+    # Added with E14 and A08 (Marco), from the same helpers those routes use.
+    can_update_work_status: bool
+    can_request_classification: bool
+    can_set_routing: bool
+    # E12 is owner-only (narrower than can_request_ai) and needs comments on
+    # the current version.
+    can_request_review_suggestions: bool
+
+
+class VersionRef(BaseModel):
+    id: UUID
+    version_no: Optional[int]
+
+
+class ProjectRef(BaseModel):
+    id: UUID
+    name: str
+
+
+class PersonRef(BaseModel):
+    id: UUID
+    name: Optional[str]
 
 
 class PRDDetailOut(PRDOut):
     approval: ApprovalSummary
     # What the caller may do now (E03); the same rules the routes enforce.
     capabilities: Capabilities
+    # E05: the current saved version, the PRD's folder (id and name only) and
+    # its owners (names only), and whether an approved PRD changed since.
+    current_version: Optional[VersionRef]
+    project: Optional[ProjectRef]
+    owners: list[PersonRef]
+    changed_since_approval: bool
 
 
 NO_APPROVAL = {"round_id": None, "round_no": None, "version_id": None, "state": None,
@@ -448,8 +476,32 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
     prd = with_my_role(client, auth["user"].id, response.data)[0]
-    capabilities = client.rpc("prd_capabilities", {"target_prd": str(prd_id)}).execute().data
-    return {**prd, "approval": approval_summary(client, prd_id), "capabilities": capabilities}
+    return {**prd, "approval": approval_summary(client, prd_id), "capabilities": prd_capabilities(client, prd_id),
+            **read_model(client, prd_id)}
+
+
+def prd_capabilities(client, prd_id) -> dict:
+    """Vineela's E03 flags plus the E14/A08 ones, each from the helper its
+    route checks (asked as the caller)."""
+    flags = client.rpc("prd_capabilities", {"target_prd": str(prd_id)}).execute().data or {}
+    manage = client.rpc("can_manage_prd", {"target_prd_id": str(prd_id)}).execute().data is True
+    return {
+        **flags,
+        "can_update_work_status": client.rpc("can_update_work_status", {"target_prd": str(prd_id)}).execute().data
+        is True,
+        "can_request_classification": manage,
+        "can_set_routing": manage,
+        "can_request_review_suggestions": client.rpc("can_request_review_suggestions",
+                                                     {"target_prd": str(prd_id)}).execute().data is True,
+    }
+
+
+def read_model(client, prd_id) -> dict:
+    """E05: current version, project, owners and changed_since_approval."""
+    data = client.rpc("prd_read_model", {"target_prd": str(prd_id)}).execute().data
+    if data is None:  # lost access between the reads
+        raise ApiError(404, "PRD not found")
+    return data
 
 
 class VersionActor(BaseModel):
