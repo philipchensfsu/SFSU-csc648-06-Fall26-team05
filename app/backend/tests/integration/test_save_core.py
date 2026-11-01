@@ -85,13 +85,14 @@ def test_in_review_prds_save_and_keep_their_status(cast, db, service):
 
 
 @pytest.mark.parametrize("status", ["final", "assigned"])
-def test_approved_prds_are_refused_until_reapproval_exists(cast, db, service, status):
-    # D9: an edit must not leave an approval standing, and E09 isn't built.
+def test_approved_prds_need_a_confirmed_reviewer_list(cast, db, service, status):
+    # D9: an edit must not leave an approval standing; E09 asks for the
+    # reviewers confirmed in the edit modal (tests/integration/test_reapproval.py).
     db.execute("update prd set status = %s where id = %s", (status, cast["prd"]))
     before = row(db, cast["prd"])
     with pytest.raises(SaveError) as info:
         save_prd(service, verified(service, cast["owner"]), cast["prd"], 1, title="Edited after approval")
-    assert (info.value.status_code, info.value.code) == (409, "review_integration_pending")
+    assert (info.value.status_code, info.value.code) == (409, "reapproval_required")
     assert row(db, cast["prd"]) == before and versions(db, cast["prd"]) == []
 
 
