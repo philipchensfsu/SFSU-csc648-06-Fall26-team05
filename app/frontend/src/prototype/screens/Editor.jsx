@@ -1,8 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import Dialog from "../Dialog";
 import { formatDate, STATUS_LABELS } from "../data";
+import { api } from "../../../lib/api";
 
 const sectionNumber = (index) => `§${String(index + 1).padStart(2, "0")}`;
+
+// The backend accepts 20; sending fewer keeps the prompt small and the
+// follow-up context recent.
+const MAX_CHAT_HISTORY = 20;
+
+// The AI limits are the ones worth wording ourselves; everything else shows
+// the backend's own sentence, which is written to be shown as-is.
+function describeChatError(error) {
+  const wait = Number(error?.retryAfter);
+  const inAMoment = Number.isFinite(wait) && wait > 0 ? ` Try again in ${Math.ceil(wait)}s.` : "";
+  if (error?.code === "ai_cooldown") return `Just a moment between questions.${inAMoment}`;
+  if (error?.code === "ai_busy") return `Nautilus is still working on your last question.${inAMoment}`;
+  if (error?.code === "stale_revision") {
+    return "This PRD changed since you opened it. Refresh to carry on chatting.";
+  }
+  return error?.message || "Couldn't reach Nautilus. Try again.";
+}
 
 function buildDocumentHtml(sections) {
   return sections
@@ -64,6 +82,20 @@ function Editor({ prd, onSave, onDashboard, onExport }) {
   const [scope, setScope] = useState({ text: "", sectionId: prd.sections[0].id });
   const [chat, setChat] = useState([]);
   const [question, setQuestion] = useState("");
+  const [asking, setAsking] = useState(false);
+  const [chatError, setChatError] = useState(null);
+  // Which PRD the open conversation belongs to, so a reply that arrives after
+  // the user switches PRDs is dropped instead of appearing in the new chat.
+  const openPrdId = useRef(prd.id);
+
+  useEffect(() => {
+    if (openPrdId.current === prd.id) return;
+    openPrdId.current = prd.id;
+    setChat([]);
+    setQuestion("");
+    setAsking(false);
+    setChatError(null);
+  }, [prd.id]);
 
   const totalAssumptions = Object.values(assumptions).reduce((a, b) => a + b, 0);
 
@@ -209,18 +241,47 @@ function Editor({ prd, onSave, onDashboard, onExport }) {
     ]);
   }
 
-  function askAi(event) {
+  async function askAi(event) {
     event.preventDefault();
-    if (!question.trim()) return;
-    setChat((log) => [
-      ...log,
-      { from: "you", text: question.trim() },
-      {
-        from: "ai",
-        text: "This is a prototype, so I can't answer yet. In the real app, the AI would reply here using the text in scope.",
-      },
-    ]);
+    const asked = question.trim();
+    // One request at a time: the backend allows one per user, and a second
+    // send would only come back ai_busy.
+    if (!asked || asking) return;
+
+    const forPrd = prd.id;
+    // What the backend may see: this PRD's recent turns, nothing else.
+    const history = chat
+      .filter((message) => message.kind !== "error")
+      .slice(-MAX_CHAT_HISTORY)
+      .map((message) => ({
+        role: message.from === "ai" ? "assistant" : "user",
+        content: message.text,
+      }));
+
+    setChat((log) => [...log, { from: "you", text: asked }]);
     setQuestion("");
+    setAsking(true);
+    setChatError(null);
+
+    try {
+      const reply = await api.chatAboutPrd(forPrd, {
+        revision: prd.revision,
+        message: asked,
+        history,
+      });
+      // A reply that arrives after the user moved to another PRD belongs to
+      // the old conversation; drop it rather than show it under the new one.
+      if (openPrdId.current !== forPrd) return;
+      setChat((log) => [...log, { from: "ai", kind: reply.kind, text: reply.message }]);
+    } catch (error) {
+      if (openPrdId.current !== forPrd) return;
+      // Keep what they typed so they can send it again.
+      setQuestion(asked);
+      setChat((log) => log.slice(0, -1));
+      setChatError(describeChatError(error));
+    } finally {
+      if (openPrdId.current === forPrd) setAsking(false);
+    }
   }
 
   const scopeSection = prd.sections.find((s) => s.id === scope.sectionId);
@@ -397,20 +458,32 @@ function Editor({ prd, onSave, onDashboard, onExport }) {
                   {message.text}
                 </li>
               ))}
+              {asking ? (
+                <li className="nt-bubble nt-bubble-ai nt-muted">Thinking…</li>
+              ) : null}
             </ol>
+            {chatError ? (
+              <p className="nt-small nt-error" role="alert">
+                {chatError}
+              </p>
+            ) : null}
             <form className="nt-ai-form" onSubmit={askAi}>
               <label htmlFor="ask-ai" className="nt-sr-only">
-                Ask AI
+                Ask Nautilus about this PRD
               </label>
               <textarea
                 id="ask-ai"
                 rows={2}
-                placeholder="Ask AI"
+                placeholder="Ask Nautilus about this PRD..."
                 value={question}
                 onChange={(event) => setQuestion(event.target.value)}
               />
-              <button type="submit" className="nt-btn nt-btn-primary nt-btn-sm">
-                Send
+              <button
+                type="submit"
+                className="nt-btn nt-btn-primary nt-btn-sm"
+                disabled={asking || !question.trim()}
+              >
+                {asking ? "Sending…" : "Send"}
               </button>
             </form>
           </aside>
