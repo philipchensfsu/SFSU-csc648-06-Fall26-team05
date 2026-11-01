@@ -16,7 +16,7 @@
 -- The approval summary (E11) and capabilities (E03) come from Vineela's
 -- approval_summary and prd_capabilities, which this doesn't repeat.
 --
--- Apply after 20261031200000_work_status (prd_changed_since_approval) and
+-- Apply after 20261101032200_work_status (prd_changed_since_approval) and
 -- Vineela's 20261101015824_prd_capabilities. Adds a function; no data
 -- changes.
 

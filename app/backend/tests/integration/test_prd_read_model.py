@@ -1,4 +1,4 @@
-"""E05 detail read model on GET /api/prds/{id} (20261101030000_prd_read_model.sql)
+"""E05 detail read model on GET /api/prds/{id} (20261101032300_prd_read_model.sql)
 against the local stack: current version, project (id and name only), owners
 (names, no emails), changed_since_approval, and the E14/A08 capability flags
 added to Vineela's E03 capabilities."""
