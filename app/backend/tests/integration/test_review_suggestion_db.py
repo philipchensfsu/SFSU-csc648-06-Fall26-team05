@@ -11,7 +11,9 @@ from pathlib import Path
 import pytest
 from supabase import create_client
 
-from ai import review_suggestion
+from types import SimpleNamespace
+
+from ai import chat, review_suggestion
 from ai.acceptance import AcceptanceError
 from ai.gemini_client import AIError, GeminiResult
 from conftest import ANON_KEY, SERVICE_KEY, SUPABASE_URL, add_to_prd, org_prd
@@ -89,11 +91,29 @@ def cast(make_user, make_org, db, service):
     return dict(prd=prd, owner=owner, editor=editor, viewer=viewer, finance=finance, comments=comments)
 
 
-def suggest(user, cast, service, model=None, revision=2, feedback_ids=None, instruction=None):
+class Guardrails:
+    """Om's scope check, as a double: answers `verdict` and keeps what it was asked."""
+
+    def __init__(self, verdict="allow"):
+        self.verdict, self.asked = verdict, []
+
+    def check_scope(self, prd, session_messages, instruction, *, call_model, timeout_seconds):
+        self.asked.append(instruction)
+        return self.verdict
+
+
+def modules(guardrails=None):
+    prompts = SimpleNamespace(FIXED_REFUSAL="Only this PRD.", FIXED_CLARIFICATION="How does it relate?",
+                              CHAT_PROMPT_VERSION="v", CHAT_SYSTEM_INSTRUCTION="", CHAT_RESPONSE_SCHEMA={},
+                              build_chat_prompt=lambda *a: "")
+    return chat.ChatModules(guardrails or Guardrails(), prompts)
+
+
+def suggest(user, cast, service, model=None, revision=2, feedback_ids=None, instruction=None, guardrails=None):
     return review_suggestion.propose_review_suggestion(
         as_user(user), service, actor_id=user.id, prd_id=cast["prd"], revision=revision,
         feedback_ids=cast["comments"] if feedback_ids is None else feedback_ids, instruction=instruction,
-        call_model=model or Model())
+        call_model=model or Model(), modules=modules(guardrails))
 
 
 def state(db, prd):
@@ -306,3 +326,38 @@ def test_the_capability_matches_who_and_when_the_route_allows(cast, db, service,
                     cast["owner"], "No comments")
     save_prd(service, verified(service, cast["owner"]), other, 1, content_json=DOC)
     assert can_request(cast["owner"], other) is False
+
+
+def test_an_instruction_is_scope_checked_first_and_comments_alone_are_not(cast, db, service):
+    allow = Guardrails("allow")
+    body = suggest(cast["owner"], cast, service, instruction="Keep it short.", guardrails=allow)
+    assert allow.asked == ["Keep it short."] and body["proposal"]["section_types"] == ["goals", "risks"]
+    untouched = Guardrails("block")  # would refuse if it were asked
+    suggest(cast["owner"], cast, service, revision=2, guardrails=untouched)
+    assert untouched.asked == []
+
+
+@pytest.mark.parametrize("verdict, code, text", [("block", "out_of_scope", "Only this PRD."),
+                                                 ("unclear", "clarification_needed", "How does it relate?")])
+def test_an_out_of_scope_instruction_gets_the_fixed_reply_and_no_suggestion(cast, db, service, verdict, code, text):
+    model = Model()
+    with pytest.raises(ApiError) as info:
+        suggest(cast["owner"], cast, service, model, instruction="Write me a poem.", guardrails=Guardrails(verdict))
+    assert (info.value.status_code, info.value.code, info.value.detail) == (422, code, text)
+    assert model.prompts == []  # the suggestion was never asked for
+    assert records(db, cast["prd"]) == [("failed", code, review_suggestion.PROMPT_VERSION)]
+    assert db.execute("select count(*) from ai_proposal where prd_id = %s", (cast["prd"],)).fetchone() == (0,)
+
+
+def test_without_oms_modules_an_instruction_is_unavailable_but_comments_alone_work(cast, db, service, monkeypatch):
+    monkeypatch.setattr(chat, "load_modules", lambda: None)
+
+    def call(instruction):
+        return review_suggestion.propose_review_suggestion(
+            as_user(cast["owner"]), service, actor_id=cast["owner"].id, prd_id=cast["prd"], revision=2,
+            feedback_ids=cast["comments"], instruction=instruction, call_model=Model())
+
+    with pytest.raises(ApiError) as info:
+        call("Keep it short.")
+    assert (info.value.status_code, info.value.code) == (503, "ai_chat_unavailable")
+    assert call(None)["proposal"]["section_types"] == ["goals", "risks"]
