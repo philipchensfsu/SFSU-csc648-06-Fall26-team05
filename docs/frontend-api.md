@@ -118,7 +118,7 @@ submitted, or the last round was superseded by an edit). Use it for badges such 
   | Flag | True when |
   |---|---|
   | `can_view`, `can_comment` | always (you can see the PRD; viewers comment too) |
-  | `can_edit`, `can_request_ai` | you're an owner, editor or org admin |
+  | `can_edit`, `can_request_ai` | you're an owner, editor or org admin; once the PRD is approved (`final`/`assigned`), owners only |
   | `can_delete`, `can_assign` | you're an owner or org admin (`can_assign`: manage people, choose reviewers) |
   | `can_submit_review` | you're an owner or org admin, the PRD has a saved, non-empty version, and no review is open |
   | `can_approve` | you're a reviewer on the current round who hasn't decided, and the round is still on the current version |
