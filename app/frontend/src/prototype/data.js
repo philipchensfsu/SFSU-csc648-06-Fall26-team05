@@ -57,6 +57,8 @@ export function fromApiPrd(row) {
     // editor shows its editing tools from this.
     myRole: row.my_role ?? null,
     status: row.status,
+    // The current review round's state, or null when nothing is under review.
+    reviewState: row.review_state ?? null,
     modified: row.updated_at.slice(0, 10),
     // Full timestamps, for "Today, 9:12 AM" in the workspace.
     updatedAt: row.updated_at,
@@ -69,6 +71,19 @@ export function fromApiPrd(row) {
     // False until this PRD's intake answers have been fetched.
     answersLoaded: false,
     sections: contentJsonToSections(row.content_json),
+  };
+}
+
+// The fields only GET /api/prds/{id} returns. List rows and save responses
+// don't have them, so they are kept apart from the row in `prds`.
+export function fromApiPrdDetail(row) {
+  return {
+    capabilities: row.capabilities ?? {},
+    approval: row.approval ?? null,
+    changedSinceApproval: row.changed_since_approval === true,
+    currentVersion: row.current_version ?? null,
+    owners: row.owners ?? [],
+    project: row.project ?? null,
   };
 }
 
