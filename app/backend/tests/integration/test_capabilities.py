@@ -130,3 +130,13 @@ def test_in_a_one_person_org_the_owner_can_approve(make_user, make_org, db):
                                                        "reviewer_ids": [solo.id]})
     assert r.status_code == 201, r.text
     assert caps(solo, prd)["can_approve"] is True
+
+
+@pytest.mark.parametrize("status", ["final", "assigned"])
+def test_after_approval_only_owners_can_edit(team, db, status):
+    db.execute("update prd set status = %s where id = %s", (status, team["prd"]))
+    assert caps(team["olive"], team["prd"])["can_edit"] is True
+    for who in ("ed", "ada"):
+        flags = caps(team[who], team["prd"])
+        assert (flags["can_edit"], flags["can_request_ai"]) == (False, False), who
+

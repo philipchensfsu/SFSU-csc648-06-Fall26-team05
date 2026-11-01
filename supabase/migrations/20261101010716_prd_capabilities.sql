@@ -6,7 +6,8 @@
 -- something the API then refuses:
 --
 --   can_view, can_comment  can see the PRD (viewers comment too)
---   can_edit               can_edit_prd (owner, editor, org admin)
+--   can_edit               can_edit_prd (owner, editor, org admin); once
+--                          the PRD is approved (final, assigned), owners only
 --   can_delete, can_assign can_manage_prd (owner, org admin): delete, manage
 --                          people, choose reviewers
 --   can_submit_review      can_manage_prd, a saved, non-empty version, and
@@ -14,8 +15,8 @@
 --   can_approve            an undecided slot on the current round, still on
 --                          the PRD's current version, and not an owner the
 --                          round bars (decide_review's checks)
---   can_request_ai         can_edit_prd (the generation route's check; Marco
---                          to confirm for the other AI routes)
+--   can_request_ai         same as can_edit (the generation route's check;
+--                          Marco to confirm for the other AI routes)
 --
 -- Marco adds can_update_work_status, can_request_classification and
 -- can_set_routing with E14 and A08.
@@ -43,7 +44,9 @@ begin
   if not found or not can_view_prd(target_prd) then
     return null;
   end if;
-  can_edit := can_edit_prd(target_prd);
+  -- After approval only owners edit (Decision 9; E09's save refuses others).
+  can_edit := can_edit_prd(target_prd)
+              and (current_row.status not in ('final', 'assigned') or is_prd_owner(target_prd));
   can_manage := can_manage_prd(target_prd);
   select * into open_round from review_round where prd_id = target_prd and state <> 'superseded';
 
