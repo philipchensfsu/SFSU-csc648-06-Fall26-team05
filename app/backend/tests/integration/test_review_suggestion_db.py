@@ -287,3 +287,22 @@ def test_with_ai_on_but_no_key_the_owner_gets_ai_unavailable(cast, db, service, 
     assert (error.status_code, error.code) == (503, "ai_unavailable")
     assert records(db, cast["prd"]) == [("failed", "ai_unavailable", review_suggestion.PROMPT_VERSION)]
     assert db.execute("select count(*) from ai_proposal where prd_id = %s", (cast["prd"],)).fetchone() == (0,)
+
+
+def can_request(user, prd):
+    return user.rest("POST", "rpc/can_request_review_suggestions", json={"target_prd": prd}).json()
+
+
+def test_the_capability_matches_who_and_when_the_route_allows(cast, db, service, make_user, make_org):
+    # Owner with current-version comments: yes. Editors, viewers and reviewers: no (owner-only, unlike
+    # can_request_ai). Someone outside: no.
+    assert [can_request(cast[w], cast["prd"]) for w in ("owner", "editor", "viewer", "finance")] == [True, False, False, False]
+    assert can_request(make_user(), cast["prd"]) is False
+    # After a save the comments are on an older version, so there's nothing current to act on.
+    save_prd(service, verified(service, cast["owner"]), cast["prd"], 2, title="Moved on")
+    assert can_request(cast["owner"], cast["prd"]) is False
+    # A saved v2 PRD with no comments at all: no.
+    other = org_prd(db, db.execute("select organization_id::text from prd where id = %s", (cast["prd"],)).fetchone()[0],
+                    cast["owner"], "No comments")
+    save_prd(service, verified(service, cast["owner"]), other, 1, content_json=DOC)
+    assert can_request(cast["owner"], other) is False

@@ -457,6 +457,10 @@ reject, reply to or resolve anything.
   edited. Other sections, the title and the description must not change in that save (422 `proposal_scope`).
   Sections accepted unchanged get the AI highlight. Reject by discarding.
 - Accepting is a normal edit: during a review it continues the round like any other save (E09).
+- **Which button flag to use:** `capabilities.can_request_review_suggestions` (on `GET /api/prds/{id}`), **not**
+  `can_request_ai`. It's true only for an owner, on a PRD with a saved v2 version and at least one comment on that
+  version; `can_request_ai` is broader (editors too) and covers Generate and section edits. AI being off still comes
+  back as `ai_disabled` from this route.
 - Errors: 404; 403 `owner_required`; 409 `stale_revision` (the PRD changed: reload, pick comments again); 409
   `document_not_v2`; 422 `invalid_feedback` (an id isn't a comment on this PRD you can see); 422
   `feedback_not_current` (a comment is on an older version); 422 `validation_error`; plus the shared AI codes
