@@ -253,10 +253,37 @@ def test_bad_model_output_is_rejected_and_recorded(cast, db, service, reply):
     assert db.execute("select count(*) from ai_proposal where prd_id = %s", (cast["prd"],)).fetchone() == (0,)
 
 
-def test_the_route_is_wired_and_limited(cast):
+def test_the_route_is_wired_and_checks_access_first(cast):
+    # Holds whatever AI settings the running API has.
     r = cast["owner"].api("POST", f"/prds/{cast['prd']}/review-suggestions", json={"revision": 2, "feedback_ids": []})
-    assert r.status_code == 422
-    r = cast["owner"].api("POST", f"/prds/{cast['prd']}/review-suggestions",
-                          json={"revision": 2, "feedback_ids": cast["comments"]})
-    # The local API runs with AI off; with it on this reaches Gemini, which tests never call.
-    assert (r.status_code, r.json()["code"]) == (429, "ai_disabled")
+    assert (r.status_code, r.json()["code"]) == (422, "validation_error")
+    r = cast["editor"].api("POST", f"/prds/{cast['prd']}/review-suggestions",
+                           json={"revision": 2, "feedback_ids": cast["comments"]})
+    assert (r.status_code, r.json()["code"]) == (403, "owner_required")
+
+
+def suggest_with_real_client(cast, service):
+    """The real request path with the real Gemini client (no model double), so
+    the test sets the AI configuration itself instead of relying on the
+    running API's. Neither case below can reach the provider."""
+    with pytest.raises(AIError) as info:
+        review_suggestion.propose_review_suggestion(
+            as_user(cast["owner"]), service, actor_id=cast["owner"].id, prd_id=cast["prd"], revision=2,
+            feedback_ids=cast["comments"], instruction=None)
+    return info.value
+
+
+def test_with_ai_switched_off_the_owner_gets_ai_disabled(cast, db, service, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "false")
+    error = suggest_with_real_client(cast, service)
+    assert (error.status_code, error.code) == (429, "ai_disabled")
+    assert records(db, cast["prd"]) == []
+
+
+def test_with_ai_on_but_no_key_the_owner_gets_ai_unavailable(cast, db, service, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)  # fails before any provider call
+    error = suggest_with_real_client(cast, service)
+    assert (error.status_code, error.code) == (503, "ai_unavailable")
+    assert records(db, cast["prd"]) == [("failed", "ai_unavailable", review_suggestion.PROMPT_VERSION)]
+    assert db.execute("select count(*) from ai_proposal where prd_id = %s", (cast["prd"],)).fetchone() == (0,)
