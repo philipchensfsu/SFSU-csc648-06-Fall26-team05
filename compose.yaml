@@ -35,6 +35,8 @@ services:
       - /app/venv # hide a host venv from the container
       # Shared spec and fixtures, read by the backend as ../shared.
       - ./app/shared:/shared:ro
+      # Migrations, read-only, for tests that compare Python limits with the SQL.
+      - ./supabase:/supabase:ro
 
   frontend:
     build:

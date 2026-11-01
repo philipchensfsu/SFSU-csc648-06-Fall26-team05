@@ -78,9 +78,57 @@ def test_roles_revision_and_approved_status(make_user, make_org, db):
     assert (r.status_code, r.json()["code"]) == (409, "review_integration_pending")
 
 
-def test_accepting_a_proposal_waits_for_a05(make_user):
+def test_accepting_a_proposal_through_put(make_user, db, monkeypatch):
+    # A preview staged in this process with a fake model (as in
+    # test_accept_proposal.py), then accepted through the real route.
+    from supabase import create_client
+
+    from conftest import SERVICE_KEY, SUPABASE_URL
+    from test_accept_proposal import previewed
+
+    monkeypatch.setenv("AI_ENABLED", "true")
+    alice, bob = make_user(), make_user()
+    prd, body = previewed(alice, create_client(SUPABASE_URL, SERVICE_KEY))
+    proposal = body["proposal"]
+    accept = {"revision": body["base_revision"], "title": proposal["title"], "description": proposal["description"],
+              "content_json": proposal["content_json"], "generation_record_id": body["generation_record_id"]}
+
+    # Someone else's proposal, or an unknown one, is unavailable. (The
+    # proposal is checked before the save's access check, so an outsider gets
+    # the same 409 for any PRD id: it doesn't reveal that the PRD exists.)
+    r = bob.api("PUT", f"/prds/{prd['id']}", json=accept)
+    assert (r.status_code, r.json()["code"]) == (409, "proposal_unavailable")
+    unknown = {**accept, "generation_record_id": "33333333-3333-4333-8333-333333333333"}
+    r = alice.api("PUT", f"/prds/{prd['id']}", json=unknown)
+    assert (r.status_code, r.json()["code"]) == (409, "proposal_unavailable")
+
+    r = alice.api("PUT", f"/prds/{prd['id']}", json=accept)
+    assert r.status_code == 200, r.text
+    saved = r.json()
+    assert saved["revision"] == body["base_revision"] + 1 and saved["title"] == proposal["title"]
+    assert '"ai_generated"' in json.dumps(saved["content_json"])  # sections accepted unchanged are marked
+    origin, record = db.execute("select v.origin, v.generation_record_id::text from prd p join prd_version v "
+                                "on v.id = p.current_version_id where p.id = %s", (prd["id"],)).fetchone()
+    assert (origin, record) == ("ai_generated", body["generation_record_id"])
+
+    # A retry after a lost response gets the saved state back; a second use doesn't save twice.
+    r = alice.api("PUT", f"/prds/{prd['id']}", json=accept)
+    assert r.status_code == 200 and r.json()["revision"] == saved["revision"]
+    assert len(versions(db, prd["id"])) == 1
+
+
+def test_a_stale_proposal_is_a_409(make_user, monkeypatch):
+    from supabase import create_client
+
+    from conftest import SERVICE_KEY, SUPABASE_URL
+    from test_accept_proposal import previewed
+
+    monkeypatch.setenv("AI_ENABLED", "true")
     alice = make_user()
-    prd = alice.api("POST", "/prds", json={"title": "Draft"}).json()
-    r = alice.api("PUT", f"/prds/{prd['id']}", json={"revision": 1, "content_json": DOC,
-                                                    "generation_record_id": "33333333-3333-4333-8333-333333333333"})
-    assert (r.status_code, r.json()["code"]) == (422, "proposal_acceptance_unavailable")
+    prd, body = previewed(alice, create_client(SUPABASE_URL, SERVICE_KEY))
+    assert alice.api("PUT", f"/prds/{prd['id']}", json={"revision": body["base_revision"], "title": "Moved on"}
+                     ).status_code == 200
+    r = alice.api("PUT", f"/prds/{prd['id']}", json={"revision": body["base_revision"] + 1,
+                                                    "content_json": body["proposal"]["content_json"],
+                                                    "generation_record_id": body["generation_record_id"]})
+    assert (r.status_code, r.json()["code"]) == (409, "stale_revision")
