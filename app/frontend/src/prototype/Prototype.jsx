@@ -1,8 +1,9 @@
-import { Suspense, lazy, useCallback, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import {
   QUESTIONS,
   fromApiIntakeAnswers,
   fromApiPrd,
+  fromApiPrdDetail,
   sectionsToContentJson,
   sectionsToText,
 } from "./data";
@@ -50,8 +51,42 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
   const [generation, setGeneration] = useState(null);
   // Bumped after "Load the latest version", so the editor remounts with it.
   const [editorVersion, setEditorVersion] = useState(0);
+  // What the open PRD's detail read says the caller may do: { id, capabilities,
+  // approval, ... }, { id, error } if it couldn't be read, null until it arrives.
+  const [prdDetail, setPrdDetail] = useState(null);
+  const latestDetail = useRef(0);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
+
+  // Takes only the detail fields and the review status from the row. The
+  // revision stays the one the editor's content came from, so a newer save
+  // elsewhere still ends in a 409 rather than being overwritten.
+  const loadDetail = useCallback((id) => {
+    const requestId = ++latestDetail.current;
+    return api
+      .getPrd(id)
+      .then((row) => {
+        if (requestId !== latestDetail.current) return;
+        setPrdDetail({ id, ...fromApiPrdDetail(row) });
+        setPrds((current) =>
+          current.map((p) => (p.id === id ? { ...p, status: row.status, reviewState: row.review_state ?? null } : p)),
+        );
+      })
+      .catch((error) => {
+        if (requestId !== latestDetail.current) return;
+        // A refetch that fails keeps what was already known.
+        setPrdDetail((current) => (current?.id === id && current.capabilities ? current : { id, error: error.message }));
+      });
+  }, []);
+
+  useEffect(() => {
+    if (screen !== "editor" || !activePrdId) return undefined;
+    loadDetail(activePrdId);
+    return () => {
+      latestDetail.current += 1;
+      setPrdDetail(null);
+    };
+  }, [screen, activePrdId, loadDetail]);
 
   const loadProjects = useCallback(() => {
     setProjectsError(null);
@@ -326,6 +361,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
   function reloadPrd(id) {
     return api.getPrd(id).then((row) => {
       applyRow(row);
+      setPrdDetail({ id, ...fromApiPrdDetail(row) });
       setEditorVersion((version) => version + 1);
     });
   }
@@ -411,7 +447,16 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
         <EditorPage
           key={`${activePrd.id}:${editorVersion}`}
           prd={activePrd}
-          onSave={(doc) => saveDocument(activePrd.id, doc)}
+          detail={prdDetail?.id === activePrd.id ? prdDetail : null}
+          onRetryDetail={() => loadDetail(activePrd.id)}
+          // A save can change what's allowed and the banner, and the PUT
+          // response doesn't say, so read the detail again.
+          onSave={(doc) =>
+            saveDocument(activePrd.id, doc).then((saved) => {
+              loadDetail(activePrd.id);
+              return saved;
+            })
+          }
           onReload={() => reloadPrd(activePrd.id)}
           onOpenAnswers={() => openAnswers(activePrd.id)}
           onExit={() => showHome({ page: "dashboard" })}
