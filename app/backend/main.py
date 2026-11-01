@@ -18,7 +18,7 @@ from supabase_auth.errors import AuthError, AuthRetryableError
 
 import prd_save
 import prd_versions
-from ai import chat, classification, preview, usage_gate
+from ai import chat, classification, preview, review_suggestion, section_edit, usage_gate
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
@@ -177,6 +177,22 @@ class ChatMessage(RequestModel):
     # Earlier assistant replies can be up to MAX_ANSWER_CHARS, so history
     # items allow that; a new message is still capped at MAX_MESSAGE_CHARS.
     content: str = Field(..., min_length=1, max_length=chat.MAX_ANSWER_CHARS)
+
+
+class AiEditRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+    section_type: str
+    instruction: str = Field(..., min_length=1, max_length=section_edit.MAX_INSTRUCTION_CHARS)
+    # The same recent turns as the chat (browser memory, this PRD only).
+    session_messages: list[ChatMessage] = Field(default_factory=list, max_length=chat.MAX_HISTORY_MESSAGES)
+
+
+class ReviewSuggestionRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+    # prd_comment ids on the PRD's current version (E06; change-request
+    # explanations are comments too).
+    feedback_ids: list[UUID] = Field(..., min_length=1, max_length=review_suggestion.MAX_FEEDBACK_ITEMS)
+    instruction: Optional[str] = Field(default=None, max_length=review_suggestion.MAX_INSTRUCTION_CHARS)
 
 
 class ClassificationRequest(RequestModel):
@@ -372,8 +388,21 @@ class ApprovalSummary(BaseModel):
     reviewers: list[ReviewerOut]
 
 
+class Capabilities(BaseModel):
+    can_view: bool
+    can_comment: bool
+    can_edit: bool
+    can_delete: bool
+    can_assign: bool
+    can_submit_review: bool
+    can_approve: bool
+    can_request_ai: bool
+
+
 class PRDDetailOut(PRDOut):
     approval: ApprovalSummary
+    # What the caller may do now (E03); the same rules the routes enforce.
+    capabilities: Capabilities
 
 
 NO_APPROVAL = {"round_id": None, "round_no": None, "version_id": None, "state": None,
@@ -403,7 +432,8 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
     prd = with_my_role(client, auth["user"].id, response.data)[0]
-    return {**prd, "approval": approval_summary(client, prd_id)}
+    capabilities = client.rpc("prd_capabilities", {"target_prd": str(prd_id)}).execute().data
+    return {**prd, "approval": approval_summary(client, prd_id), "capabilities": capabilities}
 
 
 class VersionActor(BaseModel):
@@ -452,6 +482,10 @@ def get_prd_version(prd_id: UUID, version_id: UUID, auth=Depends(get_current_use
     return prd_versions.get_version(auth["client"], str(prd_id), str(version_id))
 
 
+# Once PRD_SAVE_V2 is the only save path, remove the legacy update below and
+# revoke the client's update grant on prd.revision (#102): the legacy
+# compare-and-swap is the only reason clients may still write it, and a raw
+# Data API call could bump it and fail other editors' saves (Om, #102 review).
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
 def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user)):
     sent = payload.model_fields_set
@@ -1328,6 +1362,9 @@ def update_member(org_id: UUID, user_id: UUID, payload: MemberUpdate, auth=Depen
         raise ApiError(404, "Organization not found")
     changes = {key: str(value) if isinstance(value, UUID) else value
                for key, value in payload.model_dump(exclude_unset=True).items()}
+    for field in ("access_role", "active"):
+        if field in changes and changes[field] is None:
+            raise ApiError(422, f"{field} can't be null.", "validation_error")
     if changes.get("title") == "":
         changes["title"] = None
     params = {"target_org": str(org_id), "target_user": str(user_id), "changes": changes}
@@ -1372,6 +1409,29 @@ def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_u
         auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
         message=payload.message, history=[m.model_dump() for m in payload.history],
         budget=usage_gate.RequestBudget(),
+    )
+
+
+# AI section edit (A04): needs edit access; returns a staged proposal to
+# preview, never saves. Accept it through the normal save with its
+# generation_record_id (A05). 503 until Om's guardrail modules are in.
+@app.post("/api/prds/{prd_id}/review-suggestions")
+def request_review_suggestion(prd_id: UUID, payload: ReviewSuggestionRequest, auth=Depends(get_current_user)):
+    # E12: a preview of revisions that address chosen review comments.
+    # Nothing is saved; accept through PUT with generation_record_id.
+    return review_suggestion.propose_review_suggestion(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
+        feedback_ids=[str(i) for i in payload.feedback_ids], instruction=payload.instruction,
+        budget=usage_gate.RequestBudget(),
+    )
+
+
+@app.post("/api/prds/{prd_id}/ai-edit")
+def request_ai_edit(prd_id: UUID, payload: AiEditRequest, auth=Depends(get_current_user)):
+    return section_edit.propose_section_edit(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
+        section_type=payload.section_type, instruction=payload.instruction,
+        session_messages=[m.model_dump() for m in payload.session_messages], budget=usage_gate.RequestBudget(),
     )
 
 
