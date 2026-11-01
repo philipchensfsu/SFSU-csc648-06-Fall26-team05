@@ -7,7 +7,7 @@ from uuid import UUID, uuid4
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from postgrest import ReturnMethod
 from postgrest.exceptions import APIError
@@ -15,6 +15,9 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 from supabase_auth.errors import AuthError, AuthRetryableError
 
+import prd_save
+import prd_versions
+from ai import chat, preview, usage_gate
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
@@ -100,13 +103,32 @@ class PRDUpdate(RequestModel):
     revision: int
     title: Optional[str] = Field(default=None, max_length=200)
     content_json: Optional[dict] = None
+    # Legacy save only: the S03 save derives content_text and never takes a
+    # status (D6).
     content_text: Optional[str] = None
     status: Optional[str] = None
+    # S03 save only (PRD_SAVE_V2): description is its own column there, and
+    # generation_record_id accepts an AI proposal (A05).
+    description: Optional[str] = None
+    generation_record_id: Optional[UUID] = None
+
+
+# The S03 save (prd_save.save_prd: v2 documents, versions, server-derived
+# text) replaces the direct update once the frontend sends v2 documents.
+# Until that cutover, PUT keeps the legacy update. Set PRD_SAVE_V2=true to
+# switch.
+LEGACY_ONLY_FIELDS = ("content_text", "status")
+SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id")
+
+
+def prd_save_v2_enabled() -> bool:
+    return os.environ.get("PRD_SAVE_V2", "").strip().lower() in {"true", "1", "on", "yes"}
 
 
 class PRDOut(BaseModel):
     id: UUID
     title: str
+    description: Optional[str] = None
     owner_id: UUID
     organization_id: UUID
     project_id: Optional[UUID]
@@ -135,6 +157,26 @@ class IntakeAnswerOut(BaseModel):
     answer_text: Optional[str]
     skipped: bool
     answered_at: datetime
+
+
+class GenerateRequest(RequestModel):
+    # The revision the client last saw; the draft is built for it.
+    revision: int = Field(..., ge=1)
+
+
+class ChatMessage(RequestModel):
+    role: Literal["user", "assistant"]
+    # Earlier assistant replies can be up to MAX_ANSWER_CHARS, so history
+    # items allow that; a new message is still capped at MAX_MESSAGE_CHARS.
+    content: str = Field(..., min_length=1, max_length=chat.MAX_ANSWER_CHARS)
+
+
+class ChatRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+    message: str = Field(..., min_length=1, max_length=chat.MAX_MESSAGE_CHARS)
+    # Recent messages kept by the browser for this PRD only (no chat table).
+    # Untrusted: they reach the model as data, never as instructions.
+    history: list[ChatMessage] = Field(default_factory=list, max_length=chat.MAX_HISTORY_MESSAGES)
 
 
 @app.get("/api/health")
@@ -354,8 +396,60 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
     return {**prd, "approval": approval_summary(client, prd_id), "capabilities": capabilities}
 
 
+class VersionActor(BaseModel):
+    id: UUID
+    name: Optional[str]
+
+
+class VersionOut(BaseModel):
+    id: UUID
+    version_no: int
+    saved_revision: Optional[int]
+    actor: Optional[VersionActor]  # null: the person was deleted, or the pre-history checkpoint
+    origin: str
+    created_at: datetime
+    changed_sections: list[str]
+    change_summary: Optional[str]
+
+
+class VersionPage(BaseModel):
+    items: list[VersionOut]
+    next_cursor: Optional[str]
+
+
+class VersionDetail(VersionOut):
+    title: Optional[str]
+    description: Optional[str]
+    content_json: Optional[dict]
+    doc_schema_version: int
+    generation_record_id: Optional[UUID]
+
+
+# S04: read-only history. RLS decides who can see a PRD's versions; there's
+# no restore (scheduled separately).
+@app.get("/api/prds/{prd_id}/versions", response_model=VersionPage)
+def list_prd_versions(
+    prd_id: UUID,
+    limit: int = Query(prd_versions.DEFAULT_LIMIT, ge=1, le=prd_versions.MAX_LIMIT),
+    cursor: Optional[str] = None,
+    auth=Depends(get_current_user),
+):
+    return prd_versions.list_versions(auth["client"], str(prd_id), limit=limit, cursor=cursor)
+
+
+@app.get("/api/prds/{prd_id}/versions/{version_id}", response_model=VersionDetail)
+def get_prd_version(prd_id: UUID, version_id: UUID, auth=Depends(get_current_user)):
+    return prd_versions.get_version(auth["client"], str(prd_id), str(version_id))
+
+
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
 def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user)):
+    sent = payload.model_fields_set
+    if prd_save_v2_enabled():
+        return save_prd_v2(prd_id, payload, sent, auth)
+    unsupported = [name for name in SAVE_CORE_ONLY_FIELDS if name in sent]
+    if unsupported:
+        raise ApiError(422, f"{unsupported[0]} can't be saved yet", code="validation_error")
     client = auth["client"]
     update_fields = payload.model_dump(exclude={"revision"}, exclude_unset=True)
     update_fields["revision"] = payload.revision + 1
@@ -382,6 +476,27 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
             code="stale_revision",
         )
     return with_my_role(client, auth["user"].id, response.data)[0]
+
+
+def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict:
+    """The S03 save: only the fields sent change, in one transaction with a
+    revision check and a version snapshot. The actor is the verified user."""
+    if "status" in sent:
+        raise ApiError(422, "Status can't be changed by saving. It changes through the review workflow.",
+                       code="status_not_allowed")
+    if "content_text" in sent:
+        raise ApiError(422, "content_text is derived by the server; don't send it", code="validation_error")
+    fields = {name: getattr(payload, name) for name in ("title", "description", "content_json") if name in sent}
+    if payload.generation_record_id is not None:
+        # Accepting an AI proposal (A05): the same save, which checks the
+        # proposal (the requester's, this PRD, this base revision), marks
+        # the sections accepted unchanged and uses it once in the
+        # transaction (ai/acceptance.py and save_prd).
+        fields["origin"] = "ai_generated"
+        fields["generation_record_id"] = payload.generation_record_id
+    saved = prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
+    # Like every PRD response, it carries the caller's role, read as them.
+    return with_my_role(auth["client"], auth["user"].id, [saved])[0]
 
 
 @app.delete("/api/prds/{prd_id}", status_code=204)
@@ -950,13 +1065,14 @@ def notification_item(row):
 
 @app.get("/api/notifications", response_model=NotificationPage)
 def list_notifications(unread_only: bool = False, params: PageParams = Depends(), auth=Depends(get_current_user)):
-    # The caller's inbox, newest first. RLS hides notifications about PRDs
-    # they can no longer see, from the items and the unread count alike.
+    # The caller's inbox, most recent activity first, so a growing comment
+    # batch moves back up. RLS hides notifications about PRDs they can no
+    # longer see, from the items and the unread count alike.
     client = auth["client"]
     query = client.table("notification").select(NOTIFICATION_COLUMNS)
     if unread_only:
         query = query.is_("read_at", "null")
-    page = paginate(query, params)
+    page = paginate(query, params, sort_column="updated_at")
     unread = client.table("notification").select("id", count="exact", head=True).is_("read_at", "null").execute()
     return {"items": [notification_item(r) for r in page["items"]], "next_cursor": page["next_cursor"],
             "unread_count": unread.count or 0}
@@ -972,3 +1088,184 @@ def mark_notification_read(notification_id: UUID, payload: NotificationRead, aut
     if not rows:
         raise ApiError(404, "Notification not found")
     return notification_item(rows[0])
+
+
+UnitName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
+
+
+class DepartmentCreate(RequestModel):
+    name: UnitName
+
+
+class DepartmentUpdate(RequestModel):
+    name: Optional[UnitName] = None
+    head_id: Optional[UUID] = None
+    archived: Optional[bool] = None
+
+
+class TeamCreate(RequestModel):
+    name: UnitName
+    department_id: Optional[UUID] = None
+
+
+class TeamUpdate(RequestModel):
+    name: Optional[UnitName] = None
+    department_id: Optional[UUID] = None
+    lead_id: Optional[UUID] = None
+    archived: Optional[bool] = None
+
+
+# Messages of the directory's end-state checks (20261029110000), which run
+# when the change commits.
+DIRECTORY_ERRORS = {
+    "A department head must be an active member of that department":
+        (422, "A department head must be an active member of that department.", "head_not_in_department"),
+    "A team lead must be an active member of that team":
+        (422, "A team lead must be an active member of that team.", "lead_not_in_team"),
+    "An archived department still has active members or teams":
+        (409, "Move this department's members and teams elsewhere before archiving it.", "department_not_empty"),
+    "An archived team still has active members":
+        (409, "Remove this team's members before archiving it.", "team_not_empty"),
+}
+
+
+def require_org_admin(client, org_id: UUID):
+    # 404 unless the caller is an active member; 403 unless also an admin.
+    if not client.table("organization").select("id").eq("id", str(org_id)).execute().data:
+        raise ApiError(404, "Organization not found")
+    if client.rpc("is_org_admin", {"target_org": str(org_id)}).execute().data is not True:
+        raise ApiError(403, "Only organization admins can change its structure.")
+
+
+def write_directory(run):
+    """Runs a directory write, turning the database's checks into readable errors."""
+    try:
+        return run()
+    except APIError as exc:
+        if exc.message in DIRECTORY_ERRORS:
+            raise ApiError(*DIRECTORY_ERRORS[exc.message])
+        if exc.code == "23505":
+            raise ApiError(409, "Another active department or team in this organization already has that name.",
+                           "name_taken")
+        # A foreign key or the team_member policy: the person, department or
+        # team isn't (an active) part of this organization.
+        if exc.code in ("23503", "42501"):
+            raise ApiError(422, "That person, department or team isn't part of this organization.",
+                           "not_in_organization")
+        raise
+
+
+def unit_changes(payload):
+    # Only the fields sent change; null clears head_id, lead_id or department_id.
+    changes = {key: str(value) if isinstance(value, UUID) else value
+               for key, value in payload.model_dump(exclude_unset=True).items()}
+    if "archived" in changes:
+        changes["archived_at"] = datetime.now(timezone.utc).isoformat() if changes.pop("archived") else None
+    if changes.get("name", "") is None:
+        raise ApiError(422, "name can't be null.", "validation_error")
+    return changes
+
+
+def update_unit(client, table, org_id: UUID, unit_id: UUID, changes, columns):
+    query = client.table(table)
+    if changes:
+        query = query.update(changes)
+    else:
+        query = query.select(columns)
+    rows = write_directory(lambda: query.eq("organization_id", str(org_id)).eq("id", str(unit_id)).execute().data)
+    if not rows:
+        raise ApiError(404, f"{table.capitalize()} not found")
+    return with_archived_flag({key: rows[0][key] for key in columns.split(", ")})
+
+
+DEPARTMENT_COLUMNS = "id, name, head_id, archived_at"
+TEAM_COLUMNS = "id, name, department_id, lead_id, archived_at"
+
+
+@app.post("/api/organizations/{org_id}/departments", response_model=DirectoryDepartment, status_code=201)
+def create_department(org_id: UUID, payload: DepartmentCreate, auth=Depends(get_current_user)):
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    rows = write_directory(lambda: client.table("department")
+                           .insert({"organization_id": str(org_id), "name": payload.name}).execute().data)
+    return with_archived_flag({key: rows[0][key] for key in DEPARTMENT_COLUMNS.split(", ")})
+
+
+@app.patch("/api/organizations/{org_id}/departments/{department_id}", response_model=DirectoryDepartment)
+def update_department(org_id: UUID, department_id: UUID, payload: DepartmentUpdate, auth=Depends(get_current_user)):
+    # Rename, set or clear the head, archive or unarchive.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    return update_unit(client, "department", org_id, department_id, unit_changes(payload), DEPARTMENT_COLUMNS)
+
+
+@app.post("/api/organizations/{org_id}/teams", response_model=DirectoryTeam, status_code=201)
+def create_team(org_id: UUID, payload: TeamCreate, auth=Depends(get_current_user)):
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    fields = {"organization_id": str(org_id), "name": payload.name,
+              "department_id": str(payload.department_id) if payload.department_id else None}
+    rows = write_directory(lambda: client.table("team").insert(fields).execute().data)
+    return with_archived_flag({key: rows[0][key] for key in TEAM_COLUMNS.split(", ")})
+
+
+@app.patch("/api/organizations/{org_id}/teams/{team_id}", response_model=DirectoryTeam)
+def update_team(org_id: UUID, team_id: UUID, payload: TeamUpdate, auth=Depends(get_current_user)):
+    # Rename, move to another department (or none), set or clear the lead,
+    # archive or unarchive.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    return update_unit(client, "team", org_id, team_id, unit_changes(payload), TEAM_COLUMNS)
+
+
+def team_in_org(client, org_id: UUID, team_id: UUID):
+    rows = (client.table("team").select("archived_at")
+            .eq("organization_id", str(org_id)).eq("id", str(team_id)).execute().data)
+    if not rows:
+        raise ApiError(404, "Team not found")
+    return rows[0]
+
+
+@app.put("/api/organizations/{org_id}/teams/{team_id}/members/{user_id}", status_code=204)
+def add_team_member(org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
+    # Puts an active member on the team; already on it is fine.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    if team_in_org(client, org_id, team_id)["archived_at"]:
+        raise ApiError(409, "This team is archived.", "team_archived")
+    link = {"organization_id": str(org_id), "team_id": str(team_id), "user_id": str(user_id)}
+    write_directory(lambda: client.table("team_member").upsert(link, ignore_duplicates=True,
+                                                                returning=ReturnMethod.minimal).execute())
+
+
+@app.delete("/api/organizations/{org_id}/teams/{team_id}/members/{user_id}", status_code=204)
+def remove_team_member(org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
+    # Takes someone off the team; their org membership stays. Not on it is fine.
+    client = auth["client"]
+    require_org_admin(client, org_id)
+    team_in_org(client, org_id, team_id)
+    write_directory(lambda: client.table("team_member").delete(returning=ReturnMethod.minimal)
+                    .eq("team_id", str(team_id)).eq("user_id", str(user_id)).execute())
+
+
+# Preview only (A03): returns {proposal, base_revision, generation_record_id}
+# and saves nothing to the PRD. Accepting the proposal is a normal save (A05).
+# Records and staged proposals are written with the service-role client for
+# the verified user, the trusted-writer pattern reviewed on #55.
+@app.post("/api/prds/{prd_id}/generate")
+def generate_prd_preview(prd_id: UUID, payload: GenerateRequest, auth=Depends(get_current_user)):
+    return preview.generate_preview(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision
+    )
+
+
+# PRD chat, answer-only (A04 first slice). Anyone who can view the PRD may
+# ask; nothing is saved to it. Returns 503 ai_chat_unavailable until Om's
+# guardrail and prompt modules are in place (see ai/chat.py).
+@app.post("/api/prds/{prd_id}/ai/chat")
+def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_user)):
+    return chat.answer_chat(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
+        message=payload.message, history=[m.model_dump() for m in payload.history],
+        budget=usage_gate.RequestBudget(),
+    )
