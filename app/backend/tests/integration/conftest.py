@@ -88,11 +88,15 @@ def data_api(method, path, token=None, **kwargs):
 
 @pytest.fixture
 def make_user(db):
-    """make_user(role="pm") -> a signed-in throwaway User; deleted after the test."""
+    """make_user(role="pm", org=True) -> a signed-in throwaway User; deleted after the test.
+
+    Every account belongs to an organization, so by default the user is the
+    admin of their own new one. Pass org=False for an account with none.
+    """
     admin = {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"}
     created = []
 
-    def make(role="pm"):
+    def make(role="pm", org=True):
         email = f"it-{uuid.uuid4().hex[:12]}@example.com"
         r = httpx.post(f"{SUPABASE_URL}/auth/v1/admin/users", headers=admin,
                        json={"email": email, "password": TEST_PASSWORD, "email_confirm": True})
@@ -100,6 +104,11 @@ def make_user(db):
         user_id = r.json()["id"]
         created.append(user_id)
         db.execute("update profile set role = %s where id = %s", (role, user_id))
+        if org:
+            org_id = db.execute("insert into organization (name, created_by) values (%s, %s) returning id::text",
+                                (f"Org of {email}", user_id)).fetchone()[0]
+            db.execute("insert into organization_member (organization_id, user_id, access_role) "
+                       "values (%s, %s, 'admin')", (org_id, user_id))
         r = httpx.post(f"{SUPABASE_URL}/auth/v1/token?grant_type=password", headers={"apikey": ANON_KEY},
                        json={"email": email, "password": TEST_PASSWORD})
         r.raise_for_status()
@@ -108,8 +117,9 @@ def make_user(db):
     yield make
     left_behind = []
     for user_id in created:
-        # Organizations outlive their creator, so remove the test ones first.
-        db.execute("delete from organization where created_by = %s", (user_id,))
+        # Organizations outlive their creator, so remove the test ones first
+        # (their PRDs first: a PRD's organization can't be deleted under it).
+        remove_orgs_created_by(db, user_id)
         # Cascades to the user's profile, projects, PRDs and their child rows.
         r = httpx.delete(f"{SUPABASE_URL}/auth/v1/admin/users/{user_id}", headers=admin)
         if r.status_code != 200:
@@ -126,6 +136,9 @@ def make_org(db):
     created = []
 
     def make(admin, *members):
+        # Accounts belong to one organization: leave the ones make_user made.
+        for user in (admin, *members):
+            remove_orgs_created_by(db, user.id)
         org = db.execute("insert into organization (name, created_by) values ('Test org', %s) returning id::text",
                          (admin.id,)).fetchone()[0]
         created.append(org)
@@ -149,3 +162,19 @@ def org_prd(db, org, creator, title="Org PRD", project_id=None):
 
 def add_to_prd(db, prd, user, role):
     db.execute("insert into prd_member (prd_id, user_id, role) values (%s, %s, %s)", (prd, user.id, role))
+
+
+def save_version(db, prd, user):
+    """Adds the PRD's next saved version, as S03's save would, and makes it current. Returns its id."""
+    version = db.execute(
+        "insert into prd_version (prd_id, content_json, doc_schema_version, created_by, origin, version_no, saved_revision) "
+        "select %s, '{\"type\": \"doc\", \"content\": []}', 2, %s, 'pm_edit', "
+        "(select coalesce(max(version_no), 0) + 1 from prd_version where prd_id = %s), revision + 1 from prd where id = %s "
+        "returning id::text", (prd, user.id, prd, prd)).fetchone()[0]
+    db.execute("update prd set current_version_id = %s, revision = revision + 1 where id = %s", (version, prd))
+    return version
+
+
+def remove_orgs_created_by(db, user_id):
+    db.execute("delete from prd where organization_id in (select id from organization where created_by = %s)", (user_id,))
+    db.execute("delete from organization where created_by = %s", (user_id,))

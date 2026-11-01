@@ -1,6 +1,6 @@
-"""E03 per-PRD roles: the creator becomes the owner, people on an org PRD
-are active members of its org, every PRD keeps an owner, and clients can
-read but not write the roles."""
+"""E03 per-PRD roles: the creator becomes the owner, people on a PRD are
+active members of its org, every PRD keeps an owner, and clients can read
+but not write the roles."""
 
 import psycopg
 import pytest
@@ -11,7 +11,7 @@ from conftest import data_api
 @pytest.fixture
 def org(make_user, db):
     """Alice (admin) and Ben (member) in one org; Carol in another; Dan in none."""
-    alice, ben, carol, dan = (make_user() for _ in range(4))
+    alice, ben, carol, dan = (make_user(org=False) for _ in range(4))
     org_id = db.execute("insert into organization (name, created_by) values ('Org', %s) returning id::text",
                         (alice.id,)).fetchone()[0]
     other = db.execute("insert into organization (name, created_by) values ('Other', %s) returning id::text",
@@ -66,13 +66,6 @@ def test_people_outside_the_org_cannot_be_added(org, db, who):
     prd = org_prd(db, org, org["alice"])
     sql = "insert into prd_member (prd_id, user_id, role) values (%s, %s, 'viewer')"
     assert violation(db, sql, (prd, org[who].id)) == "prd_member_same_org"
-
-
-def test_a_personal_prd_has_only_its_creator(make_user, db):
-    alice, ben = make_user(), make_user()
-    prd = alice.api("POST", "/prds", json={"title": "Personal"}).json()["id"]
-    sql = "insert into prd_member (prd_id, user_id, role) values (%s, %s, 'viewer')"
-    assert violation(db, sql, (prd, ben.id)) == "prd_member_personal"
 
 
 def test_the_last_owner_cannot_be_removed_or_demoted(org, db):
