@@ -5,12 +5,13 @@ import "./editor.css";
 import { FlowBar } from "../flow/FlowBar";
 import AskAiPanel from "./AskAiPanel";
 import { approvalProgress, editedWhen, formatDate } from "../format";
-import { IconPencil } from "../icons";
+import { IconPencil, IconPeople } from "../icons";
 import { Alert, MenuButton, Modal, StatusChip } from "../ui";
 import { IconBack, IconChat, IconCheck, IconDownload } from "./editorIcons";
 import { exportMarkdown, exportPdf, exportWord } from "./exporters";
 import { cleanHtml, isEmptyHtml } from "./html";
 import { SectionEditor } from "./SectionEditor";
+import { ShareDialog } from "./ShareDialog";
 
 const TITLE_MAX = 200;
 // Matches the backend's description limit (docs/prd-document-format.md).
@@ -153,6 +154,8 @@ function EditorPage({
   prd,
   detail,
   onRetryDetail,
+  organizationId,
+  userId,
   exitLabel = "Back to dashboard",
   onSave,
   onReload,
@@ -186,7 +189,9 @@ function EditorPage({
   const ids = useId();
 
   const [railTab, setRailTab] = useState("review");
+  const [sharing, setSharing] = useState(false);
   const canEdit = detail?.capabilities?.can_edit === true;
+  const canShare = detail?.capabilities?.can_assign === true;
   // Nothing says "View only" until the API has actually said so.
   const viewOnly = Boolean(detail?.capabilities) && !canEdit;
   const progress = approvalProgress(detail?.approval);
@@ -475,6 +480,12 @@ function EditorPage({
               </span>
             ) : viewOnly ? (
               <span className="ne-viewonly">View only</span>
+            ) : null}
+            {canShare ? (
+              <button type="button" className="nw-btn nw-btn-secondary ne-btn-38" onClick={() => setSharing(true)}>
+                <IconPeople size={16} />
+                Share
+              </button>
             ) : null}
             <MenuButton
               label="Export"
@@ -871,6 +882,16 @@ function EditorPage({
           )}
         </aside>
       </div>
+
+      {/* Closes by itself if a change here takes away the right to manage people. */}
+      <ShareDialog
+        open={sharing && canShare}
+        prd={prd}
+        organizationId={organizationId}
+        userId={userId}
+        onChanged={onRetryDetail}
+        onClose={() => setSharing(false)}
+      />
 
       <LeaveDialog
         open={leaving !== null}

@@ -76,6 +76,15 @@ describe("EditorPage access", () => {
     expect(host.textContent).toContain("Only its owners can change it now");
   });
 
+  it("offers Share only with can_assign", async () => {
+    await show({ detail: { capabilities: { can_edit: true, can_assign: false } } });
+    expect(buttonNamed("Share")).toBeUndefined();
+    await act(async () => root.unmount());
+    host.remove();
+    await show({ detail: { capabilities: { can_edit: true, can_assign: true } } });
+    expect(buttonNamed("Share")).toBeDefined();
+  });
+
   it("keeps Ask AI for viewers (Decision 5)", async () => {
     await show({ detail: viewer });
     expect(askAiTab()).toBeDefined();
