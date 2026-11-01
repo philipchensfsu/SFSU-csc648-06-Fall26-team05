@@ -18,7 +18,7 @@ from supabase_auth.errors import AuthError, AuthRetryableError
 
 import prd_save
 import prd_versions
-from ai import chat, preview, usage_gate
+from ai import chat, classification, preview, usage_gate
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
@@ -137,6 +137,9 @@ class PRDOut(BaseModel):
     # The caller's access: their role on the PRD, or org_admin when they only
     # see it as an admin of its organization.
     my_role: Literal["owner", "editor", "viewer", "org_admin"]
+    # Routing (A08): not reviewed material and not an access grant.
+    owning_team_id: Optional[UUID] = None
+    priority: Optional[Literal["low", "medium", "high", "critical"]] = None
     status: str
     # The current review round's state, or null when nothing is under review
     # (never submitted, or the last round was superseded).
@@ -171,6 +174,22 @@ class ChatMessage(RequestModel):
     # Earlier assistant replies can be up to MAX_ANSWER_CHARS, so history
     # items allow that; a new message is still capped at MAX_MESSAGE_CHARS.
     content: str = Field(..., min_length=1, max_length=chat.MAX_ANSWER_CHARS)
+
+
+class ClassificationRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+
+
+class ClassificationDecision(RequestModel):
+    decision: Literal["accepted", "rejected"]
+    # Only with "accepted": adjust the suggestion before it's applied.
+    team_id: Optional[UUID] = None
+    priority: Optional[Literal["low", "medium", "high", "critical"]] = None
+
+
+class RoutingUpdate(RequestModel):
+    owning_team_id: Optional[UUID]
+    priority: Optional[Literal["low", "medium", "high", "critical"]]
 
 
 class ChatRequest(RequestModel):
@@ -702,6 +721,15 @@ ROUND_COLUMNS = ("id, prd_id, round_no, version_id, state, owner_review_allowed,
                  "comment:prd_comment(body))")
 
 
+def first_row(query, not_found: str):
+    """The first row of a read, or 404. After a database function succeeds, its
+    own row could still be unreadable (e.g. access lost in between)."""
+    rows = query.execute().data
+    if not rows:
+        raise ApiError(404, not_found)
+    return rows[0]
+
+
 def round_item(row):
     reviewers = [{"user_id": s["reviewer_id"], "name": s["reviewer_name"], "department": s["department_name"],
                   "state": s["state"], "decided_at": s["decided_at"], "comment_id": s["comment_id"],
@@ -732,8 +760,8 @@ def submit_review(prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_curren
         "target_prd": str(prd_id), "base_revision": payload.revision, "target_version": str(payload.version_id),
         "reviewer_ids": [str(r) for r in payload.reviewer_ids],
     }, REVIEW_ERRORS)
-    row = client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id).execute().data[0]
-    prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
+    row = first_row(client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id), "Review round not found")
+    prd = first_row(client.table("prd").select("revision, status").eq("id", str(prd_id)), "PRD not found")
     return {"round": round_item(row), **prd}
 
 
@@ -771,8 +799,9 @@ def decide_review(prd_id: UUID, round_id: UUID, payload: ReviewDecisionIn, auth=
         "target_prd": str(prd_id), "target_round": str(round_id), "target_version": str(payload.version_id),
         "decision": payload.decision, "explanation": payload.explanation, "target_section": payload.section_type,
     }, DECISION_ERRORS)
-    row = client.table("review_round").select(ROUND_COLUMNS).eq("id", str(round_id)).execute().data[0]
-    prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
+    row = first_row(client.table("review_round").select(ROUND_COLUMNS).eq("id", str(round_id)),
+                    "Review round not found")
+    prd = first_row(client.table("prd").select("revision, status").eq("id", str(prd_id)), "PRD not found")
     return {"round": round_item(row), **prd}
 
 
@@ -1360,3 +1389,46 @@ def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_u
         message=payload.message, history=[m.model_dump() for m in payload.history],
         budget=usage_gate.RequestBudget(),
     )
+
+
+# Owning team and priority (A08). Suggestion is a preview; only the owner or
+# an org admin decides or sets them. No version, no revision change.
+@app.post("/api/prds/{prd_id}/classification")
+def suggest_prd_routing(prd_id: UUID, payload: ClassificationRequest, auth=Depends(get_current_user)):
+    return classification.suggest_routing(auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id),
+                                          revision=payload.revision, budget=usage_gate.RequestBudget())
+
+
+@app.put("/api/prds/{prd_id}/classification/{suggestion_id}/decision", response_model=PRDOut)
+def decide_prd_routing(prd_id: UUID, suggestion_id: UUID, payload: ClassificationDecision,
+                       auth=Depends(get_current_user)):
+    sent = payload.model_fields_set
+    if payload.decision == "rejected" and ({"team_id", "priority"} & sent):
+        raise ApiError(422, "Only an accepted suggestion takes a team or priority", code="validation_error")
+    saved = classification.decide(supabase, str(auth["user"].id), str(prd_id), str(suggestion_id),
+                                  decision=payload.decision, team_id=payload.team_id, set_team="team_id" in sent,
+                                  priority=payload.priority)
+    return with_my_role(auth["client"], auth["user"].id, [saved])[0]
+
+
+# Errors raised by set_prd_routing (P0001 with a fixed message).
+ROUTING_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "routing_forbidden": (403, "Only the PRD's owners or an org admin can set its team and priority.", "forbidden"),
+    "invalid_team": (422, "Choose an active team of this PRD's organization", "invalid_team"),
+    "invalid_priority": (422, "Unknown priority", "validation_error"),
+}
+
+
+@app.put("/api/prds/{prd_id}/routing", response_model=PRDOut)
+def set_prd_routing(prd_id: UUID, payload: RoutingUpdate, auth=Depends(get_current_user)):
+    # Owners and org admins, an active team of the PRD's org (or none). The
+    # database function checks both under the PRD lock; clients can't write
+    # these columns directly (S02 grants).
+    client = auth["client"]
+    row = call_function(client, "set_prd_routing", {
+        "target_prd": str(prd_id),
+        "new_team": None if payload.owning_team_id is None else str(payload.owning_team_id),
+        "new_priority": payload.priority,
+    }, ROUTING_ERRORS)
+    return with_my_role(client, auth["user"].id, [row])[0]

@@ -111,7 +111,10 @@ def test_review_decisions_and_done_work_notify_owners(team, db):
     record(db, team["prd"], "changes_requested", team["ed"])
     record(db, team["prd"], "work_status_changed", team["ed"], '{"status": "in_progress"}')
     record(db, team["prd"], "work_status_changed", team["ed"], '{"status": "done"}')
-    assert [i["type"] for i in inbox(team["olive"])["items"]] == ["work_status_changed", "changes_requested", "approved"]
+    # Who is notified, not the order: these are written milliseconds apart, so
+    # their timestamps (from Docker's clock) can tie or swap.
+    assert sorted(i["type"] for i in inbox(team["olive"])["items"]) == [
+        "approved", "changes_requested", "work_status_changed"]
     assert inbox(team["vic"])["unread_count"] == 0
 
 

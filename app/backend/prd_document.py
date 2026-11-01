@@ -364,7 +364,9 @@ def derive_content_text(document) -> str:
     if errors:
         raise InvalidDocument(errors)
     parts = []
-    for section in document["content"]:
+    # Like the validator, a missing "content" is an empty document: TipTap's
+    # getJSON() leaves it out of an empty doc.
+    for section in document.get("content", []):
         lines = [section_title(section["attrs"]["type"])]
         for block in section["content"]:
             lines.extend(_block_lines(block))
