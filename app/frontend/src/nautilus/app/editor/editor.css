@@ -362,6 +362,20 @@
   margin: 0 auto;
   padding: 16px 24px 0;
 }
+.ne-alerts .nw-alert + .ne-changed,
+.ne-alerts .ne-changed + .nw-alert {
+  margin-top: 8px;
+}
+.ne-changed {
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: #FFF1D6;
+  color: #7A4300;
+  font-size: 14px;
+}
+.ne-changed strong {
+  font-weight: 600;
+}
 .ne-alert-action {
   padding: 0;
   border: 0;
