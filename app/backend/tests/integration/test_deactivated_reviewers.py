@@ -1,6 +1,7 @@
-"""Deactivating a member drops their pending review slots (M3 decision on
-Marco's review of #103): a round left with only approvals completes, a round
-left with nobody goes back to draft, and decisions already made stay."""
+"""Deactivating a member, or removing them from the PRD, drops their pending
+review slots (M3 decision on Marco's reviews of #103 and #97): a round left with
+only approvals completes, a round left with nobody goes back to draft, and
+decisions already made stay. The settling events are system events."""
 
 import pytest
 
@@ -33,6 +34,15 @@ def deactivate(team, who):
     assert r.status_code == 200, r.text
 
 
+def remove(team, who):
+    r = team["olive"].api("DELETE", f"/prds/{team['prd']}/members/{team[who].id}")
+    assert r.status_code == 204, r.text
+
+
+def owner_notification(team, kind):
+    return next(i for i in team["olive"].api("GET", "/notifications").json()["items"] if i["type"] == kind)
+
+
 def state(db, team):
     return db.execute("select r.state, p.status from review_round r join prd p on p.id = r.prd_id where r.id = %s",
                       (team["round"],)).fetchone()
@@ -48,11 +58,12 @@ def test_the_last_pending_reviewer_leaving_completes_an_approved_round(team, db)
     deactivate(team, "ray")
     assert slots(db, team) == {team["rae"].id: "approved"}
     assert state(db, team) == ("approved", "final")
-    events = db.execute("select event_type, payload ->> 'reason' from prd_event where round_id = %s "
-                        "order by created_at", (team["round"],)).fetchall()
-    assert events[-1] == ("round_approved", "reviewer_deactivated")
-    types = [i["type"] for i in team["olive"].api("GET", "/notifications").json()["items"]]
-    assert "round_approved" in types
+    approved = owner_notification(team, "round_approved")
+    assert approved["actor_name"] is None
+    assert approved["payload"] == {"round_no": 1, "reviewer_id": None, "reason": "reviewer_deactivated",
+                                   "removed_reviewer_id": team["ray"].id}
+    assert db.execute("select actor_id from prd_event where round_id = %s and event_type = 'round_approved'",
+                      (team["round"],)).fetchone()[0] is None
 
 
 def test_with_nobody_left_the_prd_goes_back_to_draft(team, db):
@@ -60,6 +71,10 @@ def test_with_nobody_left_the_prd_goes_back_to_draft(team, db):
     deactivate(team, "ray")
     assert slots(db, team) == {}
     assert state(db, team) == ("superseded", "draft")
+    superseded = owner_notification(team, "superseded")
+    assert superseded["actor_name"] is None
+    assert superseded["payload"]["reason"] == "reviewer_deactivated"
+    assert superseded["payload"]["removed_reviewer_id"] == team["ray"].id
 
 
 def test_a_change_request_still_blocks_approval(team, db):
@@ -81,3 +96,27 @@ def test_a_stale_round_is_not_approved(team, db):
     save_version(db, team["prd"], team["olive"])  # an edit without E09's continuation
     deactivate(team, "ray")
     assert state(db, team) == ("in_review", "in_review")
+
+
+def test_removing_a_pending_reviewer_from_the_prd_drops_their_slot(team, db):
+    decide(team, "rae")
+    remove(team, "ray")
+    assert slots(db, team) == {team["rae"].id: "approved"}
+    assert state(db, team) == ("approved", "final")
+    assert owner_notification(team, "round_approved")["payload"]["reason"] == "reviewer_removed"
+
+
+def test_removing_everyone_sends_the_prd_back_to_draft(team, db):
+    remove(team, "rae")
+    remove(team, "ray")
+    assert state(db, team) == ("superseded", "draft")
+    assert owner_notification(team, "superseded")["payload"]["reason"] == "reviewer_removed"
+
+
+def test_an_org_admin_removed_from_the_prd_still_reviews(team, db):
+    r = team["olive"].api("PUT", f"/prds/{team['prd']}/members/{team['ada'].id}", json={"role": "viewer"})
+    assert r.status_code == 200, r.text
+    db.execute("insert into review_slot (round_id, prd_id, reviewer_id) values (%s, %s, %s)",
+               (team["round"], team["prd"], team["ada"].id))
+    remove(team, "ada")
+    assert slots(db, team)[team["ada"].id] == "pending"

@@ -175,6 +175,8 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 - Pick invitees from the [organization directory](#organization-directory) (`members[].user_id`).
 - Inviting someone or changing their role sends them a [notification](#notifications); removing someone doesn't.
   Setting a role someone already has changes nothing.
+- Removing a reviewer who hasn't decided on the open round (and isn't an org admin, so can't see the PRD any more)
+  drops their review slot, as [deactivating a reviewer](#managing-members-admins) does.
 
 ### Comments
 
@@ -244,7 +246,9 @@ requests changes; when everyone has approved, the PRD becomes `final`.
   `superseded` notification. The old round keeps its decisions and explanations, so show superseded rounds as history
   (`GET .../reviews`). Reviewers who left are dropped; if none remain, or the PRD is emptied, it goes back to `draft`.
   Edits to an approved PRD are owner-only and go through a modal to confirm the reviewers.
-- The reviewer list is frozen when the round starts. Names and departments are as of submission.
+- The reviewer list is frozen when the round starts. Names and departments are as of submission. The one exception
+  for now: a reviewer who loses access (deactivated, or removed from the PRD) before deciding is dropped from the
+  round, and its `reviewers` no longer list them. Decisions already made stay.
 - **Deciding:** send the round's `version_id`. **Requesting changes needs an `explanation`**; it's saved as a comment
   on that version (optionally on one section) and shown as the reviewer's `explanation`. An approval can carry an
   optional note the same way.
@@ -383,7 +387,10 @@ Response: 200 `{ "user_id", "active", "access_role", "department_id", "manager_i
 - New owners from `transfer_owner_to` are recorded like a role change on each PRD.
 - **Deactivating a reviewer** drops their *undecided* review slots on open rounds (decisions they already made stay).
   A round left with only approvals completes (the PRD becomes `final`, `round_approved` notifies owners and
-  reviewers); a round left with no reviewers is superseded and the PRD goes back to `draft`.
+  reviewers); a round left with no reviewers is superseded, the PRD goes back to `draft` and the owners get a
+  `superseded` notification. Both are system events: `actor_name` is `null`, and the payload has
+  `reason: "reviewer_deactivated"` and `removed_reviewer_id`. Removing a reviewer from the PRD does the same with
+  `reason: "reviewer_removed"`.
 - The organization always keeps at least one active admin, even when two admins change each other at once.
 
 ## Generation preview (AI)
@@ -483,7 +490,9 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
 - **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`; `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`;
   `approved`: `{ round_no }`; `changes_requested`: `{ round_no, section_type }`; `round_approved`:
-  `{ round_no, reviewer_id }` (the last approver). Coming with Marco's E09/E14: `superseded`, `work_status_changed`.
+  `{ round_no, reviewer_id }` (the last approver; `null` when the round completed because a pending reviewer lost
+  access, with `reason` and `removed_reviewer_id`: see [Managing members](#managing-members-admins)).
+  Coming with Marco's E09/E14: `superseded`, `work_status_changed`.
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
   the first one and `updated_at` is when the latest arrived; a growing batch moves back to the top of the inbox. Once
