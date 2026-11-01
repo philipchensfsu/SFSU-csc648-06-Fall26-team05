@@ -1,4 +1,4 @@
-"""One event per save (20261031180000_save_events.sql) against the local stack:
+"""One event per save (20261101032000_save_events.sql) against the local stack:
 a person's save records version_saved, an accepted AI proposal records
 ai_applied instead, and saves that change nothing or fail record nothing.
 Neither type notifies anyone.

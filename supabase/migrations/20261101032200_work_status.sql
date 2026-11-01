@@ -26,7 +26,7 @@
 -- work_status_forbidden, not_approved, stale_work_status,
 -- invalid_work_status, invalid_transition.
 --
--- Apply after 20261031190000_e09_reapproval (and Vineela's review migrations).
+-- Apply after 20261101032100_e09_reapproval (and Vineela's review migrations).
 -- Adds a column (default not_started for every PRD), a trigger and three
 -- functions; no other data changes.
 

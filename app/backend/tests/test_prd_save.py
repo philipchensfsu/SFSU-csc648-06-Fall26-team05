@@ -174,8 +174,8 @@ def test_a_raw_id_is_never_accepted_as_the_actor(actor):
 
 
 @pytest.mark.parametrize("message, status, code", [
-    ("no_reviewers", 422, "no_reviewers"),
-    ("reviewer_not_in_organization", 422, "reviewer_not_in_organization"),
+    ("no_reviewers", 422, "validation_error"),
+    ("reviewer_not_in_organization", 422, "not_in_organization"),
     ("owner_cannot_review", 422, "owner_cannot_review"),
     ("empty_prd", 422, "empty_prd"),
     ("approved_round_needs_owner", 409, "reapproval_required"),

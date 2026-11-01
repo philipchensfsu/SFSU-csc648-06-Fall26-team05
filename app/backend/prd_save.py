@@ -51,9 +51,11 @@ DATABASE_ERRORS = {
 # Review errors from Vineela's open_review_round / continue_review_round (#93),
 # raised as P0001 with a fixed message when a save resets or restarts a review.
 REVIEW_ERRORS = {
-    "no_reviewers": (422, "Choose at least one reviewer for the new approval.", "no_reviewers"),
+    # Same codes as submitting a review (POST /reviews), so both reviewer
+    # pickers handle errors the same way.
+    "no_reviewers": (422, "Choose at least one reviewer for the new approval.", "validation_error"),
     "reviewer_not_in_organization": (422, "Every reviewer must be an active member of the PRD's organization.",
-                                     "reviewer_not_in_organization"),
+                                     "not_in_organization"),
     "owner_cannot_review": (422, "Owners can't review their own PRD.", "owner_cannot_review"),
     "empty_prd": (422, "An approved PRD can't be resubmitted empty.", "empty_prd"),
     "approved_round_needs_owner": DATABASE_ERRORS["NTREV"],

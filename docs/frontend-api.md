@@ -184,7 +184,8 @@ v2 documents first.
   new approval". Prefill it with the reviewers of the latest round (`GET /api/prds/{id}/reviews`, first item). The
   owner can add or remove people, then **Apply edits** resends the same save with `confirmed_reviewer_ids`.
   **Discard** drops the edits; nothing is saved.
-- Reviewer list errors: 422 `no_reviewers` (empty list), `reviewer_not_in_organization`, `owner_cannot_review`, and
+- Reviewer list errors (the same codes as submitting a review): 422 `validation_error` (empty list),
+  `not_in_organization`, `owner_cannot_review`, and
   `empty_prd` (an approved PRD can't be resubmitted empty). 422 `confirmed_reviewers_not_allowed` if you send a list
   for a PRD that isn't approved.
 - **Notifications:** an edit during a review notifies everyone who had approved or requested changes (`superseded`).
