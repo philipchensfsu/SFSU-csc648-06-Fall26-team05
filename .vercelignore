@@ -1,0 +1,9 @@
+# Files Vercel must never upload. Without this file, deploys from a local
+# checkout upload gitignored env files too, and the Python function bundles
+# them (load_dotenv() would then read any variable Vercel doesn't set).
+.env
+.env.*
+**/.env
+**/.env.*
+!**/.env.example
+!**/.env.local.example
