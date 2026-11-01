@@ -88,31 +88,27 @@ The backend's routes, request and response shapes and error codes are in
 
 ## Database
 
-We use **Supabase (PostgreSQL)** for auth and data storage. The schema is defined in
-[`app/backend/schema.sql`](app/backend/schema.sql) and implements Data Definitions V2 (see the M2
-report) for the full PRD-authoring flow: guided intake, AI generation, editing, versioning, and uploads.
+We use **Supabase (PostgreSQL)** for auth and data storage. The schema is the migrations in
+[`supabase/migrations/`](supabase/migrations/), applied in timestamp order; `supabase db reset` builds a
+local database from them. The main tables:
 
-- **`profile`** — one row per authenticated user (extends Supabase's built-in `auth.users`); carries the
-  `pm` / `engineer` / `admin` role that drives access control
-- **`project`** — an optional folder grouping PRDs
-- **`prd`** — the primary document: content, editor state, status, and the currently active version
-- **`intake_answer`** — one row per guided-wizard question answered for a PRD
-- **`attachment`** — metadata for files uploaded to a PRD (the files themselves live in Supabase Storage)
-- **`prd_context`** — the AI's durable per-PRD memory (decisions, constraints, running summary)
-- **`source`** — citations/URLs attached to a PRD
-- **`prd_version`** — snapshots for undo/version history, taken before every AI edit
-- **`generation_record`** — an audit log of AI generation attempts (not chat memory)
+- **`profile`**: one row per authenticated user (extends Supabase's built-in `auth.users`)
+- **`organization`**, **`organization_member`**: an account's organization and its role there (`member` or `admin`)
+- **`department`**, **`team`**, **`team_member`**: optional structure that admins set up for their organization
+- **`project`**: an optional folder grouping PRDs
+- **`prd`**: the primary document: content, editor state, status, and the currently active version
+- **`prd_member`**: who can open a PRD, with a per-PRD role (`owner`, `editor` or `viewer`)
+- **`intake_answer`**, **`attachment`**, **`source`**: guided-wizard answers, uploaded files and citations for a PRD
+- **`prd_context`**, **`prd_version`**, **`generation_record`**, **`ai_proposal`**: the AI's per-PRD memory,
+  version history, generation log and staged edits
 
-All tables have Row Level Security enabled. Access follows the role table in the M2 report: PMs and
-admins create/edit/delete their own projects and PRDs, and admins can see and manage everything.
-PRD status does not grant visibility; sharing with other people comes with the organization features. `project`/`prd` deletes cascade to their child
-rows at the database level; Storage files do not cascade and must be cleaned up by the backend
-separately.
+All tables have Row Level Security enabled. Every PRD belongs to an organization; people get access to
+it through their `prd_member` role, and organization admins can see and manage every PRD in their
+organization. `project`/`prd` deletes cascade to their child rows at the database level; Storage files
+do not cascade and must be cleaned up by the backend separately.
 
-To set up the schema on a fresh Supabase project: open **SQL Editor** in the Supabase dashboard, paste
-the contents of `app/backend/schema.sql`, and run it. It's a single idempotent-ish script — safe to
-re-run if no real data exists yet, since it drops the old M0 placeholder tables (`profiles`/`prds`)
-before creating the real ones.
+To change the schema, add a new migration. [docs/local-development.md](docs/local-development.md#4-changing-the-database)
+covers writing one and how migrations reach the hosted database (by hand, after the PR merges).
 
 **Demo data:** `app/backend/seed_demo.py` creates a demo PM account (`nautilus.demo@example.com`) and
 seeds it with 3 projects and 10 PRDs, for the M2 vertical prototype's "list and search" requirement.
