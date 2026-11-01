@@ -23,10 +23,11 @@ def test_cursors_round_trip_and_are_opaque(version_no):
 
 
 @pytest.mark.parametrize("cursor", ["", "not-base64!", "djA", "eDEy", "dmFiYw"])  # "", junk, v0, x12, vabc
-def test_bad_cursors_are_422(cursor):
+def test_bad_cursors_are_400_invalid_cursor(cursor):
+    # The same code as the inbox and comments (pagination.py).
     with pytest.raises(ApiError) as info:
         prd_versions._decode_cursor(cursor)
-    assert (info.value.status_code, info.value.code) == (422, "validation_error")
+    assert (info.value.status_code, info.value.code) == (400, "invalid_cursor")
 
 
 @pytest.fixture
