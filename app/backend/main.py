@@ -18,7 +18,7 @@ from supabase_auth.errors import AuthError, AuthRetryableError
 
 import prd_save
 import prd_versions
-from ai import chat, classification, preview, section_edit, usage_gate
+from ai import chat, classification, preview, review_suggestion, section_edit, usage_gate
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
@@ -182,6 +182,14 @@ class AiEditRequest(RequestModel):
     instruction: str = Field(..., min_length=1, max_length=section_edit.MAX_INSTRUCTION_CHARS)
     # The same recent turns as the chat (browser memory, this PRD only).
     session_messages: list[ChatMessage] = Field(default_factory=list, max_length=chat.MAX_HISTORY_MESSAGES)
+
+
+class ReviewSuggestionRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+    # prd_comment ids on the PRD's current version (E06; change-request
+    # explanations are comments too).
+    feedback_ids: list[UUID] = Field(..., min_length=1, max_length=review_suggestion.MAX_FEEDBACK_ITEMS)
+    instruction: Optional[str] = Field(default=None, max_length=review_suggestion.MAX_INSTRUCTION_CHARS)
 
 
 class ClassificationRequest(RequestModel):
@@ -1402,6 +1410,17 @@ def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_u
 # AI section edit (A04): needs edit access; returns a staged proposal to
 # preview, never saves. Accept it through the normal save with its
 # generation_record_id (A05). 503 until Om's guardrail modules are in.
+@app.post("/api/prds/{prd_id}/review-suggestions")
+def request_review_suggestion(prd_id: UUID, payload: ReviewSuggestionRequest, auth=Depends(get_current_user)):
+    # E12: a preview of revisions that address chosen review comments.
+    # Nothing is saved; accept through PUT with generation_record_id.
+    return review_suggestion.propose_review_suggestion(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
+        feedback_ids=[str(i) for i in payload.feedback_ids], instruction=payload.instruction,
+        budget=usage_gate.RequestBudget(),
+    )
+
+
 @app.post("/api/prds/{prd_id}/ai-edit")
 def request_ai_edit(prd_id: UUID, payload: AiEditRequest, auth=Depends(get_current_user)):
     return section_edit.propose_section_edit(
