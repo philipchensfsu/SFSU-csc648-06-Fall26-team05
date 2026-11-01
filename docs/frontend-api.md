@@ -324,7 +324,7 @@ reject, reply to or resolve anything.
 
 | Body | Response | Who |
 |---|---|---|
-| `{ "revision": int, "feedback_ids": [uuid] (1–20), "instruction"?: "≤ 2000 chars" }` | 200 `{ explanation, proposal: { section_types, sections, content_json }, base_revision, generation_record_id }` | **Can edit** the PRD (owners, editors, org admins). Viewers and reviewers get 403 |
+| `{ "revision": int, "feedback_ids": [uuid] (1–20), "instruction"?: "≤ 2000 chars" }` | 200 `{ explanation, proposal: { section_types, sections, content_json }, base_revision, generation_record_id }` | **Owners only** (Backend Tasks v1.2). Editors, viewers, reviewers and org admins who aren't owners get 403 `owner_required` |
 
 - `feedback_ids` are **comment ids** ([Comments](#comments)), all on this PRD's **current version**. A reviewer's
   change-request explanation is a comment too, so use its `comment_id`.
@@ -335,7 +335,7 @@ reject, reply to or resolve anything.
   edited. Other sections, the title and the description must not change in that save (422 `proposal_scope`).
   Sections accepted unchanged get the AI highlight. Reject by discarding.
 - Accepting is a normal edit: during a review it continues the round like any other save (E09).
-- Errors: 404; 403 `forbidden`; 409 `stale_revision` (the PRD changed: reload, pick comments again); 409
+- Errors: 404; 403 `owner_required`; 409 `stale_revision` (the PRD changed: reload, pick comments again); 409
   `document_not_v2`; 422 `invalid_feedback` (an id isn't a comment on this PRD you can see); 422
   `feedback_not_current` (a comment is on an older version); 422 `validation_error`; plus the shared AI codes
   (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`,

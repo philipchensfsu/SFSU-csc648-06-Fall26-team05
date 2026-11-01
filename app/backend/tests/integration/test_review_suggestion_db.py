@@ -109,10 +109,10 @@ def records(db, prd):
                       "order by created_at", (prd,)).fetchall()
 
 
-def test_preview_leaves_the_prd_unchanged_then_the_editor_accepts(cast, db, service):
+def test_preview_leaves_the_prd_unchanged_then_the_owner_accepts(cast, db, service):
     before = state(db, cast["prd"])
     model = Model()
-    body = suggest(cast["editor"], cast, service, model, instruction="Keep it short.")
+    body = suggest(cast["owner"], cast, service, model, instruction="Keep it short.")
     assert body["base_revision"] == 2 and body["explanation"].startswith("Made the goal")
     assert body["proposal"]["section_types"] == ["goals", "risks"]
     assert state(db, cast["prd"]) == before  # the request saved nothing
@@ -125,7 +125,7 @@ def test_preview_leaves_the_prd_unchanged_then_the_editor_accepts(cast, db, serv
     assert INJECTION in sent["review_feedback"][1]["comment"] and sent["owner_instruction"] == "Keep it short."
     assert "author" not in model.prompts[0]
 
-    saved = save_prd(service, verified(service, cast["editor"]), cast["prd"], 2,
+    saved = save_prd(service, verified(service, cast["owner"]), cast["prd"], 2,
                      content_json=body["proposal"]["content_json"], origin="ai_generated",
                      generation_record_id=body["generation_record_id"])
     assert saved["revision"] == 3 and saved["status"] == "draft"
@@ -151,12 +151,29 @@ def test_an_edited_suggestion_saves_without_the_mark_on_that_section(cast, db, s
     assert "ai_generated" not in by_type["goals"] and "ai_generated" in by_type["risks"]
 
 
-def test_viewers_and_reviewers_cannot_request_suggestions(cast, db, service):
-    for who in ("viewer", "finance"):
+def test_only_owners_can_request_suggestions(cast, db, service):
+    # v1.2 E12 is owner-only; editors, viewers and reviewers get 403.
+    for who in ("editor", "viewer", "finance"):
         with pytest.raises(ApiError) as info:
             suggest(cast[who], cast, service)
-        assert (info.value.status_code, info.value.code) == (403, "forbidden")
+        assert (info.value.status_code, info.value.code) == (403, "owner_required")
     assert records(db, cast["prd"]) == []
+
+
+def test_an_owner_who_loses_ownership_during_the_call_gets_nothing_staged(cast, db, service):
+    db.execute("update prd_member set role = 'owner' where prd_id = %s and user_id = %s",
+               (cast["prd"], cast["editor"].id))  # a second owner, so the first can step down
+
+    class Demoting(Model):
+        def __call__(self, prompt, **kwargs):
+            db.execute("update prd_member set role = 'editor' where prd_id = %s and user_id = %s",
+                       (cast["prd"], cast["owner"].id))
+            return super().__call__(prompt, **kwargs)
+
+    with pytest.raises(ApiError) as info:
+        suggest(cast["owner"], cast, service, Demoting())
+    assert info.value.code == "owner_required"
+    assert db.execute("select count(*) from ai_proposal where prd_id = %s", (cast["prd"],)).fetchone() == (0,)
 
 
 def test_feedback_must_be_this_prds_current_comments(cast, db, service, make_user):

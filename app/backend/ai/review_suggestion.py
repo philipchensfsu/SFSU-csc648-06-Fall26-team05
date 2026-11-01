@@ -11,8 +11,12 @@ so accepting during a review continues the round like any other edit.
   change-request explanation is stored as a comment too (E08), so one id type
   covers both. Every id must be a comment on this PRD's current version that
   the requester can see; anything else is 422 before the model is called.
-- Edit access is required (can_edit_prd, asked as the user), the same as
-  section edits (A04); record_ai_request repeats the check under the PRD lock.
+- Only the PRD's owners may ask (Backend Tasks v1.2 E12: "Owner ... only").
+  The team's chatbot decision (D5) opened chat to viewers but didn't change
+  E12, and whether editors may ask is still an open question, so this stays
+  owner-only until a confirmed decision says otherwise. is_prd_owner is asked
+  as the user before the model call and again after it; record_ai_request
+  also rechecks edit access and the revision under the PRD lock.
 - Feedback and the optional instruction are untrusted data. The model only
   returns revised sections and an explanation; it can't approve, reject,
   reply to or resolve anything, and no review state is touched here.
@@ -49,6 +53,7 @@ MAX_EXPLANATION_CHARS = 1000
 MAX_OUTPUT_TOKENS = 8192
 
 INVALID_FEEDBACK = (422, "Choose comments on this PRD that you can see.", "invalid_feedback")
+OWNER_ONLY = (403, "Only the PRD's owners can ask the AI for revisions from review feedback.", "owner_required")
 FEEDBACK_NOT_CURRENT = (422, "Some of these comments are on an older version. Choose comments on the current version.",
                         "feedback_not_current")
 
@@ -116,8 +121,7 @@ def propose_review_suggestion(user_client, service_client, *, actor_id, prd_id: 
     budget = budget or usage_gate.RequestBudget()
 
     current_revision, prd = chat.load_chat_prd(user_client, prd_id)  # 404 if not visible
-    if user_client.rpc("can_edit_prd", {"target_prd_id": prd_id}).execute().data is not True:
-        raise ApiError(403, "Only people who can edit this PRD can ask for revisions.", "forbidden")
+    _require_owner(user_client, prd_id)
     if current_revision != revision:
         raise ApiError(*chat.STALE_REVISION)
     document = _saved_document(user_client, prd_id)
@@ -144,6 +148,7 @@ def propose_review_suggestion(user_client, service_client, *, actor_id, prd_id: 
             raise
         proposal = {"section_types": [s["attrs"]["type"] for s in sections], "sections": sections,
                     "content_json": merged}
+        _require_owner(user_client, prd_id)  # still an owner after the model call
         # Rechecks edit access and the revision under the PRD lock.
         record = records.record_ai_request(
             service_client, actor_id=actor_id, prd_id=prd_id, base_revision=revision, trigger="chat_request",
@@ -154,6 +159,11 @@ def propose_review_suggestion(user_client, service_client, *, actor_id, prd_id: 
         raise ApiError(*chat.STALE_REVISION)
     return {"explanation": explanation, "proposal": proposal, "base_revision": revision,
             "generation_record_id": record.generation_record_id}
+
+
+def _require_owner(user_client, prd_id: str) -> None:
+    if user_client.rpc("is_prd_owner", {"target_prd": prd_id}).execute().data is not True:
+        raise ApiError(*OWNER_ONLY)
 
 
 def build_prompt(prd: dict, document: dict, feedback: list[dict], instruction: str | None) -> str:
