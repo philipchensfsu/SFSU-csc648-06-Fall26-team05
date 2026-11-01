@@ -143,8 +143,8 @@ submitted, or the last round was superseded by an edit). Use it for badges such 
   [`docs/prd-document-format.md`](prd-document-format.md).
 
 **S03 save (on `develop` behind a switch, #81; off in production).** When the backend runs with `PRD_SAVE_V2=true`,
-the same `PUT /api/prds/{id}` goes through the S03 save. The switch is off until the cutover: the editor must send
-v2 documents first.
+the same `PUT /api/prds/{id}` goes through the S03 save. It's on in the local Compose stack
+([local-development.md](local-development.md)) and off in production until the hosted rollout.
 
 - **Body:** `{ "revision": int, "title"?, "description"?: string | null, "content_json"?: v2 document,
   "generation_record_id"?: uuid, "confirmed_reviewer_ids"?: [uuid] }`. Only the fields you send change;
