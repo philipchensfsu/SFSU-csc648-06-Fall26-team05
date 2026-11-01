@@ -554,6 +554,10 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   read, the next comment starts a new notification.
   Other types always have `count: 1`.
 - No realtime updates: refetch the unread count when the user navigates or on a timer.
+- **Saves never notify.** Each save that changes something records one event for the PRD's history: `version_saved`
+  (`{ version_no, changed }`, where `changed` lists `title`, `description` and section types) or, when it accepts
+  an AI proposal, `ai_applied` (the same plus `generation_record_id`). Neither creates a notification, so they never
+  appear in the inbox.
 
 ## Coming in open PRs
 
