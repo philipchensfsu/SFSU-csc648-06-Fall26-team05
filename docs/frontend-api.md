@@ -133,7 +133,9 @@ v2 documents first.
     acceptance after a lost response returns the saved PRD instead of an error.
   - Errors: 409 `proposal_unavailable` (already used, expired, or not yours: discard the preview); 409
     `stale_revision` (the PRD changed since the preview: generate again); 422 `invalid_generation_record` (the
-    document carries an `ai_generated` mark the server didn't add).
+    document carries an `ai_generated` mark the server didn't add); 422 `unsupported_proposal` (this kind of AI
+    proposal can't be accepted through the save yet: discard it). Today only whole drafts from Generate are
+    accepted; section edits (#85) and review suggestions (#110) add theirs as they merge.
 
 ### People on a PRD
 
