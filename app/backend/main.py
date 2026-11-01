@@ -442,6 +442,10 @@ def get_prd_version(prd_id: UUID, version_id: UUID, auth=Depends(get_current_use
     return prd_versions.get_version(auth["client"], str(prd_id), str(version_id))
 
 
+# Once PRD_SAVE_V2 is the only save path, remove the legacy update below and
+# revoke the client's update grant on prd.revision (#102): the legacy
+# compare-and-swap is the only reason clients may still write it, and a raw
+# Data API call could bump it and fail other editors' saves (Om, #102 review).
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
 def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user)):
     sent = payload.model_fields_set
