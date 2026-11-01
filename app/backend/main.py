@@ -16,7 +16,7 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 from supabase_auth.errors import AuthError, AuthRetryableError
 
 import prd_save
-from ai import preview
+from ai import chat, preview, usage_gate
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
@@ -158,6 +158,21 @@ class IntakeAnswerOut(BaseModel):
 class GenerateRequest(RequestModel):
     # The revision the client last saw; the draft is built for it.
     revision: int = Field(..., ge=1)
+
+
+class ChatMessage(RequestModel):
+    role: Literal["user", "assistant"]
+    # Earlier assistant replies can be up to MAX_ANSWER_CHARS, so history
+    # items allow that; a new message is still capped at MAX_MESSAGE_CHARS.
+    content: str = Field(..., min_length=1, max_length=chat.MAX_ANSWER_CHARS)
+
+
+class ChatRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+    message: str = Field(..., min_length=1, max_length=chat.MAX_MESSAGE_CHARS)
+    # Recent messages kept by the browser for this PRD only (no chat table).
+    # Untrusted: they reach the model as data, never as instructions.
+    history: list[ChatMessage] = Field(default_factory=list, max_length=chat.MAX_HISTORY_MESSAGES)
 
 
 @app.get("/api/health")
@@ -501,6 +516,95 @@ def add_comment(prd_id: UUID, payload: CommentIn, auth=Depends(get_current_user)
     return comment_item(row)
 
 
+class ReviewerOut(BaseModel):
+    user_id: UUID
+    name: Optional[str]
+    department: Optional[str]
+    state: Literal["pending", "approved", "changes_requested"]
+    decided_at: Optional[datetime]
+
+
+class ReviewRoundOut(BaseModel):
+    id: UUID
+    prd_id: UUID
+    round_no: int
+    version_id: UUID
+    version_no: Optional[int]
+    state: Literal["in_review", "changes_requested", "approved", "superseded"]
+    owner_review_allowed: bool
+    submitted_by: Optional[UUID]
+    submitted_at: datetime
+    completed_at: Optional[datetime]
+    reviewers: list[ReviewerOut]
+
+
+class ReviewSubmitIn(RequestModel):
+    revision: int = Field(..., ge=1)
+    version_id: UUID
+    reviewer_ids: list[UUID] = Field(..., min_length=1, max_length=50)
+
+
+class ReviewSubmitted(BaseModel):
+    round: ReviewRoundOut
+    revision: int
+    status: str
+
+
+# Errors raised by submit_prd_review (P0001 with a fixed message).
+REVIEW_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "prd_manage_forbidden": (403, "Only the PRD's owners and org admins can submit it for review.", None),
+    "stale_revision": (409, "This PRD changed since you last loaded it. Refresh and try again.", "stale_revision"),
+    "no_saved_version": (409, "Save the PRD before submitting it for review.", "no_saved_version"),
+    "stale_version": (409, "The PRD has a newer version. Refresh and try again.", "stale_version"),
+    "review_in_progress": (409, "This PRD already has a review in progress or approved.", "review_in_progress"),
+    "empty_prd": (422, "Add some content before submitting the PRD for review.", "empty_prd"),
+    "no_reviewers": (422, "Choose at least one reviewer.", "validation_error"),
+    "reviewer_not_in_organization": (422, "Every reviewer must be an active member of this PRD's organization.",
+                                     "not_in_organization"),
+    "owner_cannot_review": (422, "Owners can't review their own PRD while someone else in the organization can.",
+                            "owner_cannot_review"),
+}
+
+ROUND_COLUMNS = ("id, prd_id, round_no, version_id, state, owner_review_allowed, submitted_by, submitted_at, "
+                 "completed_at, version:prd_version(version_no), "
+                 "slots:review_slot(reviewer_id, reviewer_name, department_name, state, decided_at)")
+
+
+def round_item(row):
+    reviewers = [{"user_id": s["reviewer_id"], "name": s["reviewer_name"], "department": s["department_name"],
+                  "state": s["state"], "decided_at": s["decided_at"]} for s in row["slots"]]
+    reviewers.sort(key=lambda r: ((r["name"] or "").lower(), r["user_id"]))
+    item = {k: row[k] for k in ("id", "prd_id", "round_no", "version_id", "state", "owner_review_allowed",
+                                "submitted_by", "submitted_at", "completed_at")}
+    return {**item, "version_no": (row["version"] or {}).get("version_no"), "reviewers": reviewers}
+
+
+@app.get("/api/prds/{prd_id}/reviews", response_model=Page[ReviewRoundOut])
+def list_review_rounds(prd_id: UUID, params: PageParams = Depends(), auth=Depends(get_current_user)):
+    # Every round, newest first, superseded ones included.
+    client = auth["client"]
+    if not client.table("prd").select("id").eq("id", str(prd_id)).execute().data:
+        raise ApiError(404, "PRD not found")
+    query = client.table("review_round").select(ROUND_COLUMNS).eq("prd_id", str(prd_id))
+    page = paginate(query, params, sort_column="submitted_at")
+    return {"items": [round_item(r) for r in page["items"]], "next_cursor": page["next_cursor"]}
+
+
+@app.post("/api/prds/{prd_id}/reviews", response_model=ReviewSubmitted, status_code=201)
+def submit_review(prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_current_user)):
+    # Owners and org admins submit the current version to the reviewers they
+    # choose; the PRD moves to in_review.
+    client = auth["client"]
+    round_id = call_function(client, "submit_prd_review", {
+        "target_prd": str(prd_id), "base_revision": payload.revision, "target_version": str(payload.version_id),
+        "reviewer_ids": [str(r) for r in payload.reviewer_ids],
+    }, REVIEW_ERRORS)
+    row = client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id).execute().data[0]
+    prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
+    return {"round": round_item(row), **prd}
+
+
 @app.get("/api/prds/{prd_id}/intake", response_model=list[IntakeAnswerOut])
 def list_intake_answers(prd_id: UUID, auth=Depends(get_current_user)):
     client = auth["client"]
@@ -833,4 +937,16 @@ def mark_notification_read(notification_id: UUID, payload: NotificationRead, aut
 def generate_prd_preview(prd_id: UUID, payload: GenerateRequest, auth=Depends(get_current_user)):
     return preview.generate_preview(
         auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision
+    )
+
+
+# PRD chat, answer-only (A04 first slice). Anyone who can view the PRD may
+# ask; nothing is saved to it. Returns 503 ai_chat_unavailable until Om's
+# guardrail and prompt modules are in place (see ai/chat.py).
+@app.post("/api/prds/{prd_id}/ai/chat")
+def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_user)):
+    return chat.answer_chat(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
+        message=payload.message, history=[m.model_dump() for m in payload.history],
+        budget=usage_gate.RequestBudget(),
     )

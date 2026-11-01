@@ -320,7 +320,7 @@ def check_inputs(inputs: GenerationInput) -> None:
             raise GenerationInputError(f"The answer to {key} must be text.", "validation_error")
         if len(answer) > MAX_ANSWER_CHARS:
             raise GenerationInputError(f"The answer to {key} is too long.", "validation_error")
-    _check_context(inputs.context)
+    check_context(inputs.context)
     missing = [key for key in REQUIRED_INTAKE_KEYS if not (inputs.answers.get(key) or "").strip()]
     if missing:
         raise GenerationInputError(
@@ -329,7 +329,7 @@ def check_inputs(inputs: GenerationInput) -> None:
         )
 
 
-def _check_context(context: SavedContext) -> None:
+def check_context(context: SavedContext) -> None:
     # The database already enforces these bounds; checking again keeps a
     # malformed row from reaching the model.
     for key in CONTEXT_LISTS:
