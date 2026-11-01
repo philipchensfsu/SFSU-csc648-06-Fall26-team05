@@ -3,6 +3,7 @@ import "../workspace.css";
 import "../flow/flow.css";
 import "./editor.css";
 import { FlowBar } from "../flow/FlowBar";
+import AskAiPanel from "./AskAiPanel";
 import { editedWhen, formatDate } from "../format";
 import { IconPencil } from "../icons";
 import { Alert, MenuButton, Modal, StatusChip } from "../ui";
@@ -751,23 +752,14 @@ function EditorPage({
             </button>
           </div>
 
-          {railTab === "ai" ? (
-            // The real chat (POST /api/prds/{id}/ai/chat, #75/#80) moves here
-            // once it merges.
-            <section
-              className="ne-card"
-              role="tabpanel"
-              id={`${ids}-panel-ai`}
-              aria-labelledby={`${ids}-tab-ai`}
-            >
-              <div className="ne-card-head">
-                <h2 className="ne-card-title">Ask Nautilus about this PRD</h2>
-              </div>
-              <p className="ne-card-note">
-                Questions about this PRD will be answered here. The AI assistant isn’t connected yet.
-              </p>
-            </section>
-          ) : (
+          <AskAiPanel
+            key={prd.id}
+            prd={prd}
+            id={`${ids}-panel-ai`}
+            labelledBy={`${ids}-tab-ai`}
+            hidden={railTab !== "ai"}
+          />
+          {railTab === "ai" ? null : (
           <div role="tabpanel" id={`${ids}-panel-review`} aria-labelledby={`${ids}-tab-review`}>
           <section className="ne-card" aria-labelledby={`${ids}-confirm`}>
             <div className="ne-card-head">

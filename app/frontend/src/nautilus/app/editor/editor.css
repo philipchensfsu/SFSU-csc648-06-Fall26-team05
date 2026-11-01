@@ -996,6 +996,68 @@
   flex-direction: column;
   gap: 14px;
 }
+.ne-rail [role="tabpanel"][hidden] {
+  display: none;
+}
+
+/* Ask AI: answer-only chat about the PRD. */
+.ne-chat-log {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 52vh;
+  overflow-y: auto;
+}
+.ne-bubble {
+  max-width: 92%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ne-bubble-you {
+  align-self: flex-end;
+  background: #102C33;
+  color: #FFFFFF;
+  border-bottom-right-radius: 4px;
+}
+.ne-bubble-ai {
+  align-self: flex-start;
+  background: #EAF3F5;
+  color: #102C33;
+  border-bottom-left-radius: 4px;
+}
+.ne-bubble.is-waiting {
+  color: #557479;
+}
+.ne-chat-error {
+  font-size: 12.5px;
+  color: #B4332B;
+}
+.ne-chat-form {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+.ne-chat-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid #C3DADE;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 13.5px;
+  color: #102C33;
+  background: #FFFFFF;
+}
+.ne-chat-form textarea:focus {
+  outline: 2px solid #1D6F7A;
+  outline-offset: 1px;
+}
 .ne-card {
   padding: 16px;
   border: 1px solid #DCEBEE;
