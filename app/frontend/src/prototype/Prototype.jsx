@@ -1,8 +1,6 @@
-import { useCallback, useRef, useState } from "react";
-import "./prototype.css";
+import { Suspense, lazy, useCallback, useRef, useState } from "react";
 import {
   QUESTIONS,
-  draftSectionsFromAnswers,
   fromApiIntakeAnswers,
   fromApiPrd,
   sectionsToContentJson,
@@ -15,9 +13,11 @@ import InterviewPage from "../nautilus/app/flow/InterviewPage";
 import ReviewPage from "../nautilus/app/flow/ReviewPage";
 import { isAnswered } from "../nautilus/app/questions";
 import { createDraftCreator } from "../nautilus/app/flow/draftCreation";
-import Generating from "./screens/Generating";
-import Editor from "./screens/Editor";
-import ExportPrd from "./screens/ExportPrd";
+import GeneratingPage from "../nautilus/app/editor/GeneratingPage";
+import { draftFromAnswers } from "../nautilus/app/editor/draftFromAnswers";
+
+// The editor carries TipTap, so it loads only when a PRD is opened.
+const EditorPage = lazy(() => import("../nautilus/app/editor/EditorPage"));
 
 // App renders this workspace only after Supabase confirms a signed-in user.
 // `userName` and `userId` come from that session in App.jsx.
@@ -44,6 +44,11 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
   const latestLoad = useRef(0);
   const visits = useRef(0);
   const answersRequested = useRef(new Set());
+  // The generation screen's state (GeneratingPage draws it). AI drafting
+  // isn't connected yet (#69/#70), so it offers "Start from my answers".
+  const [generation, setGeneration] = useState(null);
+  // Bumped after "Load the latest version", so the editor remounts with it.
+  const [editorVersion, setEditorVersion] = useState(0);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
 
@@ -253,19 +258,30 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
     go("interview");
   }
 
-  // Shared by the Editor's Save button and finishGeneration below: persists
-  // content_json/content_text to the real PRD row, using the
-  // revision the UI last saw for optimistic-concurrency (409 if someone
-  // else saved first). Returns the promise so callers can show save state.
-  function savePrdContent(id, sections) {
+  // Puts a PRD row from the API into the list, keeping its loaded answers.
+  function applyRow(row) {
+    setPrds((current) =>
+      current.map((p) =>
+        p.id === row.id ? { ...fromApiPrd(row), answers: p.answers, answersLoaded: p.answersLoaded } : p,
+      ),
+    );
+  }
+
+  // Shared by the editor's Save and "Start from my answers": saves the title,
+  // description and sections in one PUT, with the revision the UI last saw
+  // (409 if someone else saved first). Status is never sent (Decision 6).
+  function saveDocument(id, doc) {
     const prd = prds.find((p) => p.id === id);
-    if (!prd) return Promise.resolve();
-    const contentJson = sectionsToContentJson(sections, prd.description);
-    const contentText = sectionsToText(sections, prd.description);
+    if (!prd) return Promise.reject(new Error("This PRD is no longer in your list."));
+    const title = doc.title ?? prd.title;
+    const description = doc.description ?? prd.description;
+    const contentJson = sectionsToContentJson(doc.sections, description);
+    const contentText = sectionsToText(doc.sections, description);
 
     function matchesRequestedSave(row) {
       const savedSections = row.content_json?.sections;
-      return row.content_text === contentText
+      return row.title === title
+        && row.content_text === contentText
         && row.content_json?.description === contentJson.description
         && Array.isArray(savedSections)
         && savedSections.length === contentJson.sections.length
@@ -280,6 +296,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
     return api
       .updatePrd(id, {
         revision: prd.revision,
+        title,
         content_json: contentJson,
         content_text: contentText,
       })
@@ -293,20 +310,45 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
         return latest;
       })
       .then((saved) => {
-        setPrds((current) =>
-          current.map((p) =>
-            p.id === id
-              ? { ...fromApiPrd(saved), answers: p.answers, answersLoaded: p.answersLoaded }
-              : p,
-          ),
-        );
+        applyRow(saved);
+        return saved;
       });
   }
 
-  async function finishGeneration() {
-    const sections = draftSectionsFromAnswers(activePrd.answers);
-    await savePrdContent(activePrd.id, sections);
-    go("ready");
+  function reloadPrd(id) {
+    return api.getPrd(id).then((row) => {
+      applyRow(row);
+      setEditorVersion((version) => version + 1);
+    });
+  }
+
+  function startGeneration() {
+    setGeneration({ status: "failed", unavailable: true, startedAt: Date.now(), error: "" });
+    go("generating");
+  }
+
+  // "Start from my answers": each answer goes into its section and nothing
+  // is made up (draftFromAnswers.js).
+  async function startFromAnswers(id) {
+    const prd = prds.find((p) => p.id === id);
+    await saveDocument(id, { sections: draftFromAnswers(prd?.answers ?? {}) });
+    go("editor", id);
+  }
+
+  // The editor's "Discovery answers" link: loads the answers first, since
+  // the review screen reads them once.
+  function openAnswers(id) {
+    const prd = prds.find((p) => p.id === id);
+    const ready = prd?.answersLoaded
+      ? Promise.resolve()
+      : api.listIntakeAnswers(id).then((rows) => {
+          const answers = fromApiIntakeAnswers(rows);
+          setPrds((current) => current.map((p) => (p.id === id ? { ...p, answers, answersLoaded: true } : p)));
+        });
+    return ready.then(() => {
+      setInterviewStart(null);
+      go("review", id);
+    });
   }
 
   // These screens include their own top bar; auth remains owned by App.
@@ -336,100 +378,74 @@ function Prototype({ initialUser = null, userName = "", userId = null, onLogOut 
       prd={activePrd}
       questions={QUESTIONS}
       onEdit={openInterview}
-      onGenerate={() => go("generating")}
+      onGenerate={startGeneration}
+      onOpenDraft={activePrd.sections ? () => go("editor") : undefined}
       onExit={() => go("dashboard", null)}
       onHome={() => showHome({ page: "dashboard" })}
     />;
   }
 
-  let content = null;
-  if ((screen === "generating" || screen === "ready") && activePrd) {
-    content = (
-      <Generating
-        key={screen}
-        prd={activePrd}
-        done={screen === "ready"}
-        shouldFail={false}
-        onFinish={finishGeneration}
-        onCancel={() => go("review")}
-        onBackToReview={() => go("review")}
-        onOpen={() => go("editor")}
-      />
+  if (screen === "generating" && activePrd && generation) {
+    return <GeneratingPage
+      prd={activePrd}
+      generation={generation}
+      onRetry={startGeneration}
+      onDraftFromAnswers={() => startFromAnswers(activePrd.id)}
+      onOpen={() => go("editor")}
+      onBackToAnswers={() => go("review")}
+      onExit={() => go("dashboard", null)}
+      onHome={() => showHome({ page: "dashboard" })}
+    />;
+  }
+  if (screen === "editor" && activePrd?.sections) {
+    return (
+      <Suspense fallback={null}>
+        <EditorPage
+          key={`${activePrd.id}:${editorVersion}`}
+          prd={activePrd}
+          onSave={(doc) => saveDocument(activePrd.id, doc)}
+          onReload={() => reloadPrd(activePrd.id)}
+          onOpenAnswers={() => openAnswers(activePrd.id)}
+          onExit={() => showHome({ page: "dashboard" })}
+          onHome={() => showHome({ page: "dashboard" })}
+        />
+      </Suspense>
     );
-  } else if (screen === "editor" && activePrd?.sections) {
-    content = (
-      <Editor
-        prd={activePrd}
-        // Returns the save promise so the Editor can show real saving/error
-        // state instead of assuming success.
-        onSave={(sections) => savePrdContent(activePrd.id, sections)}
-        onDashboard={() => showHome({ page: "dashboard" })}
-        onExport={() => go("export")}
-      />
-    );
-  } else if (screen === "export" && activePrd?.sections) {
-    content = <ExportPrd prd={activePrd} onBack={() => go("editor")} />;
   }
 
   // Everything that isn't one of the flows above is the workspace: the
   // sidebar with the dashboard, a project or search (src/nautilus/app).
-  if (!content) {
-    return (
-      <Workspace
-        view={home}
-        account={{ email: user, name: userName }}
-        userId={userId}
-        prds={prds}
-        prdsLoaded={prdsLoaded}
-        prdsError={prdsError}
-        projects={projects}
-        projectsLoaded={projectsLoaded}
-        projectsError={projectsError}
-        questions={QUESTIONS}
-        onRefresh={refresh}
-        onNavigate={showHome}
-        onQueryChange={setSearchQuery}
-        onCreatePrd={startNewPrd}
-        onOpenPrd={openPrd}
-        onRenamePrd={renamePrd}
-        onDeletePrd={deletePrd}
-        onCreateProject={createProject}
-        onRenameProject={renameProject}
-        onDeleteProject={deleteProject}
-        onCountProjectPrds={countProjectPrds}
-        onSearchPrds={searchPrds}
-        onLoadAnswers={loadAnswers}
-        onDismissError={() => {
-          setPrdsError(null);
-          setProjectsError(null);
-        }}
-        onSignOut={signOut}
-      />
-    );
-  }
-
   return (
-    <div className="nt-app">
-      {user ? (
-        <header className="nt-header">
-          <button
-            type="button"
-            className="nt-logo nt-link-button"
-            disabled={screen === "generating"}
-            onClick={() => showHome({ page: "dashboard" })}
-          >
-            Nautilus
-          </button>
-          <div className="nt-header-user">
-            <span>{user}</span>
-            <button type="button" className="nt-btn nt-btn-ghost" disabled={screen === "generating"} onClick={signOut}>
-              Sign out
-            </button>
-          </div>
-        </header>
-      ) : null}
-      {content}
-    </div>
+    <Workspace
+      view={home}
+      account={{ email: user, name: userName }}
+      userId={userId}
+      prds={prds}
+      prdsLoaded={prdsLoaded}
+      prdsError={prdsError}
+      projects={projects}
+      projectsLoaded={projectsLoaded}
+      projectsError={projectsError}
+      questions={QUESTIONS}
+      onRefresh={refresh}
+      onNavigate={showHome}
+      onQueryChange={setSearchQuery}
+      onCreatePrd={startNewPrd}
+      onOpenPrd={openPrd}
+      onRenamePrd={renamePrd}
+      onDeletePrd={deletePrd}
+      onCreateProject={createProject}
+      onRenameProject={renameProject}
+      onDeleteProject={deleteProject}
+      onCountProjectPrds={countProjectPrds}
+      onSearchPrds={searchPrds}
+      onLoadAnswers={loadAnswers}
+      onDismissError={() => {
+        setPrdsError(null);
+        setProjectsError(null);
+      }}
+      onSignOut={signOut}
+    />
   );
 }
 
