@@ -24,7 +24,7 @@
 --
 -- Applied to the hosted database by hand (docs/local-development.md,
 -- "Applying a migration to the hosted database"). Apply after
--- 20261031130000_review_decisions. Adds a function.
+-- 20261101010606_review_decisions. Adds a function.
 
 create or replace function prd_capabilities(target_prd uuid)
 returns jsonb
