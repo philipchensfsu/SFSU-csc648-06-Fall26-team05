@@ -105,7 +105,7 @@ submitted, or the last round was superseded by an edit). Use it for badges such 
 | `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1, `my_role: "owner"`), in your organization | 403 `no_organization` if the account has none; 404 if `project_id` isn't one of **your** projects; 422 |
 | `GET /api/prds` | optional `?search=text` (matches title and content text); optional `?view=`: `owned` (PRDs you own), `shared` (PRDs you were invited to as editor or viewer: "Shared with me"), `needs_my_approval` (PRDs whose open round is waiting on your decision, also when another reviewer requested changes) or `waiting_for_approval` (PRDs you own with a round in review or changes requested) | 200 `PRD[]`, most recently updated first. Without `view`: every PRD you can see, which for an org admin is every PRD in the org | 422 unknown `view` |
 | `GET /api/prds/{id}` | | 200 `PRD` plus `approval` and `capabilities` (below) | 404 |
-| `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 |
+| `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 (`status_not_allowed` if `status` is sent) |
 | `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
 
 - **`approval`** (only on `GET /api/prds/{id}`) summarizes the current review round:
@@ -124,8 +124,8 @@ submitted, or the last round was superseded by an edit). Use it for badges such 
   | `can_approve` | you're a reviewer on the current round who hasn't decided, and the round is still on the current version |
 
   Work-status, classification and routing flags come with Marco's E14 and A08.
-- **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). The legacy
-  save still accepts it; the S03 save below rejects it.
+- **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). Both saves
+  reject it with 422 `status_not_allowed`.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
   [`docs/prd-document-format.md`](prd-document-format.md).
 
@@ -346,6 +346,41 @@ All routes: 404 if you're not an active member of the organization, 403 if you'r
   members, is 409 until they're moved out. Archived teams take no new members.
 - Team membership never changes anyone's org role or access to PRDs.
 
+### Managing members (admins)
+
+`PATCH /api/organizations/{id}/members/{user_id}` changes one member. Send only what changes; `null` clears
+`department_id`, `manager_id` or `title`.
+
+| Body field | Notes |
+|---|---|
+| `access_role` | `"member"` or `"admin"` |
+| `department_id` | a department of this organization (not archived), or `null` |
+| `manager_id` | an active member of this organization, or `null`; no loops |
+| `title` | up to 100 characters; `""` or `null` clears it |
+| `active` | `false` deactivates, `true` reactivates |
+| `replacement_manager_id` | only when deactivating someone who manages people: their new manager, or `null` for none |
+| `transfer_owner_to` | only when deactivating the only owner of some PRDs: an active member who becomes their owner |
+
+Response: 200 `{ "user_id", "active", "access_role", "department_id", "manager_id", "title" }`.
+
+| Status | `code` | When |
+|---|---|---|
+| 404 | `not_found` | You're not an active member of the organization, or the person isn't in it |
+| 403 | `forbidden` | You're a member but not an admin |
+| 409 | `last_admin` | Demoting or deactivating the organization's last active admin. Make someone else an admin first |
+| 409 | `has_direct_reports` | Deactivating someone who manages people without `replacement_manager_id`; the body lists them in `reports` (user ids) |
+| 409 | `owns_prds` | Deactivating the only owner of some PRDs without `transfer_owner_to`; the body lists them in `prds` (`[{ prd_id, title }]`) |
+| 409 | `active_elsewhere` | Reactivating someone who is now active in another organization (one per account) |
+| 409 | `department_not_empty`-style directory codes | e.g. moving someone into an archived department |
+| 422 | `manager_cycle`, `manager_inactive`, `not_in_organization`, `head_not_in_department` | Reporting lines would loop; the manager or replacement isn't an active member here; moving a department head out of their department |
+| 422 | `validation_error` | Unknown field, bad role, title too long |
+
+- **Deactivating** removes the person's access to every PRD in the organization at once (their roles stay, and come
+  back if they're reactivated). Their department-head and team-lead positions are cleared. Show the `reports` or
+  `prds` lists from a 409 so the admin can choose, then send the request again with the choice.
+- New owners from `transfer_owner_to` are recorded like a role change on each PRD.
+- The organization always keeps at least one active admin, even when two admins change each other at once.
+
 ## Generation preview (AI)
 
 `POST /api/prds/{id}/generate` drafts a whole PRD from its interview answers with Gemini. **It's a preview: nothing is
@@ -437,10 +472,6 @@ about a PRD you can no longer see are hidden from the list and the unread count.
 
 Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
 
-### Organizations (Vineela)
-
-Next: admin routes for members (E02 part 2).
-
 ### AI (Marco)
 
 Open: #84 (version history), #85 (AI section edits), #86 (owning team and priority), #106 (save events), #108
@@ -454,7 +485,7 @@ permanent snapshot (since the S03 save core). There's no restore; don't show a R
 
 | Route | Query | Response | Errors |
 |---|---|---|---|
-| `GET /api/prds/{id}/versions` | `limit` (1–100, default 25), `cursor` | 200 `{ items: [Version], next_cursor }`, newest first | 404 if you can't see the PRD; 422 bad `limit` or `cursor` |
+| `GET /api/prds/{id}/versions` | `limit` (1–100, default 25), `cursor` | 200 `{ items: [Version], next_cursor }`, newest first | 404 if you can't see the PRD; 400 `invalid_cursor` (start again without one); 422 bad `limit` |
 | `GET /api/prds/{id}/versions/{version_id}` | | 200 `Version` plus `title`, `description`, `content_json`, `doc_schema_version`, `generation_record_id` | 404 if you can't see the PRD, or the version isn't one of **this** PRD's |
 
 `Version`: `{ id, version_no, saved_revision, actor: { id, name } | null, origin, created_at, changed_sections, change_summary }`

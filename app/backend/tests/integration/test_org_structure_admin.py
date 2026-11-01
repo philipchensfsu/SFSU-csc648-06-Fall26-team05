@@ -76,8 +76,9 @@ def test_names_are_checked(org):
     create_team(org, "Growth")
     assert create_team(org, "growth").json()["code"] == "name_taken"
     dept = create_department(org, "Sales").json()
-    r = org["ada"].api("PATCH", path(org, f"/departments/{dept['id']}"), json={"name": None})
-    assert r.status_code == 422
+    for null_field in ("name", "archived"):
+        r = org["ada"].api("PATCH", path(org, f"/departments/{dept['id']}"), json={null_field: None})
+        assert r.status_code == 422, null_field
 
 
 def test_rename_and_archive_frees_the_name(org):
