@@ -772,10 +772,11 @@ def unit_changes(payload):
     # Only the fields sent change; null clears head_id, lead_id or department_id.
     changes = {key: str(value) if isinstance(value, UUID) else value
                for key, value in payload.model_dump(exclude_unset=True).items()}
+    for field in ("name", "archived"):
+        if field in changes and changes[field] is None:
+            raise ApiError(422, f"{field} can't be null.", "validation_error")
     if "archived" in changes:
         changes["archived_at"] = datetime.now(timezone.utc).isoformat() if changes.pop("archived") else None
-    if changes.get("name", "") is None:
-        raise ApiError(422, "name can't be null.", "validation_error")
     return changes
 
 
@@ -858,7 +859,8 @@ def remove_team_member(org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(
     require_org_admin(client, org_id)
     team_in_org(client, org_id, team_id)
     write_directory(lambda: client.table("team_member").delete(returning=ReturnMethod.minimal)
-                    .eq("team_id", str(team_id)).eq("user_id", str(user_id)).execute())
+                    .eq("organization_id", str(org_id)).eq("team_id", str(team_id))
+                    .eq("user_id", str(user_id)).execute())
 
 
 class MemberUpdate(RequestModel):
