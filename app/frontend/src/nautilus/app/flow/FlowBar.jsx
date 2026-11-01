@@ -3,11 +3,13 @@ import Logo from "../Logo";
 import { isAnswered, isSkipped } from "../questions";
 
 // The top bar of the PRD screens: wordmark, breadcrumbs, actions on the
-// right and, optionally, a second row (the interview progress).
+// right and, optionally, a second row (the interview progress). `after`
+// sits right after the breadcrumbs (the editor's status menu); without a
+// `width` the bar spans the whole window.
 // crumbs: [{ label, onClick? , current? }]
-export function FlowBar({ width, crumbs, lead = "divider", onHome, actions, children }) {
+export function FlowBar({ width, crumbs, lead = "divider", onHome, after, actions, className, children }) {
   return (
-    <header className="nf-bar">
+    <header className={className ? `nf-bar ${className}` : "nf-bar"}>
       <div className="nf-bar-row" style={{ maxWidth: width }}>
         <button type="button" className="nw-logo-link nf-logo" aria-label="Nautilus dashboard" onClick={onHome}>
           <Logo height={19} />
@@ -36,6 +38,7 @@ export function FlowBar({ width, crumbs, lead = "divider", onHome, actions, chil
             </Fragment>
           ))}
         </nav>
+        {after}
         {actions ? <div className="nf-bar-actions">{actions}</div> : null}
       </div>
       {children ? (
