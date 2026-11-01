@@ -37,6 +37,9 @@ export default defineConfig({
       '@tiptap/extension-table',
     ],
   },
+  // Vitest compiles JSX itself, so component tests need the automatic runtime
+  // set here too. The app's own builds keep using the React plugin.
+  ...(process.env.VITEST ? { esbuild: { jsx: 'automatic' } } : {}),
   // `npm test` (Vitest) runs the tests kept next to the code in src/.
   test: { include: ['src/**/*.test.{js,jsx}'] },
 })
