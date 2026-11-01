@@ -116,7 +116,7 @@ def load_state(user_client, prd_id: str) -> PreviewState:
             answers[answer["question_key"]] = answer["answer_text"] or ""
     context = (user_client.table("prd_context").select("version, context_json, running_summary")
                .eq("prd_id", prd_id).execute().data)
-    # The description column arrives with S03 (#55); until then it's "".
+    # A PRD may have no description yet; the prompt then gets "".
     inputs = GenerationInput(title=row["title"], description=row.get("description") or "", answers=answers,
                              context=SavedContext.from_row(context[0] if context else None))
     return PreviewState(revision=row["revision"], inputs=inputs,
