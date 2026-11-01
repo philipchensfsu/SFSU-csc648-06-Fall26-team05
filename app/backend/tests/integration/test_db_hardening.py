@@ -1,9 +1,8 @@
 """S02: signed-out callers get no table access, users can't promote themselves,
 PRD status grants no visibility, and a reader who can't edit gets 403 (#50)."""
 
-import httpx
 
-from conftest import API_URL, add_to_prd, data_api, org_prd
+from conftest import API_URL, add_to_prd, data_api, http, org_prd
 
 
 def scalar(db, query, *params):
@@ -73,4 +72,4 @@ def test_reader_without_edit_rights_gets_403_not_409(make_user, make_org, db):
 
 
 def test_service_role_health_check_still_works():
-    assert httpx.get(f"{API_URL}/health/db").status_code == 200
+    assert http.get(f"{API_URL}/health/db").status_code == 200

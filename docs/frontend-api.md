@@ -101,21 +101,22 @@ Every PRD belongs to its creator's organization. `my_role` is the caller's acces
 | `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1, `my_role: "owner"`), in your organization | 403 `no_organization` if the account has none; 404 if `project_id` isn't one of **your** projects; 422 |
 | `GET /api/prds` | optional `?search=text` (matches title and content text); optional `?view=owned` (PRDs you own) or `?view=shared` (PRDs you were invited to as editor or viewer: "Shared with me") | 200 `PRD[]`, most recently updated first. Without `view`: every PRD you can see, which for an org admin is every PRD in the org | 422 unknown `view` |
 | `GET /api/prds/{id}` | | 200 `PRD` | 404 |
-| `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 |
+| `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 (`status_not_allowed` if `status` is sent) |
 | `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
 
-- **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). The legacy
-  save still accepts it; the S03 save below rejects it.
+- **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). Both saves
+  reject it with 422 `status_not_allowed`.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
   [`docs/prd-document-format.md`](prd-document-format.md).
 
-**S03 save (draft, #81; not on `develop`, not deployed).** When the backend runs with `PRD_SAVE_V2=true`, the
-same `PUT /api/prds/{id}` goes through the S03 save. The switch is off until the cutover: the editor must send v2
-documents first.
+**S03 save (on `develop` behind a switch, #81; off in production).** When the backend runs with `PRD_SAVE_V2=true`,
+the same `PUT /api/prds/{id}` goes through the S03 save. The switch is off until the cutover: the editor must send
+v2 documents first.
 
 - **Body:** `{ "revision": int, "title"?, "description"?: string | null, "content_json"?: v2 document,
-  "confirmed_reviewer_ids"?: [uuid] }`. Only the fields you send change; `description: null` clears it.
-  `confirmed_reviewer_ids` (1–50) is only for edits to an approved PRD (E09, below).
+  "generation_record_id"?: uuid, "confirmed_reviewer_ids"?: [uuid] }`. Only the fields you send change;
+  `description: null` clears it. `confirmed_reviewer_ids` (1–50) is only for edits to an approved PRD (E09,
+  below).
 - **Response:** 200 `PRD`, now including `description`, with the new `revision`. The server derives `content_text`
   and keeps a version for each save that changes something. A save that changes nothing returns the PRD unchanged.
 - **Errors:**
@@ -125,8 +126,17 @@ documents first.
   - 422 `status_not_allowed` if `status` is sent; 422 for `content_text` (the server derives it);
   - 403 viewer; 404 not visible; 409 `stale_revision`;
   - E09 (approved PRDs and reviews): see **Saving during or after a review** below.
-- **Accepting an AI proposal:** send `generation_record_id` with the save. Until A05 (#70) is in, this returns 422
-  `proposal_acceptance_unavailable`.
+- **Accepting an AI proposal (A05):** send the proposal's `generation_record_id` with the save, plus the title,
+  description and `content_json` the person kept (edited or not), and `revision` = the preview's `base_revision`.
+  - Sections accepted exactly as proposed get the `ai_generated` mark (the editor's AI highlight); edited sections
+    don't. The version records the save as AI-assisted either way.
+  - A proposal can be used once, by the person who asked for it, at the revision it was made for. Resending the same
+    acceptance after a lost response returns the saved PRD instead of an error.
+  - Errors: 409 `proposal_unavailable` (already used, expired, or not yours: discard the preview); 409
+    `stale_revision` (the PRD changed since the preview: generate again); 422 `invalid_generation_record` (the
+    document carries an `ai_generated` mark the server didn't add); 422 `unsupported_proposal` (this kind of AI
+    proposal can't be accepted through the save yet: discard it). Today only whole drafts from Generate are
+    accepted; section edits (#85) and review suggestions (#110) add theirs as they merge.
 
 **Saving during or after a review (E09, Decision 9).** Title, description and content edits interact with
 [reviews](#reviews):
@@ -204,8 +214,8 @@ its review.
 ### Reviews
 
 An owner (or org admin) submits the PRD's current saved version to reviewers they pick from the org. That opens a
-numbered **review round** tied to that version and moves the PRD to `in_review`. Reviewers approve or request
-changes (coming with E08).
+numbered **review round** tied to that version and moves the PRD to `in_review`. Each reviewer then approves or
+requests changes; when everyone has approved, the PRD becomes `final`.
 
 `ReviewRound`:
 
@@ -215,7 +225,8 @@ changes (coming with E08).
   "state": "in_review | changes_requested | approved | superseded", "owner_review_allowed": false,
   "submitted_by": "uuid | null", "submitted_at": "…", "completed_at": "… | null",
   "reviewers": [{ "user_id": "uuid", "name": "string | null", "department": "string | null",
-                  "state": "pending | approved | changes_requested", "decided_at": "… | null" }]
+                  "state": "pending | approved | changes_requested", "decided_at": "… | null",
+                  "explanation": "string | null", "comment_id": "uuid | null" }]
 }
 ```
 
@@ -223,6 +234,7 @@ changes (coming with E08).
 |---|---|---|---|
 | `POST /api/prds/{id}/reviews` | `{ "revision": int, "version_id": "uuid", "reviewer_ids": ["uuid", …] }` (1–50) | 201 `{ "round": ReviewRound, "revision": int, "status": "in_review" }` | 404; 403 not an owner or org admin; 409 `stale_revision`, `stale_version`, `no_saved_version`, `review_in_progress`; 422 `empty_prd`, `not_in_organization`, `owner_cannot_review`, `validation_error` (no reviewers) |
 | `GET /api/prds/{id}/reviews?limit=25&cursor=` | | 200 `{ "items": ReviewRound[], "next_cursor": … }`, newest first, superseded rounds included | 404 |
+| `PUT /api/prds/{id}/reviews/{round_id}/decision` | `{ "version_id": "uuid", "decision": "approved" \| "changes_requested", "explanation"?: "string", "section_type"?: null \| "<section type>" }` | 200 `{ "round": ReviewRound, "revision": int, "status": "in_review" \| "final" }` | 404 can't see the PRD or round; 403 not a reviewer on it, or `owner_cannot_review`; 409 `stale_version` (the PRD changed since submission), `round_not_current`, `decision_already_made`; 422 `validation_error` (no explanation for changes, over 5,000 characters, unknown section) |
 
 - Send the `revision` and `current_version_id` of the PRD you loaded.
 - Pick reviewers from the [organization directory](#organization-directory). Reviewers who aren't on the PRD yet
@@ -238,6 +250,17 @@ changes (coming with E08).
   Edits to an approved PRD are owner-only and go through a modal to confirm the reviewers. Request and response
   details: [Saving during or after a review](#prds).
 - The reviewer list is frozen when the round starts. Names and departments are as of submission.
+- **Deciding:** send the round's `version_id`. **Requesting changes needs an `explanation`**; it's saved as a comment
+  on that version (optionally on one section) and shown as the reviewer's `explanation`. An approval can carry an
+  optional note the same way.
+- One decision per reviewer per round. Sending the same decision again (same explanation) returns 200 and changes
+  nothing, so retries are safe; a different decision is 409 `decision_already_made`.
+- The last approval makes the round `approved` and the PRD `final`. One change request makes the round
+  `changes_requested` (the PRD stays `in_review`); the others can still decide, but the round can't be approved.
+  The owner edits and resubmits once the round is superseded (E09).
+- Notifications: each approval or change request notifies the owners (`approved`, `changes_requested`). The last
+  approval sends a single `round_approved` to the owners and reviewers instead. A change request doesn't also send
+  a `comment_added`.
 
 ## Intake answers
 
@@ -304,10 +327,71 @@ Everything the org chart needs in one call. Only active members of the organizat
 Members are active members only, sorted by name. Archived departments and teams are included with `archived: true`
 so the chart can grey them out.
 
+### Managing departments and teams (admins)
+
+Org admins build the structure their organization uses; it's all optional. Nothing is deleted: archiving replaces
+deletion, and archived units stay in the directory with `archived: true`. Responses use the directory's
+`department` and `team` shapes.
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `POST /api/organizations/{id}/departments` | `{ "name": "1–100 chars" }` | 201 department | 409 `name_taken` |
+| `PATCH /api/organizations/{id}/departments/{dept_id}` | any of `{ "name", "head_id": uuid \| null, "archived": bool }` | 200 department | 404; 409 `name_taken`, `department_not_empty`; 422 `head_not_in_department`, `not_in_organization` |
+| `POST /api/organizations/{id}/teams` | `{ "name": "1–100 chars", "department_id": uuid \| null }` | 201 team | 409 `name_taken`; 422 `not_in_organization` |
+| `PATCH /api/organizations/{id}/teams/{team_id}` | any of `{ "name", "department_id": uuid \| null, "lead_id": uuid \| null, "archived": bool }` | 200 team | 404; 409 `name_taken`, `team_not_empty`; 422 `lead_not_in_team`, `not_in_organization` |
+| `PUT /api/organizations/{id}/teams/{team_id}/members/{user_id}` | | 204, also if already on it | 404; 409 `team_archived`; 422 `not_in_organization` (not an active member) |
+| `DELETE /api/organizations/{id}/teams/{team_id}/members/{user_id}` | | 204, also if not on it | 404; 422 `lead_not_in_team` (clear or change the lead first) |
+
+All routes: 404 if you're not an active member of the organization, 403 if you're a member but not an admin.
+
+- **Only the fields you send change.** Send `null` to clear a head, lead or department.
+- **Names** are trimmed and unique among *active* departments (and among active teams), ignoring case; an archived
+  unit's name can be reused.
+- **Heads and leads:** a department head must be an active member *of that department*, and a team lead must be on
+  the team. Move the person in first. Member department changes come with E02 part 2.
+- **Archiving** needs the unit to be empty: a department with active members or active teams, or a team with active
+  members, is 409 until they're moved out. Archived teams take no new members.
+- Team membership never changes anyone's org role or access to PRDs.
+
+### Managing members (admins)
+
+`PATCH /api/organizations/{id}/members/{user_id}` changes one member. Send only what changes; `null` clears
+`department_id`, `manager_id` or `title`.
+
+| Body field | Notes |
+|---|---|
+| `access_role` | `"member"` or `"admin"` |
+| `department_id` | a department of this organization (not archived), or `null` |
+| `manager_id` | an active member of this organization, or `null`; no loops |
+| `title` | up to 100 characters; `""` or `null` clears it |
+| `active` | `false` deactivates, `true` reactivates |
+| `replacement_manager_id` | only when deactivating someone who manages people: their new manager, or `null` for none |
+| `transfer_owner_to` | only when deactivating the only owner of some PRDs: an active member who becomes their owner |
+
+Response: 200 `{ "user_id", "active", "access_role", "department_id", "manager_id", "title" }`.
+
+| Status | `code` | When |
+|---|---|---|
+| 404 | `not_found` | You're not an active member of the organization, or the person isn't in it |
+| 403 | `forbidden` | You're a member but not an admin |
+| 409 | `last_admin` | Demoting or deactivating the organization's last active admin. Make someone else an admin first |
+| 409 | `has_direct_reports` | Deactivating someone who manages people without `replacement_manager_id`; the body lists them in `reports` (user ids) |
+| 409 | `owns_prds` | Deactivating the only owner of some PRDs without `transfer_owner_to`; the body lists them in `prds` (`[{ prd_id, title }]`) |
+| 409 | `active_elsewhere` | Reactivating someone who is now active in another organization (one per account) |
+| 409 | `department_not_empty`-style directory codes | e.g. moving someone into an archived department |
+| 422 | `manager_cycle`, `manager_inactive`, `not_in_organization`, `head_not_in_department` | Reporting lines would loop; the manager or replacement isn't an active member here; moving a department head out of their department |
+| 422 | `validation_error` | Unknown field, bad role, title too long |
+
+- **Deactivating** removes the person's access to every PRD in the organization at once (their roles stay, and come
+  back if they're reactivated). Their department-head and team-lead positions are cleared. Show the `reports` or
+  `prds` lists from a 409 so the admin can choose, then send the request again with the choice.
+- New owners from `transfer_owner_to` are recorded like a role change on each PRD.
+- The organization always keeps at least one active admin, even when two admins change each other at once.
+
 ## Generation preview (AI)
 
 `POST /api/prds/{id}/generate` drafts a whole PRD from its interview answers with Gemini. **It's a preview: nothing is
-saved.** The user accepts it through the normal save (accepting proposals arrives with #70); rejecting means
+saved.** The user accepts it through the normal save (`generation_record_id` on `PUT`, see the S03 save); rejecting means
 discarding it.
 
 | Body | Response | Who |
@@ -318,7 +402,8 @@ discarding it.
   answers and the PRD's saved AI context (decisions, constraints, open questions, summary).
 - `content_json` is a v2 document with all nine sections ([prd-document-format.md](prd-document-format.md)).
   `sources` is always empty for now.
-- Keep `generation_record_id`: it's how the save will know this content came from the AI.
+- Keep `generation_record_id`: send it with the save that accepts the draft, so the server knows this content came
+  from the AI.
 - **No streaming:** show a waiting state. A slow generation can still fail with 502/503; offer a retry.
 
 | Status | `code` | When | Suggested handling |
@@ -354,10 +439,28 @@ suggestions come later, through the same proposal and save flow as generation.
   (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`,
   `ai_unavailable`, `ai_budget_exhausted`).
 
+## Owning team and priority (A08)
+
+Neither is reviewed material: changing them doesn't change the revision, make a version or reset a review (Decision 9).
+The owning team grants no access. PRD responses add `owning_team_id` and `priority` (`low` | `medium` | `high` |
+`critical`, or null).
+
+| Route | Body | Response | Who |
+|---|---|---|---|
+| `POST /api/prds/{id}/classification` | `{ "revision": int }` | 200 `{ suggestion: { id, team_id, priority, rationale }, base_revision, generation_record_id }`. A preview: nothing on the PRD changes | Owner or org admin |
+| `PUT /api/prds/{id}/classification/{suggestion_id}/decision` | `{ "decision": "accepted" \| "rejected", "team_id"?, "priority"? }` (adjustments only with `accepted`; `team_id: null` means no team) | 200 `PRD` | Owner or org admin |
+| `PUT /api/prds/{id}/routing` | `{ "owning_team_id": uuid \| null, "priority": ... \| null }` | 200 `PRD` | Owner or org admin |
+
+- The suggestion uses AI (same limits and AI error codes as generation). It needs saved content (422 `needs_content`)
+  and at least one active team in the org (422 `no_teams`). A save while it runs gives 409 `stale_revision`.
+- A suggestion is decided once: a second decision is 409 `suggestion_unavailable`.
+- A team must be an active team of the PRD's org (422 `invalid_team`). Editors and viewers get 403.
+- Clients can't write `owning_team_id` or `priority` directly (Data API); use these routes.
+
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD or
-having your role changed, comments and review submissions; decision notifications arrive with E08). You never get one for your own action, and notifications
+having your role changed, comments, review submissions and decisions). You never get one for your own action, and notifications
 about a PRD you can no longer see are hidden from the list and the unread count.
 
 `Notification`:
@@ -380,10 +483,12 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   `unread_count` always counts all your unread notifications, whatever page or filter you asked for.
 - **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
-- **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`; `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`; `superseded` (an edit reset a review; `round_id` is the
-  superseded round): `{ reviewer_ids, continued, version_no, changed, generation_record_id? }`, where `continued` is
-  `false` when the PRD went back to draft. Types still to come: `approved`, `changes_requested`, `round_approved`,
-  `work_status_changed`.
+- **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`;
+  `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`; `approved`: `{ round_no }`;
+  `changes_requested`: `{ round_no, section_type }`; `round_approved`: `{ round_no, reviewer_id }` (the last
+  approver); `superseded` (an edit reset a review; `round_id` is the superseded round): `{ reviewer_ids,
+  continued, version_no, changed, generation_record_id? }`, where `continued` is `false` when the PRD went back
+  to draft; `work_status_changed`: `{ from, to, status }` (only `done` notifies, the owners).
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
   the first one and `updated_at` is when the latest arrived; a growing batch moves back to the top of the inbox. Once
@@ -399,14 +504,31 @@ about a PRD you can no longer see are hidden from the list and the unread count.
 
 Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
 
-### Organizations (Vineela)
-
-Next: admin routes for members, departments and teams (E02).
-
 ### AI (Marco)
 
-Open: #84 (version history), #85 (AI section edits), #86 (owning team and priority), #106 (save events, draft).
+Open: #85 (AI section edits), #106 (save events), #110 (review suggestions, draft).
 Each adds its entry here or in the main reference as it merges.
+
+### Version history (Marco, draft, #84)
+
+Read-only history of a PRD's saves (S04). Every save that changes the title, description or document keeps a
+permanent snapshot (since the S03 save core). There's no restore; don't show a Restore control.
+
+| Route | Query | Response | Errors |
+|---|---|---|---|
+| `GET /api/prds/{id}/versions` | `limit` (1–100, default 25), `cursor` | 200 `{ items: [Version], next_cursor }`, newest first | 404 if you can't see the PRD; 400 `invalid_cursor` (start again without one); 422 bad `limit` |
+| `GET /api/prds/{id}/versions/{version_id}` | | 200 `Version` plus `title`, `description`, `content_json`, `doc_schema_version`, `generation_record_id` | 404 if you can't see the PRD, or the version isn't one of **this** PRD's |
+
+`Version`: `{ id, version_no, saved_revision, actor: { id, name } | null, origin, created_at, changed_sections, change_summary }`
+
+- **Pages:** send `next_cursor` back as `cursor` for the next page; it's `null` on the last page. Cursors are opaque.
+  Pages are stable: a save made while you page doesn't shift them.
+- **`origin`:** `pm_edit`, `ai_generated` (an accepted AI proposal, saved by `actor`) or `checkpoint`.
+- **`actor`:** `null` for the checkpoint that kept content saved before history existed, and for people whose account
+  was deleted. `name` can be `null` if they never set one.
+- **`changed_sections`:** section types whose content changed. `change_summary` is a short line such as "Edited title,
+  problem" (wording may still change).
+- **Who can see it:** anyone who can view the PRD (owner, editor, viewer, org admin), the same as the PRD itself.
 
 ## Changes from the integration guide
 

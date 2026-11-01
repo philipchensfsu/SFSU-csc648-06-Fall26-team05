@@ -69,6 +69,7 @@ function AttentionCard({ prd, questions, onOpenPrd }) {
 
 function DashboardPage({
   account,
+  organization,
   prds,
   prdsLoaded,
   projects,
@@ -109,7 +110,14 @@ function DashboardPage({
   }
 
   if (prds.length === 0) {
-    return <EmptyDashboard account={account} onCreatePrd={onCreatePrd} />;
+    return (
+      <EmptyDashboard
+        account={account}
+        organization={organization}
+        onCreatePrd={onCreatePrd}
+        onOpenPeople={() => onNavigate({ page: "people" })}
+      />
+    );
   }
 
   const first = firstNameOf(account.name);
