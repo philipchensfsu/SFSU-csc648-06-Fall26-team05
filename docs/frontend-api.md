@@ -151,6 +151,25 @@ documents first.
   (`submitted`, `resubmitted: true`). Each save records one event.
 - A save that changes nothing never needs a reviewer list and never touches the review.
 
+### Work status (E14)
+
+`work_status` on every PRD: `not_started` (default), `in_progress` or `done`. It tracks work on an **approved** PRD
+and is separate from review state. Changing it doesn't change the revision, make a version or reset a review.
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `PUT /api/prds/{id}/work-status` | `{ "from": status, "to": status }`: `from` is the status you last saw | 200 `PRD` plus `can_update_work_status` and `changed_since_approval` | 404; 403 `forbidden`; 409 `not_approved` (the PRD isn't `final`/`assigned`); 409 `stale_work_status` (someone changed it: reload); 422 `invalid_transition`; 422 `validation_error` (unknown status) |
+
+- **Who (M3):** the PRD's **owners and org admins**. Decided by Vineela and Marco on 2026-10-31: v1.2 also lets
+  assigned implementers change it, but implementer assignments are deferred, so editors, viewers and reviewers get 403.
+- **Allowed changes:** not started → in progress, in progress → done, done → in progress (reopen).
+- **Only while approved.** When an approved PRD is edited and goes back to review (E09), its work status is kept but
+  frozen until the new round is approved. `changed_since_approval: true` means it was approved before and has been
+  edited since: show a "changed since approval" banner.
+- Moving to `done` notifies the PRD's owners (`work_status_changed`, payload `{ from, to, status }`), except the
+  person who changed it. Other changes are recorded without notifications.
+- Clients can't write `work_status` through other routes or the Data API.
+
 ### People on a PRD
 
 Owners and org admins invite people from the PRD's organization, change their roles and remove them. Anyone on a
@@ -382,8 +401,8 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
 - **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`; `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`; `superseded` (an edit reset a review; `round_id` is the
   superseded round): `{ reviewer_ids, continued, version_no, changed, generation_record_id? }`, where `continued` is
-  `false` when the PRD went back to draft. Types still to come: `approved`, `changes_requested`, `round_approved`,
-  `work_status_changed`.
+  `false` when the PRD went back to draft; `work_status_changed`: `{ from, to, status }` (only `done` notifies, the
+  owners). Types still to come: `approved`, `changes_requested`, `round_approved`.
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
   the first one and `updated_at` is when the latest arrived; a growing batch moves back to the top of the inbox. Once
