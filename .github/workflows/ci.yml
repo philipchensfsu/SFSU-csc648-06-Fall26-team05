@@ -58,7 +58,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          version: 2.122.0
       - name: Start local Supabase (applies migrations and seed)
         run: supabase start -x studio,imgproxy,edge-runtime,logflare,vector,supavisor
       - uses: actions/setup-python@v5
