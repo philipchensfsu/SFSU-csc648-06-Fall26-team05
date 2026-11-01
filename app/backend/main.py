@@ -144,6 +144,9 @@ class PRDOut(BaseModel):
     owning_team_id: Optional[UUID] = None
     priority: Optional[Literal["low", "medium", "high", "critical"]] = None
     status: str
+    # The current review round's state, or null when nothing is under review
+    # (never submitted, or the last round was superseded).
+    review_state: Optional[Literal["in_review", "changes_requested", "approved"]] = None
     # E14: not_started | in_progress | done; changes only while approved.
     work_status: Optional[str] = None
     content_json: Optional[dict]
@@ -273,14 +276,18 @@ def delete_project(project_id: UUID, auth=Depends(get_current_user)):
 
 
 def with_my_role(client, user_id, rows):
-    """Adds my_role to each visible PRD row."""
+    """Adds my_role and review_state to each visible PRD row."""
     ids = [row["id"] for row in rows]
-    roles = {}
+    roles, review_states = {}, {}
     if ids:
         members = client.table("prd_member").select("prd_id, role").eq("user_id", user_id).in_("prd_id", ids).execute()
         roles = {m["prd_id"]: m["role"] for m in members.data}
+        rounds = (client.table("review_round").select("prd_id, state")
+                  .in_("prd_id", ids).neq("state", "superseded").execute())
+        review_states = {r["prd_id"]: r["state"] for r in rounds.data}
     # Visible without a role on it means the caller is an admin of its org.
-    return [{**row, "my_role": roles.get(row["id"], "org_admin")} for row in rows]
+    return [{**row, "my_role": roles.get(row["id"], "org_admin"), "review_state": review_states.get(row["id"])}
+            for row in rows]
 
 
 @app.post("/api/prds", response_model=PRDOut, status_code=201)
@@ -325,12 +332,15 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
 @app.get("/api/prds", response_model=list[PRDOut])
 def list_prds(
     search: Optional[str] = None,
-    view: Optional[Literal["owned", "shared"]] = None,
+    view: Optional[Literal["owned", "shared", "needs_my_approval", "waiting_for_approval"]] = None,
     auth=Depends(get_current_user),
 ):
     # view=owned: PRDs the caller owns. view=shared: PRDs they were invited
-    # to as an editor or viewer ("Shared with me"). No view: everything
-    # they can see, including any PRD in their org if they're its admin.
+    # to as an editor or viewer ("Shared with me"). view=needs_my_approval:
+    # PRDs whose open round is waiting on the caller's decision.
+    # view=waiting_for_approval: PRDs the caller owns with a round still open
+    # (in review or changes requested). No view: everything they can see,
+    # including any PRD in their org if they're its admin.
     client = auth["client"]
     query = client.table("prd").select("*")
 
@@ -346,16 +356,70 @@ def list_prds(
         prds = [prd for prd in prds if prd["my_role"] == "owner"]
     elif view == "shared":
         prds = [prd for prd in prds if prd["my_role"] in ("editor", "viewer")]
+    elif view == "needs_my_approval":
+        pending = (client.table("review_slot").select("prd_id, round:review_round!inner(state)")
+                   .eq("reviewer_id", auth["user"].id).eq("state", "pending")
+                   .in_("round.state", ["in_review", "changes_requested"]).execute())
+        waiting_on_me = {slot["prd_id"] for slot in pending.data}
+        prds = [prd for prd in prds if prd["id"] in waiting_on_me]
+    elif view == "waiting_for_approval":
+        prds = [prd for prd in prds
+                if prd["my_role"] == "owner" and prd["review_state"] in ("in_review", "changes_requested")]
     return prds
 
 
-@app.get("/api/prds/{prd_id}", response_model=PRDOut)
+class ReviewerOut(BaseModel):
+    user_id: UUID
+    name: Optional[str]
+    department: Optional[str]
+    state: Literal["pending", "approved", "changes_requested"]
+    decided_at: Optional[datetime]
+    explanation: Optional[str]
+    comment_id: Optional[UUID]
+
+
+class ApprovalSummary(BaseModel):
+    round_id: Optional[UUID]
+    round_no: Optional[int]
+    version_id: Optional[UUID]
+    state: Optional[Literal["in_review", "changes_requested", "approved"]]
+    required_count: int
+    approved_count: int
+    reviewers: list[ReviewerOut]
+
+
+class PRDDetailOut(PRDOut):
+    approval: ApprovalSummary
+
+
+NO_APPROVAL = {"round_id": None, "round_no": None, "version_id": None, "state": None,
+               "required_count": 0, "approved_count": 0, "reviewers": []}
+
+
+def approval_summary(client, prd_id: UUID):
+    """The current round's progress, or empty counts when nothing is under review."""
+    rows = (client.table("review_round").select(ROUND_COLUMNS)
+            .eq("prd_id", str(prd_id)).neq("state", "superseded").execute().data)
+    if not rows:
+        return NO_APPROVAL
+    current = round_item(rows[0])
+    return {
+        "round_id": current["id"], "round_no": current["round_no"], "version_id": current["version_id"],
+        "state": current["state"], "required_count": len(current["reviewers"]),
+        "approved_count": sum(r["state"] == "approved" for r in current["reviewers"]),
+        "reviewers": current["reviewers"],
+    }
+
+
+@app.get("/api/prds/{prd_id}", response_model=PRDDetailOut)
 def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
+    # The PRD with the caller's role and its approval summary (E11).
     client = auth["client"]
     response = client.table("prd").select("*").eq("id", str(prd_id)).execute()
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
-    return with_my_role(client, auth["user"].id, response.data)[0]
+    prd = with_my_role(client, auth["user"].id, response.data)[0]
+    return {**prd, "approval": approval_summary(client, prd_id)}
 
 
 class VersionActor(BaseModel):
@@ -648,16 +712,6 @@ def add_comment(prd_id: UUID, payload: CommentIn, auth=Depends(get_current_user)
     return comment_item(row)
 
 
-class ReviewerOut(BaseModel):
-    user_id: UUID
-    name: Optional[str]
-    department: Optional[str]
-    state: Literal["pending", "approved", "changes_requested"]
-    decided_at: Optional[datetime]
-    explanation: Optional[str]
-    comment_id: Optional[UUID]
-
-
 class ReviewRoundOut(BaseModel):
     id: UUID
     prd_id: UUID
@@ -706,6 +760,15 @@ ROUND_COLUMNS = ("id, prd_id, round_no, version_id, state, owner_review_allowed,
                  "comment:prd_comment(body))")
 
 
+def first_row(query, not_found: str):
+    """The first row of a read, or 404. After a database function succeeds, its
+    own row could still be unreadable (e.g. access lost in between)."""
+    rows = query.execute().data
+    if not rows:
+        raise ApiError(404, not_found)
+    return rows[0]
+
+
 def round_item(row):
     reviewers = [{"user_id": s["reviewer_id"], "name": s["reviewer_name"], "department": s["department_name"],
                   "state": s["state"], "decided_at": s["decided_at"], "comment_id": s["comment_id"],
@@ -736,8 +799,8 @@ def submit_review(prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_curren
         "target_prd": str(prd_id), "base_revision": payload.revision, "target_version": str(payload.version_id),
         "reviewer_ids": [str(r) for r in payload.reviewer_ids],
     }, REVIEW_ERRORS)
-    row = client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id).execute().data[0]
-    prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
+    row = first_row(client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id), "Review round not found")
+    prd = first_row(client.table("prd").select("revision, status").eq("id", str(prd_id)), "PRD not found")
     return {"round": round_item(row), **prd}
 
 
@@ -775,8 +838,9 @@ def decide_review(prd_id: UUID, round_id: UUID, payload: ReviewDecisionIn, auth=
         "target_prd": str(prd_id), "target_round": str(round_id), "target_version": str(payload.version_id),
         "decision": payload.decision, "explanation": payload.explanation, "target_section": payload.section_type,
     }, DECISION_ERRORS)
-    row = client.table("review_round").select(ROUND_COLUMNS).eq("id", str(round_id)).execute().data[0]
-    prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
+    row = first_row(client.table("review_round").select(ROUND_COLUMNS).eq("id", str(round_id)),
+                    "Review round not found")
+    prd = first_row(client.table("prd").select("revision, status").eq("id", str(prd_id)), "PRD not found")
     return {"round": round_item(row), **prd}
 
 

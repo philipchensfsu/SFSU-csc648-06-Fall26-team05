@@ -73,6 +73,7 @@ A project groups a user's PRDs. Projects are private to their owner, and any sig
   "id": "uuid", "title": "string", "owner_id": "uuid (the creator)", "organization_id": "uuid", "project_id": "uuid | null",
   "my_role": "owner | editor | viewer | org_admin",
   "status": "draft | in_review | final | assigned",
+  "review_state": "in_review | changes_requested | approved | null",
   "content_json": { }, "content_text": "string | null",
   "doc_schema_version": 1, "revision": 3,
   "created_at": "…", "updated_at": "…"
@@ -96,14 +97,21 @@ deactivated in the organization. Owners and org admins invite people: see [Peopl
 Every PRD belongs to its creator's organization. `my_role` is the caller's access: their role on the PRD, or
 `org_admin` when they only see it as an admin of its organization. Use it to decide which buttons to show.
 
+`review_state` is the current [review round](#reviews)'s state, or `null` when nothing is under review (never
+submitted, or the last round was superseded by an edit). Use it for badges such as "Changes requested".
+
 | Route | Body / query | Response | Errors |
 |---|---|---|---|
 | `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1, `my_role: "owner"`), in your organization | 403 `no_organization` if the account has none; 404 if `project_id` isn't one of **your** projects; 422 |
-| `GET /api/prds` | optional `?search=text` (matches title and content text); optional `?view=owned` (PRDs you own) or `?view=shared` (PRDs you were invited to as editor or viewer: "Shared with me") | 200 `PRD[]`, most recently updated first. Without `view`: every PRD you can see, which for an org admin is every PRD in the org | 422 unknown `view` |
-| `GET /api/prds/{id}` | | 200 `PRD` | 404 |
+| `GET /api/prds` | optional `?search=text` (matches title and content text); optional `?view=`: `owned` (PRDs you own), `shared` (PRDs you were invited to as editor or viewer: "Shared with me"), `needs_my_approval` (PRDs whose open round is waiting on your decision, also when another reviewer requested changes) or `waiting_for_approval` (PRDs you own with a round in review or changes requested) | 200 `PRD[]`, most recently updated first. Without `view`: every PRD you can see, which for an org admin is every PRD in the org | 422 unknown `view` |
+| `GET /api/prds/{id}` | | 200 `PRD` plus `approval` (below) | 404 |
 | `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 (`status_not_allowed` if `status` is sent) |
 | `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
 
+- **`approval`** (only on `GET /api/prds/{id}`) summarizes the current review round:
+  `{ "round_id", "round_no", "version_id", "state", "required_count", "approved_count", "reviewers": [...] }`, where
+  `reviewers` has the same shape as in a [review round](#reviews) (including each `explanation`). With nothing under
+  review, the ids and `state` are `null`, the counts are `0` and `reviewers` is empty. An approved round keeps its counts.
 - **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). Both saves
   reject it with 422 `status_not_allowed`.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
