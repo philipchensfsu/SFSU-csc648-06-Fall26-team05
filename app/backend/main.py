@@ -1312,6 +1312,9 @@ def update_member(org_id: UUID, user_id: UUID, payload: MemberUpdate, auth=Depen
         raise ApiError(404, "Organization not found")
     changes = {key: str(value) if isinstance(value, UUID) else value
                for key, value in payload.model_dump(exclude_unset=True).items()}
+    for field in ("access_role", "active"):
+        if field in changes and changes[field] is None:
+            raise ApiError(422, f"{field} can't be null.", "validation_error")
     if changes.get("title") == "":
         changes["title"] = None
     params = {"target_org": str(org_id), "target_user": str(user_id), "changes": changes}

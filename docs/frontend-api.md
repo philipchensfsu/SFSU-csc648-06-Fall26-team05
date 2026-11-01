@@ -353,11 +353,11 @@ All routes: 404 if you're not an active member of the organization, 403 if you'r
 
 | Body field | Notes |
 |---|---|
-| `access_role` | `"member"` or `"admin"` |
+| `access_role` | `"member"` or `"admin"` (not `null`) |
 | `department_id` | a department of this organization (not archived), or `null` |
 | `manager_id` | an active member of this organization, or `null`; no loops |
 | `title` | up to 100 characters; `""` or `null` clears it |
-| `active` | `false` deactivates, `true` reactivates |
+| `active` | `false` deactivates, `true` reactivates (not `null`) |
 | `replacement_manager_id` | only when deactivating someone who manages people: their new manager, or `null` for none |
 | `transfer_owner_to` | only when deactivating the only owner of some PRDs: an active member who becomes their owner |
 
@@ -379,6 +379,9 @@ Response: 200 `{ "user_id", "active", "access_role", "department_id", "manager_i
   back if they're reactivated). Their department-head and team-lead positions are cleared. Show the `reports` or
   `prds` lists from a 409 so the admin can choose, then send the request again with the choice.
 - New owners from `transfer_owner_to` are recorded like a role change on each PRD.
+- **Deactivating a reviewer** drops their *undecided* review slots on open rounds (decisions they already made stay).
+  A round left with only approvals completes (the PRD becomes `final`, `round_approved` notifies owners and
+  reviewers); a round left with no reviewers is superseded and the PRD goes back to `draft`.
 - The organization always keeps at least one active admin, even when two admins change each other at once.
 
 ## Generation preview (AI)
