@@ -393,6 +393,7 @@ The owning team grants no access. PRD responses add `owning_team_id` and `priori
   and at least one active team in the org (422 `no_teams`). A save while it runs gives 409 `stale_revision`.
 - A suggestion is decided once: a second decision is 409 `suggestion_unavailable`.
 - A team must be an active team of the PRD's org (422 `invalid_team`). Editors and viewers get 403.
+- Clients can't write `owning_team_id` or `priority` directly (Data API); use these routes.
 
 ## Notifications
 

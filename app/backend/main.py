@@ -1247,21 +1247,24 @@ def decide_prd_routing(prd_id: UUID, suggestion_id: UUID, payload: Classificatio
     return with_my_role(auth["client"], auth["user"].id, [saved])[0]
 
 
+# Errors raised by set_prd_routing (P0001 with a fixed message).
+ROUTING_ERRORS = {
+    "prd_not_found": (404, "PRD not found", None),
+    "routing_forbidden": (403, "Only the PRD's owners or an org admin can set its team and priority.", "forbidden"),
+    "invalid_team": (422, "Choose an active team of this PRD's organization", "invalid_team"),
+    "invalid_priority": (422, "Unknown priority", "validation_error"),
+}
+
+
 @app.put("/api/prds/{prd_id}/routing", response_model=PRDOut)
 def set_prd_routing(prd_id: UUID, payload: RoutingUpdate, auth=Depends(get_current_user)):
+    # Owners and org admins, an active team of the PRD's org (or none). The
+    # database function checks both under the PRD lock; clients can't write
+    # these columns directly (S02 grants).
     client = auth["client"]
-    rows = client.table("prd").select("id, organization_id").eq("id", str(prd_id)).execute().data
-    if not rows:
-        raise ApiError(404, "PRD not found")
-    if client.rpc("can_manage_prd", {"target_prd_id": str(prd_id)}).execute().data is not True:
-        raise ApiError(403, "Only the PRD's owners or an org admin can set its team and priority.")
-    if payload.owning_team_id is not None:
-        team = (client.table("team").select("id").eq("id", str(payload.owning_team_id))
-                .eq("organization_id", rows[0]["organization_id"]).is_("archived_at", "null").execute().data)
-        if not team:
-            raise ApiError(422, "Choose an active team of this PRD's organization", code="invalid_team")
-    fields = {"owning_team_id": None if payload.owning_team_id is None else str(payload.owning_team_id),
-              "priority": payload.priority}
-    client.table("prd").update(fields).eq("id", str(prd_id)).execute()
-    saved = client.table("prd").select("*").eq("id", str(prd_id)).execute().data
-    return with_my_role(client, auth["user"].id, saved)[0]
+    row = call_function(client, "set_prd_routing", {
+        "target_prd": str(prd_id),
+        "new_team": None if payload.owning_team_id is None else str(payload.owning_team_id),
+        "new_priority": payload.priority,
+    }, ROUTING_ERRORS)
+    return with_my_role(client, auth["user"].id, [row])[0]

@@ -256,3 +256,47 @@ grant execute on function
   ai_record_classification(uuid, uuid, integer, text, text, text, text, integer, integer, uuid, text, text),
   classification_decide(uuid, uuid, uuid, text, uuid, boolean, text)
 to service_role;
+
+-- -------------------------------------------------------------------------
+-- 4. Setting them by hand
+-- -------------------------------------------------------------------------
+
+-- PUT /api/prds/{id}/routing. Clients can't write these columns directly
+-- (S02 column grants, 20261031170000_prd_column_grants), so the route calls
+-- this with the user's token. Same rules as the trigger above, checked here
+-- first for clear errors: the caller is an owner or org admin of the PRD,
+-- and the team is an active team of its organization. Locks the PRD row
+-- like the other PRD writes. Errors raise P0001 with a fixed message:
+-- prd_not_found, routing_forbidden, invalid_team, invalid_priority.
+create or replace function set_prd_routing(target_prd uuid, new_team uuid, new_priority text)
+returns prd
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  current_row prd%rowtype;
+  saved prd%rowtype;
+begin
+  select * into current_row from prd where id = target_prd for update;
+  if not found or not can_view_prd(target_prd) then
+    raise exception 'prd_not_found';
+  end if;
+  if not can_manage_prd(target_prd) then
+    raise exception 'routing_forbidden';
+  end if;
+  if new_priority is not null and new_priority not in ('low', 'medium', 'high', 'critical') then
+    raise exception 'invalid_priority';
+  end if;
+  if new_team is not null and not exists (
+      select 1 from team
+      where id = new_team and organization_id = current_row.organization_id and archived_at is null) then
+    raise exception 'invalid_team';
+  end if;
+  update prd set owning_team_id = new_team, priority = new_priority where id = target_prd returning * into saved;
+  return saved;
+end;
+$$;
+
+revoke execute on function set_prd_routing(uuid, uuid, text) from public, anon;
+grant execute on function set_prd_routing(uuid, uuid, text) to authenticated, service_role;
