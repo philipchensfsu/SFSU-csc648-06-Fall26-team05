@@ -3,7 +3,7 @@
 // anything the format doesn't allow (scripts, images, styles, event
 // handlers, unsafe links) is gone before it's shown or saved.
 import { generateHTML, generateJSON } from "@tiptap/html";
-import { sectionExtensions } from "./schema";
+import { sectionExtensions, toSavedDocument } from "./schema";
 
 const EXTENSIONS = sectionExtensions();
 const cache = new Map();
@@ -40,6 +40,22 @@ export function htmlToText(html) {
 // True when a section has no text yet (e.g. "<p></p>").
 export function isEmptyHtml(html) {
   return !htmlToText(html);
+}
+
+// The editor's sections as the saved v2 document (doc > section*). A
+// section needs at least one block, so an empty one keeps an empty paragraph.
+export function sectionsToDocument(sections) {
+  return toSavedDocument({
+    type: "doc",
+    content: (sections ?? []).map((section) => {
+      const { content } = generateJSON(section.html ?? "", EXTENSIONS);
+      return {
+        type: "section",
+        attrs: { type: section.id },
+        content: content?.length ? content : [{ type: "paragraph" }],
+      };
+    }),
+  });
 }
 
 export { escapeHtml } from "./escape";
