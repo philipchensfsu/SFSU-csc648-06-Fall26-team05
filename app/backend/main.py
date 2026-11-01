@@ -683,6 +683,15 @@ ROUND_COLUMNS = ("id, prd_id, round_no, version_id, state, owner_review_allowed,
                  "comment:prd_comment(body))")
 
 
+def first_row(query, not_found: str):
+    """The first row of a read, or 404. After a database function succeeds, its
+    own row could still be unreadable (e.g. access lost in between)."""
+    rows = query.execute().data
+    if not rows:
+        raise ApiError(404, not_found)
+    return rows[0]
+
+
 def round_item(row):
     reviewers = [{"user_id": s["reviewer_id"], "name": s["reviewer_name"], "department": s["department_name"],
                   "state": s["state"], "decided_at": s["decided_at"], "comment_id": s["comment_id"],
@@ -713,8 +722,8 @@ def submit_review(prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_curren
         "target_prd": str(prd_id), "base_revision": payload.revision, "target_version": str(payload.version_id),
         "reviewer_ids": [str(r) for r in payload.reviewer_ids],
     }, REVIEW_ERRORS)
-    row = client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id).execute().data[0]
-    prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
+    row = first_row(client.table("review_round").select(ROUND_COLUMNS).eq("id", round_id), "Review round not found")
+    prd = first_row(client.table("prd").select("revision, status").eq("id", str(prd_id)), "PRD not found")
     return {"round": round_item(row), **prd}
 
 
@@ -752,8 +761,9 @@ def decide_review(prd_id: UUID, round_id: UUID, payload: ReviewDecisionIn, auth=
         "target_prd": str(prd_id), "target_round": str(round_id), "target_version": str(payload.version_id),
         "decision": payload.decision, "explanation": payload.explanation, "target_section": payload.section_type,
     }, DECISION_ERRORS)
-    row = client.table("review_round").select(ROUND_COLUMNS).eq("id", str(round_id)).execute().data[0]
-    prd = client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data[0]
+    row = first_row(client.table("review_round").select(ROUND_COLUMNS).eq("id", str(round_id)),
+                    "Review round not found")
+    prd = first_row(client.table("prd").select("revision, status").eq("id", str(prd_id)), "PRD not found")
     return {"round": round_item(row), **prd}
 
 
