@@ -144,8 +144,8 @@ v2 documents first.
   - Errors: 409 `proposal_unavailable` (already used, expired, or not yours: discard the preview); 409
     `stale_revision` (the PRD changed since the preview: generate again); 422 `invalid_generation_record` (the
     document carries an `ai_generated` mark the server didn't add); 422 `unsupported_proposal` (this kind of AI
-    proposal can't be accepted through the save yet: discard it). Today only whole drafts from Generate are
-    accepted; section edits (#85) and review suggestions (#110) add theirs as they merge.
+    proposal can't be accepted through the save yet: discard it). Today whole drafts from Generate and section
+    edits are accepted; review suggestions (#110) add theirs when they merge.
 
 ### People on a PRD
 
@@ -424,6 +424,30 @@ suggestions come later, through the same proposal and save flow as generation.
   (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`,
   `ai_unavailable`, `ai_budget_exhausted`).
 
+## AI section edits
+
+`POST /api/prds/{id}/ai-edit` asks the AI to rewrite **one section** and returns a proposal to preview. **Nothing is
+saved**; the person accepts it through the normal save or discards it.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int, "section_type": "goals", "instruction": "1–2000 chars", "session_messages": [ { "role": "user" \| "assistant", "content": "1–8000 chars" } ] }` (at most 20; the chat's recent turns) | 200 `{ kind: "proposal" \| "blocked" \| "clarification", message, proposal, base_revision, generation_record_id }`. `proposal` is `{ section_type, section, content_json }` (null unless `kind` is `"proposal"`) | **Can edit** the PRD (viewers can still chat; they get 403 here) |
+
+- `message` explains the change. `content_json` is the saved document with only that section replaced (or inserted in
+  the standard order), ready to preview.
+- **Accept** by saving `content_json` with `generation_record_id` (see the S03 save): unchanged, or with only that
+  section edited. Other sections, the title and the description must not change in that save, so save manual edits
+  first. An unchanged section gets the AI highlight; an edited one doesn't. Reject by discarding.
+- A save in between makes the proposal stale (409). The PRD must already be in the v2 format.
+- `session_messages` uses `content`, like the chat's `history` (the integration guide v0.1 example says `text`).
+- Like the chat, it returns 503 `ai_chat_unavailable` until Om's guardrail modules are in (#80).
+- **Frontend (Om/Aksh):** the editor's Rewrite / Expand / Shorten / Improve / Insert actions each map to `ai-edit`
+  with the section's `type` and an instruction (the action, plus any selected text). Lock editing while the request
+  runs.
+- Errors: as for the chat, plus 403 `forbidden` (can't edit), 409 `document_not_v2` (hide AI edits for that PRD),
+  and on accept 422 `proposal_scope` (the save changed something besides that section: save manual edits first,
+  then accept).
+
 ## Owning team and priority (A08)
 
 Neither is reviewed material: changing them doesn't change the revision, make a version or reset a review (Decision 9).
@@ -484,7 +508,7 @@ Not on `develop` yet. Shapes can still change in review; each PR updates its ent
 
 ### AI (Marco)
 
-Open: #85 (AI section edits), #106 (save events), #110 (review suggestions, draft).
+Open: #106 (save events), #110 (review suggestions, draft).
 Each adds its entry here or in the main reference as it merges.
 
 ### Version history (Marco, draft, #84)
