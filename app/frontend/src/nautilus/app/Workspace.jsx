@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import "./workspace.css";
 import DashboardPage from "./DashboardPage";
+import PeoplePage from "./PeoplePage";
 import ProjectsPage from "./ProjectsPage";
 import SearchPage from "./SearchPage";
 import Sidebar from "./Sidebar";
 import { searchShortcutLabel } from "./format";
 import { Alert } from "./ui";
 
-const PAGE_TITLES = { dashboard: "Dashboard", projects: "Projects", search: "Search" };
+const PAGE_TITLES = { dashboard: "Dashboard", projects: "Projects", search: "Search", people: "People" };
 
 // The signed-in home: sidebar plus the dashboard, a project, or search.
 // It holds no data of its own; Prototype.jsx passes the real PRDs and
@@ -18,6 +19,7 @@ const PAGE_TITLES = { dashboard: "Dashboard", projects: "Projects", search: "Sea
 function Workspace({
   view,
   account,
+  organization,
   userId,
   prds,
   prdsLoaded,
@@ -101,7 +103,9 @@ function Workspace({
   }, [page, go]);
 
   let content;
-  if (page === "projects") {
+  if (page === "people" && organization?.access_role === "admin") {
+    content = <PeoplePage organization={organization} userId={userId} />;
+  } else if (page === "projects") {
     content = (
       <ProjectsPage
         account={account}
@@ -138,6 +142,7 @@ function Workspace({
     content = (
       <DashboardPage
         account={account}
+        organization={organization}
         prds={sorted}
         prdsLoaded={prdsLoaded}
         projects={projects}
@@ -167,6 +172,7 @@ function Workspace({
       <Sidebar
         page={page}
         account={account}
+        organization={organization}
         prdCount={prdsLoaded ? prds.length : undefined}
         projectCount={projectsLoaded ? projects.length : undefined}
         recent={sorted.slice(0, 3)}

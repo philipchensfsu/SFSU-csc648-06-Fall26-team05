@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from "react";
 import SignInPage from "./nautilus/auth/SignInPage";
 import SignUpPage from "./nautilus/auth/SignUpPage";
 import ResetPasswordPage from "./nautilus/auth/ResetPasswordPage";
+import OrgGate from "./nautilus/auth/OrgGate";
 import { supabase } from "../lib/supabaseClient";
 
 const LandingPage = lazy(() => import("./nautilus/LandingPage"));
@@ -135,20 +136,27 @@ function App() {
     );
   }
 
-  // Signed in, so both auth pages hand over to the dashboard. The name comes
-  // from sign-up (full_name) or Google (full_name / name); without one the
-  // workspace falls back to the email address.
+  // Signed in, so both auth pages hand over to the dashboard, once the account
+  // is in an organization (OrgGate). The name comes from sign-up (full_name)
+  // or Google (full_name / name); without one the workspace falls back to the
+  // email address.
   if ((path === "/signin" || path === "/signup") && session) {
     const profile = session.user.user_metadata ?? {};
     return (
-      <Suspense fallback={<p role="status" style={{ padding: "24px" }}>Loading workspace…</p>}>
-        <Prototype
-          initialUser={email}
-          userId={session.user.id}
-          userName={profile.full_name || profile.name || ""}
-          onLogOut={logOut}
-        />
-      </Suspense>
+      <OrgGate session={session} onLogOut={logOut}>
+        {(organization, recheckOrganization) => (
+          <Suspense fallback={<p role="status" style={{ padding: "24px" }}>Loading workspace…</p>}>
+            <Prototype
+              initialUser={email}
+              userId={session.user.id}
+              userName={profile.full_name || profile.name || ""}
+              organization={organization}
+              onNoOrganization={recheckOrganization}
+              onLogOut={logOut}
+            />
+          </Suspense>
+        )}
+      </OrgGate>
     );
   }
 
@@ -198,7 +206,17 @@ function App() {
               supabase.auth.signUp({
                 email: form.email,
                 password: form.password,
-                options: { data: { full_name: form.name } },
+                // pending_org is carried out on the first signed-in visit
+                // (OrgGate), which may come after confirming the email.
+                options: {
+                  data: {
+                    full_name: form.name,
+                    pending_org:
+                      form.orgMode === "create"
+                        ? { mode: "create", name: form.orgName }
+                        : { mode: "join", code: form.joinCode },
+                  },
+                },
               }),
             "Check your inbox to confirm your email, then sign in.",
           )
