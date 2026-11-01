@@ -125,6 +125,7 @@ submitted, or the last round was superseded by an edit). Use it for badges such 
 
   | `can_update_work_status` | you're an owner or org admin and the PRD is approved ([Work status](#work-status-e14)) |
   | `can_request_classification`, `can_set_routing` | you're an owner or org admin (owning team and priority, A08) |
+  | `can_request_review_suggestions` | you're an **owner** (not editors or admins), the PRD has a saved v2 version, and there's at least one comment on it ([Revision suggestions](#revision-suggestions-from-review-feedback-e12)). Use this, not `can_request_ai`, for that button |
 
 - **Detail fields** (only on `GET /api/prds/{id}`, E05):
   - `current_version`: `{ id, version_no }` of the current saved version, or `null` before the first save.

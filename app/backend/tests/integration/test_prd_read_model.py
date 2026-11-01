@@ -78,6 +78,18 @@ def test_routing_and_classification_flags_follow_can_manage(team):
     assert [flags[w]["can_request_classification"] for w in ("olive", "ada", "ed", "vi")] == [True, True, False, False]
 
 
+def test_the_review_suggestions_flag_is_owner_only_and_needs_current_comments(team, db, service):
+    save_prd(service, verified(service, team["olive"]), team["prd"], 1, content_json=doc("First"))
+    flag = lambda who: detail(team[who], team["prd"])["capabilities"]["can_request_review_suggestions"]
+    assert flag("olive") is False  # no comments yet
+    version = db.execute("select current_version_id::text from prd where id = %s", (team["prd"],)).fetchone()[0]
+    assert team["vi"].api("POST", f"/prds/{team['prd']}/comments", json={"version_id": version, "body": "Add metrics"}
+                          ).status_code == 201
+    # Owner yes; the org admin and editor can request other AI (can_request_ai) but not this.
+    assert [flag(w) for w in ("olive", "ada", "ed", "vi")] == [True, False, False, False]
+    assert detail(team["ed"], team["prd"])["capabilities"]["can_request_ai"] is True
+
+
 def test_work_status_flag_and_changed_since_approval_follow_e14(team, db, service):
     save_prd(service, verified(service, team["olive"]), team["prd"], 1, content_json=doc("First"))
     round_id = submit(db, team)

@@ -417,6 +417,9 @@ class Capabilities(BaseModel):
     can_update_work_status: bool
     can_request_classification: bool
     can_set_routing: bool
+    # E12 is owner-only (narrower than can_request_ai) and needs comments on
+    # the current version.
+    can_request_review_suggestions: bool
 
 
 class VersionRef(BaseModel):
@@ -488,6 +491,8 @@ def prd_capabilities(client, prd_id) -> dict:
         is True,
         "can_request_classification": manage,
         "can_set_routing": manage,
+        "can_request_review_suggestions": client.rpc("can_request_review_suggestions",
+                                                     {"target_prd": str(prd_id)}).execute().data is True,
     }
 
 
