@@ -3,8 +3,7 @@ import {
   QUESTIONS,
   fromApiIntakeAnswers,
   fromApiPrd,
-  sectionsToContentJson,
-  sectionsToText,
+  sameJson,
 } from "./data";
 import { api } from "../../lib/api";
 import Workspace from "../nautilus/app/Workspace";
@@ -276,39 +275,35 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
   }
 
   // Shared by the editor's Save and "Start from my answers": saves the title,
-  // description and sections in one PUT, with the revision the UI last saw
-  // (409 if someone else saved first). Status is never sent (Decision 6).
+  // description and v2 document (`contentJson`) in one PUT, with the revision
+  // the UI last saw (409 if someone else saved first). The server derives
+  // content_text, and status is never sent (Decision 6).
   function saveDocument(id, doc) {
     const prd = prds.find((p) => p.id === id);
     if (!prd) return Promise.reject(new Error("This PRD is no longer in your list."));
     const title = doc.title ?? prd.title;
-    const description = doc.description ?? prd.description;
-    const contentJson = sectionsToContentJson(doc.sections, description);
-    const contentText = sectionsToText(doc.sections, description);
+    const description = (doc.description ?? prd.description) || null;
+    const contentJson = doc.contentJson;
 
     function matchesRequestedSave(row) {
-      const savedSections = row.content_json?.sections;
       return row.title === title
-        && row.content_text === contentText
-        && row.content_json?.description === contentJson.description
-        && Array.isArray(savedSections)
-        && savedSections.length === contentJson.sections.length
-        && savedSections.every((saved, index) => {
-          const requested = contentJson.sections[index];
-          return saved.type === requested.type
-            && saved.title === requested.title
-            && saved.html === requested.html;
-        });
+        && (row.description || null) === description
+        && sameJson(row.content_json, contentJson);
     }
 
     return api
       .updatePrd(id, {
         revision: prd.revision,
         title,
+        description,
         content_json: contentJson,
-        content_text: contentText,
       })
       .catch(async (error) => {
+        if (error.code === "invalid_document") {
+          // The editor's schema should never produce this; the paths say where.
+          console.error("The server rejected the document:", error.errors);
+          throw new Error("This PRD has content that can’t be saved. Undo your last change and try again.", { cause: error });
+        }
         if (error.status !== 409) throw error;
 
         // The first save may have succeeded even if its response was lost.
@@ -339,7 +334,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
   // is made up (draftFromAnswers.js).
   async function startFromAnswers(id) {
     const prd = prds.find((p) => p.id === id);
-    await saveDocument(id, { sections: draftFromAnswers(prd?.answers ?? {}) });
+    await saveDocument(id, { contentJson: draftFromAnswers(prd?.answers ?? {}) });
     go("editor", id);
   }
 
