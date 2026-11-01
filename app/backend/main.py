@@ -1516,9 +1516,6 @@ def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_u
     )
 
 
-# AI section edit (A04): needs edit access; returns a staged proposal to
-# preview, never saves. Accept it through the normal save with its
-# generation_record_id (A05). 503 until Om's guardrail modules are in.
 @app.post("/api/prds/{prd_id}/review-suggestions")
 def request_review_suggestion(prd_id: UUID, payload: ReviewSuggestionRequest, auth=Depends(get_current_user)):
     # E12: a preview of revisions that address chosen review comments.
@@ -1530,6 +1527,9 @@ def request_review_suggestion(prd_id: UUID, payload: ReviewSuggestionRequest, au
     )
 
 
+# AI section edit (A04): needs edit access; returns a staged proposal to
+# preview, never saves. Accept it through the normal save with its
+# generation_record_id (A05). Om's scope check runs on the instruction.
 @app.post("/api/prds/{prd_id}/ai-edit")
 def request_ai_edit(prd_id: UUID, payload: AiEditRequest, auth=Depends(get_current_user)):
     return section_edit.propose_section_edit(

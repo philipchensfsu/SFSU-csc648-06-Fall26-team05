@@ -33,9 +33,11 @@ Every error has the same shape:
 | Status | `code` | When | Suggested handling |
 |---|---|---|---|
 | 400 | `bad_request` | The request is understood but not allowed as sent (e.g. an unknown intake question, an invalid value) | Show `detail` |
+| 400 | `invalid_cursor` | A paged list got a `cursor` it didn't issue (edited, truncated, or from another list) | Drop the cursor and load the first page again |
 | 401 | `not_authenticated` | Missing, invalid or expired token | Send the user to sign in again |
 | 403 | `forbidden` | Signed in but not allowed (e.g. can see a PRD but can't edit it) | Show `detail`; don't retry |
 | 404 | `not_found` | Doesn't exist, **or** exists but you can't see it (same response on purpose) | Show "not found" |
+| 405 | `method_not_allowed` | The path exists but not with this HTTP method | A bug in the call; fix the method |
 | 409 | `stale_revision` | Someone saved the PRD after you loaded it | Reload the PRD, then let the user reapply their change |
 | 409 | `conflict` | Other conflicts | Show `detail` |
 | 422 | `validation_error` | Body or parameters don't match the schema (wrong type, too long, unknown field) | Show `detail`; it names the field |
@@ -230,6 +232,8 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 - Pick invitees from the [organization directory](#organization-directory) (`members[].user_id`).
 - Inviting someone or changing their role sends them a [notification](#notifications); removing someone doesn't.
   Setting a role someone already has changes nothing.
+- Removing a reviewer who hasn't decided on the open round (and isn't an org admin, so can't see the PRD any more)
+  drops their review slot, as [deactivating a reviewer](#managing-members-admins) does.
 
 ### Comments
 
@@ -284,7 +288,7 @@ requests changes; when everyone has approved, the PRD becomes `final`.
 | Route | Body | Response | Errors |
 |---|---|---|---|
 | `POST /api/prds/{id}/reviews` | `{ "revision": int, "version_id": "uuid", "reviewer_ids": ["uuid", …] }` (1–50) | 201 `{ "round": ReviewRound, "revision": int, "status": "in_review" }` | 404; 403 not an owner or org admin; 409 `stale_revision`, `stale_version`, `no_saved_version`, `review_in_progress`; 422 `empty_prd`, `not_in_organization`, `owner_cannot_review`, `validation_error` (no reviewers) |
-| `GET /api/prds/{id}/reviews?limit=25&cursor=` | | 200 `{ "items": ReviewRound[], "next_cursor": … }`, newest first, superseded rounds included | 404 |
+| `GET /api/prds/{id}/reviews?limit=25&cursor=` | | 200 `{ "items": ReviewRound[], "next_cursor": … }`, newest first, superseded rounds included | 404; 400 `invalid_cursor` |
 | `PUT /api/prds/{id}/reviews/{round_id}/decision` | `{ "version_id": "uuid", "decision": "approved" \| "changes_requested", "explanation"?: "string", "section_type"?: null \| "<section type>" }` | 200 `{ "round": ReviewRound, "revision": int, "status": "in_review" \| "final" }` | 404 can't see the PRD or round; 403 not a reviewer on it, or `owner_cannot_review`; 409 `stale_version` (the PRD changed since submission), `round_not_current`, `decision_already_made`; 422 `validation_error` (no explanation for changes, over 5,000 characters, unknown section) |
 
 - Send the `revision` and `current_version_id` of the PRD you loaded.
@@ -300,7 +304,9 @@ requests changes; when everyone has approved, the PRD becomes `final`.
   (`GET .../reviews`). Reviewers who left are dropped; if none remain, or the PRD is emptied, it goes back to `draft`.
   Edits to an approved PRD are owner-only and go through a modal to confirm the reviewers. Request and response
   details: [Saving during or after a review](#prds).
-- The reviewer list is frozen when the round starts. Names and departments are as of submission.
+- The reviewer list is frozen when the round starts. Names and departments are as of submission. The one exception
+  for now: a reviewer who loses access (deactivated, or removed from the PRD) before deciding is dropped from the
+  round, and its `reviewers` no longer list them. Decisions already made stay.
 - **Deciding:** send the round's `version_id`. **Requesting changes needs an `explanation`**; it's saved as a comment
   on that version (optionally on one section) and shown as the reviewer's `explanation`. An approval can carry an
   optional note the same way.
@@ -439,7 +445,10 @@ Response: 200 `{ "user_id", "active", "access_role", "department_id", "manager_i
 - New owners from `transfer_owner_to` are recorded like a role change on each PRD.
 - **Deactivating a reviewer** drops their *undecided* review slots on open rounds (decisions they already made stay).
   A round left with only approvals completes (the PRD becomes `final`, `round_approved` notifies owners and
-  reviewers); a round left with no reviewers is superseded and the PRD goes back to `draft`.
+  reviewers); a round left with no reviewers is superseded, the PRD goes back to `draft` and the owners get a
+  `superseded` notification. Both are system events: `actor_name` is `null`, and the payload has
+  `reason: "reviewer_deactivated"` and `removed_reviewer_id`. Removing a reviewer from the PRD does the same with
+  `reason: "reviewer_removed"`.
 - The organization always keeps at least one active admin, even when two admins change each other at once.
 
 ## Generation preview (AI)
@@ -536,6 +545,9 @@ reject, reply to or resolve anything.
   edited. Other sections, the title and the description must not change in that save (422 `proposal_scope`).
   Sections accepted unchanged get the AI highlight. Reject by discarding.
 - Accepting is a normal edit: during a review it continues the round like any other save (E09).
+- **An `instruction` is scope-checked** first, the same check section edits run: if it isn't about this PRD you get
+  422 `out_of_scope` or 422 `clarification_needed` with a fixed message to show as-is (`detail`), and no
+  suggestion. Without an instruction there's no scope check.
 - **Which button flag to use:** `capabilities.can_request_review_suggestions` (on `GET /api/prds/{id}`), **not**
   `can_request_ai`. It's true only for an owner, on a PRD with a saved v2 version and at least one comment on that
   version; `can_request_ai` is broader (editors too) and covers Generate and section edits. AI being off still comes
@@ -593,9 +605,12 @@ about a PRD you can no longer see are hidden from the list and the unread count.
 - **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`;
   `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`; `approved`: `{ round_no }`;
   `changes_requested`: `{ round_no, section_type }`; `round_approved`: `{ round_no, reviewer_id }` (the last
-  approver); `superseded` (an edit reset a review; `round_id` is the superseded round): `{ reviewer_ids,
-  continued, version_no, changed, generation_record_id? }`, where `continued` is `false` when the PRD went back
-  to draft; `work_status_changed`: `{ from, to, status }` (only `done` notifies, the owners).
+  approver; `null` when the round completed because a pending reviewer lost access, with `reason` and
+  `removed_reviewer_id`: see [Managing members](#managing-members-admins)); `superseded` (`round_id` is the
+  superseded round): after an edit `{ reviewer_ids, continued, version_no, changed, generation_record_id? }`, where
+  `continued` is `false` when the PRD went back to draft, or, when the last pending reviewer lost access,
+  `{ round_no, reviewer_ids: [], continued: false, reason, removed_reviewer_id }`; `work_status_changed`:
+  `{ from, to, status }` (only `done` notifies, the owners).
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
   the first one and `updated_at` is when the latest arrived; a growing batch moves back to the top of the inbox. Once
