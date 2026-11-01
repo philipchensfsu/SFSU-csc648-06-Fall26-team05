@@ -101,11 +101,11 @@ Every PRD belongs to its creator's organization. `my_role` is the caller's acces
 | `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1, `my_role: "owner"`), in your organization | 403 `no_organization` if the account has none; 404 if `project_id` isn't one of **your** projects; 422 |
 | `GET /api/prds` | optional `?search=text` (matches title and content text); optional `?view=owned` (PRDs you own) or `?view=shared` (PRDs you were invited to as editor or viewer: "Shared with me") | 200 `PRD[]`, most recently updated first. Without `view`: every PRD you can see, which for an org admin is every PRD in the org | 422 unknown `view` |
 | `GET /api/prds/{id}` | | 200 `PRD` | 404 |
-| `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 |
+| `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 (`status_not_allowed` if `status` is sent) |
 | `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
 
-- **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). The legacy
-  save still accepts it; the S03 save below rejects it.
+- **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). Both saves
+  reject it with 422 `status_not_allowed`.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
   [`docs/prd-document-format.md`](prd-document-format.md).
 
@@ -188,8 +188,8 @@ its review.
 ### Reviews
 
 An owner (or org admin) submits the PRD's current saved version to reviewers they pick from the org. That opens a
-numbered **review round** tied to that version and moves the PRD to `in_review`. Reviewers approve or request
-changes (coming with E08).
+numbered **review round** tied to that version and moves the PRD to `in_review`. Each reviewer then approves or
+requests changes; when everyone has approved, the PRD becomes `final`.
 
 `ReviewRound`:
 
@@ -199,7 +199,8 @@ changes (coming with E08).
   "state": "in_review | changes_requested | approved | superseded", "owner_review_allowed": false,
   "submitted_by": "uuid | null", "submitted_at": "…", "completed_at": "… | null",
   "reviewers": [{ "user_id": "uuid", "name": "string | null", "department": "string | null",
-                  "state": "pending | approved | changes_requested", "decided_at": "… | null" }]
+                  "state": "pending | approved | changes_requested", "decided_at": "… | null",
+                  "explanation": "string | null", "comment_id": "uuid | null" }]
 }
 ```
 
@@ -207,6 +208,7 @@ changes (coming with E08).
 |---|---|---|---|
 | `POST /api/prds/{id}/reviews` | `{ "revision": int, "version_id": "uuid", "reviewer_ids": ["uuid", …] }` (1–50) | 201 `{ "round": ReviewRound, "revision": int, "status": "in_review" }` | 404; 403 not an owner or org admin; 409 `stale_revision`, `stale_version`, `no_saved_version`, `review_in_progress`; 422 `empty_prd`, `not_in_organization`, `owner_cannot_review`, `validation_error` (no reviewers) |
 | `GET /api/prds/{id}/reviews?limit=25&cursor=` | | 200 `{ "items": ReviewRound[], "next_cursor": … }`, newest first, superseded rounds included | 404 |
+| `PUT /api/prds/{id}/reviews/{round_id}/decision` | `{ "version_id": "uuid", "decision": "approved" \| "changes_requested", "explanation"?: "string", "section_type"?: null \| "<section type>" }` | 200 `{ "round": ReviewRound, "revision": int, "status": "in_review" \| "final" }` | 404 can't see the PRD or round; 403 not a reviewer on it, or `owner_cannot_review`; 409 `stale_version` (the PRD changed since submission), `round_not_current`, `decision_already_made`; 422 `validation_error` (no explanation for changes, over 5,000 characters, unknown section) |
 
 - Send the `revision` and `current_version_id` of the PRD you loaded.
 - Pick reviewers from the [organization directory](#organization-directory). Reviewers who aren't on the PRD yet
@@ -221,6 +223,17 @@ changes (coming with E08).
   (`GET .../reviews`). Reviewers who left are dropped; if none remain, or the PRD is emptied, it goes back to `draft`.
   Edits to an approved PRD are owner-only and go through a modal to confirm the reviewers.
 - The reviewer list is frozen when the round starts. Names and departments are as of submission.
+- **Deciding:** send the round's `version_id`. **Requesting changes needs an `explanation`**; it's saved as a comment
+  on that version (optionally on one section) and shown as the reviewer's `explanation`. An approval can carry an
+  optional note the same way.
+- One decision per reviewer per round. Sending the same decision again (same explanation) returns 200 and changes
+  nothing, so retries are safe; a different decision is 409 `decision_already_made`.
+- The last approval makes the round `approved` and the PRD `final`. One change request makes the round
+  `changes_requested` (the PRD stays `in_review`); the others can still decide, but the round can't be approved.
+  The owner edits and resubmits once the round is superseded (E09).
+- Notifications: each approval or change request notifies the owners (`approved`, `changes_requested`). The last
+  approval sends a single `round_approved` to the owners and reviewers instead. A change request doesn't also send
+  a `comment_added`.
 
 ## Intake answers
 
@@ -402,7 +415,7 @@ suggestions come later, through the same proposal and save flow as generation.
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD or
-having your role changed, comments and review submissions; decision notifications arrive with E08). You never get one for your own action, and notifications
+having your role changed, comments, review submissions and decisions). You never get one for your own action, and notifications
 about a PRD you can no longer see are hidden from the list and the unread count.
 
 `Notification`:
@@ -425,8 +438,9 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   `unread_count` always counts all your unread notifications, whatever page or filter you asked for.
 - **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
-- **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`; `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`. Types still to come:
-  `approved`, `changes_requested`, `round_approved`, `superseded`, `work_status_changed`.
+- **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`; `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`;
+  `approved`: `{ round_no }`; `changes_requested`: `{ round_no, section_type }`; `round_approved`:
+  `{ round_no, reviewer_id }` (the last approver). Coming with Marco's E09/E14: `superseded`, `work_status_changed`.
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
   the first one and `updated_at` is when the latest arrived; a growing batch moves back to the top of the inbox. Once
@@ -440,8 +454,30 @@ Not on `develop` yet. Shapes can still change in review; each PR updates its ent
 
 ### AI (Marco)
 
-Open: #84 (version history), #85 (AI section edits), #86 (owning team and priority), #106 (save events, draft).
+Open: #84 (version history), #85 (AI section edits), #86 (owning team and priority), #106 (save events), #108
+(accepting AI proposals through PUT), #110 (review suggestions, draft).
 Each adds its entry here or in the main reference as it merges.
+
+### Version history (Marco, draft, #84)
+
+Read-only history of a PRD's saves (S04). Every save that changes the title, description or document keeps a
+permanent snapshot (since the S03 save core). There's no restore; don't show a Restore control.
+
+| Route | Query | Response | Errors |
+|---|---|---|---|
+| `GET /api/prds/{id}/versions` | `limit` (1–100, default 25), `cursor` | 200 `{ items: [Version], next_cursor }`, newest first | 404 if you can't see the PRD; 400 `invalid_cursor` (start again without one); 422 bad `limit` |
+| `GET /api/prds/{id}/versions/{version_id}` | | 200 `Version` plus `title`, `description`, `content_json`, `doc_schema_version`, `generation_record_id` | 404 if you can't see the PRD, or the version isn't one of **this** PRD's |
+
+`Version`: `{ id, version_no, saved_revision, actor: { id, name } | null, origin, created_at, changed_sections, change_summary }`
+
+- **Pages:** send `next_cursor` back as `cursor` for the next page; it's `null` on the last page. Cursors are opaque.
+  Pages are stable: a save made while you page doesn't shift them.
+- **`origin`:** `pm_edit`, `ai_generated` (an accepted AI proposal, saved by `actor`) or `checkpoint`.
+- **`actor`:** `null` for the checkpoint that kept content saved before history existed, and for people whose account
+  was deleted. `name` can be `null` if they never set one.
+- **`changed_sections`:** section types whose content changed. `change_summary` is a short line such as "Edited title,
+  problem" (wording may still change).
+- **Who can see it:** anyone who can view the PRD (owner, editor, viewer, org admin), the same as the PRD itself.
 
 ## Changes from the integration guide
 
