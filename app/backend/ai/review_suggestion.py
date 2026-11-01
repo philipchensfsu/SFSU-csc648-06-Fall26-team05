@@ -20,6 +20,12 @@ so accepting during a review continues the round like any other edit.
 - Feedback and the optional instruction are untrusted data. The model only
   returns revised sections and an explanation; it can't approve, reject,
   reply to or resolve anything, and no review state is touched here.
+- When the owner adds an instruction, Om's scope check (ai/guardrails,
+  the same one section edits run on theirs) decides first, inside the same
+  A07 admission: "block" or "unclear" answers 422 with his fixed refusal or
+  clarification, recorded as a failed request, and the model isn't asked
+  for a suggestion. Comments alone aren't scope-checked: they're reviewers'
+  feedback, sent as data, and the reply can only be PRD sections.
 - One A07 admission covers the call. The reply is merged into the saved
   document in the standard section order and must pass the shared v2
   validator. The proposal is staged through A02 (kind review_suggestion),
@@ -111,7 +117,8 @@ def response_schema() -> dict:
 def propose_review_suggestion(user_client, service_client, *, actor_id, prd_id: str, revision: int,
                               feedback_ids: list[str], instruction: str | None,
                               budget: usage_gate.RequestBudget | None = None,
-                              call_model: Callable[..., GeminiResult] | None = None) -> dict:
+                              call_model: Callable[..., GeminiResult] | None = None,
+                              modules: chat.ChatModules | None = None) -> dict:
     feedback_ids = list(dict.fromkeys(str(i) for i in feedback_ids))
     if not 1 <= len(feedback_ids) <= MAX_FEEDBACK_ITEMS:
         raise ApiError(422, f"Choose 1 to {MAX_FEEDBACK_ITEMS} comments.", "validation_error")
@@ -119,6 +126,10 @@ def propose_review_suggestion(user_client, service_client, *, actor_id, prd_id: 
     if instruction is not None and len(instruction) > MAX_INSTRUCTION_CHARS:
         raise ApiError(422, f"The instruction can be at most {MAX_INSTRUCTION_CHARS} characters.", "validation_error")
     budget = budget or usage_gate.RequestBudget()
+    if instruction is not None:
+        modules = modules or chat.load_modules()
+        if modules is None:
+            raise ApiError(*chat.CHAT_UNAVAILABLE)
 
     current_revision, prd = chat.load_chat_prd(user_client, prd_id)  # 404 if not visible
     _require_owner(user_client, prd_id)
@@ -130,6 +141,16 @@ def propose_review_suggestion(user_client, service_client, *, actor_id, prd_id: 
     calls = chat._BudgetedCalls(call_model or generate_json, budget)
     with usage_gate.admitted(user_client):
         try:
+            if instruction is not None:
+                calls.cap = usage_gate.scope_timeout_seconds()
+                decision = modules.guardrails.check_scope(prd, [], instruction, call_model=calls,
+                                                          timeout_seconds=budget.call_timeout(calls.cap))
+                verdict = chat._verdict(decision)
+                if verdict != "allow":
+                    text, code = ((modules.prompts.FIXED_REFUSAL, "out_of_scope") if verdict == "block"
+                                  else (modules.prompts.FIXED_CLARIFICATION, "clarification_needed"))
+                    _record_failure(service_client, actor_id, prd_id, revision, calls, code)
+                    raise ApiError(422, text, code)
             calls.cap = usage_gate.main_timeout_seconds()
             result = calls(build_prompt(prd, document, feedback, instruction),
                            system_instruction=SYSTEM_INSTRUCTION, response_schema=response_schema(),

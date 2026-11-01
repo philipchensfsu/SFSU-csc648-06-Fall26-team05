@@ -489,6 +489,9 @@ reject, reply to or resolve anything.
   edited. Other sections, the title and the description must not change in that save (422 `proposal_scope`).
   Sections accepted unchanged get the AI highlight. Reject by discarding.
 - Accepting is a normal edit: during a review it continues the round like any other save (E09).
+- **An `instruction` is scope-checked** first, the same check section edits run: if it isn't about this PRD you get
+  422 `out_of_scope` or 422 `clarification_needed` with a fixed message to show as-is (`detail`), and no
+  suggestion. Without an instruction there's no scope check.
 - **Which button flag to use:** `capabilities.can_request_review_suggestions` (on `GET /api/prds/{id}`), **not**
   `can_request_ai`. It's true only for an owner, on a PRD with a saved v2 version and at least one comment on that
   version; `can_request_ai` is broader (editors too) and covers Generate and section edits. AI being off still comes
