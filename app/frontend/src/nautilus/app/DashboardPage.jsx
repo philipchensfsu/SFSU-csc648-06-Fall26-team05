@@ -41,7 +41,7 @@ function AttentionCard({ prd, questions, onOpenPrd }) {
   return (
     <article className={`nw-card nw-card-${prd.status}`}>
       <div className="nw-card-head">
-        <StatusChip status={prd.status} />
+        <StatusChip status={prd.status} reviewState={prd.reviewState} />
         <span className="nw-card-date">{formatDayTime(prd.updatedAt)}</span>
       </div>
       <div>
