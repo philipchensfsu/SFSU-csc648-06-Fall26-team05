@@ -1,4 +1,4 @@
-"""E14 work status (20261031200000_work_status.sql) against the local stack,
+"""E14 work status (20261101032200_work_status.sql) against the local stack,
 through PUT /api/prds/{id}/work-status. Approval is set up the way E08
 leaves it (round approved with completed_at, PRD final), so this doesn't
 depend on #94's decision route.
