@@ -102,6 +102,12 @@ def test_version_ids_only_resolve_under_their_own_prd(cast, service, db):
     assert cast["owner"].api("GET", f"/prds/{missing}/versions").status_code == 404
 
 
+def test_a_bad_cursor_is_400_invalid_cursor_like_the_other_lists(cast):
+    # Visibility is checked first: someone who can't see the PRD still gets 404.
+    r = versions(cast["owner"], cast["prd"], cursor="not-base64!")
+    assert (r.status_code, r.json()["code"]) == (400, "invalid_cursor")
+
+
 def test_a_prd_without_saves_has_an_empty_history(cast):
     assert versions(cast["owner"], cast["prd"]).json() == {"items": [], "next_cursor": None}
 

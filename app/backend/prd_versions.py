@@ -113,4 +113,5 @@ def _decode_cursor(cursor: str) -> int:
             raise ValueError
         return value
     except (ValueError, UnicodeDecodeError):
-        raise ApiError(422, "Invalid cursor", "validation_error") from None
+        # Same answer as the shared keyset pagination (pagination.py).
+        raise ApiError(400, "Invalid cursor. Start again without one.", "invalid_cursor") from None
