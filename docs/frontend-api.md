@@ -274,6 +274,24 @@ discarding it.
 | 502 | `ai_provider_error`, `ai_invalid_output` | Gemini failed or returned an unusable draft | Offer a retry |
 | 503 | `ai_unavailable`, `ai_budget_exhausted` | AI isn't configured or is out of quota | Keep manual editing |
 
+## PRD chat (AI)
+
+`POST /api/prds/{id}/ai/chat` answers questions about one PRD. **Answers only: it never changes the PRD.** Edit
+suggestions come later, through the same proposal and save flow as generation.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int, "message": "1–2000 chars", "history": [ { "role": "user" \| "assistant", "content": "1–8000 chars" } ] }` (at most 20 history items) | 200 `{ kind: "answer" \| "blocked" \| "clarification", message, base_revision, generation_record_id }` | Can view the PRD |
+
+- `blocked` and `clarification` carry a fixed message; show it like an answer.
+- Keep `history` in the browser for the open PRD only, and clear it when another PRD opens.
+- **Disabled until Om's guardrail and prompt modules are in** (#80): until then it returns 503 `ai_chat_unavailable`.
+- Same limits as generation: one AI request per user at a time, a short cooldown, no streaming.
+- Errors: 404 `not_found`, 409 `stale_revision`, 422 `validation_error`, 422 `ai_output_blocked` (the AI declined;
+  suggest rewording), 503 `ai_chat_unavailable` (hide the chat), and the shared AI codes from the generation table
+  (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`,
+  `ai_unavailable`, `ai_budget_exhausted`).
+
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD and
@@ -319,8 +337,7 @@ Next: admin routes for members, departments and teams (E02).
 
 ### AI (Marco)
 
-Open: #75 (PRD chat), #70 (accepting AI proposals through the save), #84 (version history), #85 (AI section
-edits), #86 (owning team and priority), #106 (save events, draft).
+Open: #84 (version history), #85 (AI section edits), #86 (owning team and priority), #106 (save events, draft).
 Each adds its entry here or in the main reference as it merges.
 
 ## Changes from the integration guide
