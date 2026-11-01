@@ -56,8 +56,10 @@ def test_inactive_members_and_signed_out_callers_see_nothing(orgs):
 
 
 def test_clients_cannot_write_directory_rows(orgs, db):
+    # Admins manage their own org's departments and teams (E02); nobody writes
+    # another org's, or the organization row itself.
     alice = orgs["alice"]
-    assert alice.rest("POST", "department", json={"organization_id": orgs["x"], "name": "New"}).status_code in (401, 403)
+    assert alice.rest("POST", "department", json={"organization_id": orgs["y"], "name": "New"}).status_code in (401, 403)
     assert alice.rest("PATCH", f"organization?id=eq.{orgs['x']}", json={"name": "Renamed"}).status_code in (401, 403)
     assert db.execute("select name from organization where id = %s", (orgs["x"],)).fetchone()[0] == "Org X"
 

@@ -1,10 +1,11 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import "../workspace.css";
 import "./flow.css";
 import { FlowBar, ProgressBar, Spark, Stepper } from "./FlowBar";
 import { IconPencil } from "../icons";
 import { listPhrase } from "../format";
 import { PRD_SECTIONS, isAnswered, isSkipped, parseAnswer } from "../questions";
+import { ConfirmDialog } from "../dialogs";
 
 const EMPTY_HINTS = {
   notes: "No answer. Links or research notes help Nautilus, but you can generate without them.",
@@ -52,8 +53,12 @@ function AnswerBody({ question, text }) {
 
 // "Review your answers": every saved answer, how ready the PRD is to
 // generate, and the Generate panel. Edit opens the interview at that
-// question; onGenerate starts the existing generation flow.
-function ReviewPage({ prd, questions, onEdit, onGenerate, onExit, onHome = onExit }) {
+// question; onGenerate starts generation. A PRD that already has a draft
+// asks before generating again, since the new draft replaces it, and offers
+// the way back to it (onOpenDraft).
+function ReviewPage({ prd, questions, onEdit, onGenerate, onOpenDraft, onExit, onHome = onExit }) {
+  const [confirming, setConfirming] = useState(false);
+  const hasDraft = Boolean(prd.sections);
   const answers = prd.answers;
 
   useEffect(() => {
@@ -237,17 +242,43 @@ function ReviewPage({ prd, questions, onEdit, onGenerate, onExit, onHome = onExi
             </ul>
           </div>
 
-          <button type="button" className="nf-generate" disabled={!ready} onClick={onGenerate}>
+          <button
+            type="button"
+            className="nf-generate"
+            disabled={!ready}
+            onClick={() => (hasDraft ? setConfirming(true) : onGenerate())}
+          >
             <Spark size={18} />
-            Generate PRD
+            {hasDraft ? "Regenerate PRD" : "Generate PRD"}
           </button>
           <p className="nf-gen-note">
-            {ready
-              ? "You’ll review everything before it’s final. Nothing is shared until you choose to."
-              : "Answer the required questions first."}
+            {!ready
+              ? "Answer the required questions first."
+              : hasDraft
+                ? "This PRD already has a draft. Generating again replaces it."
+                : "You’ll review everything before it’s final. Nothing is shared until you choose to."}
           </p>
+          {hasDraft && onOpenDraft ? (
+            <button type="button" className="nw-btn nw-btn-secondary nf-open-draft" onClick={onOpenDraft}>
+              Open the current draft
+            </button>
+          ) : null}
         </aside>
       </div>
+
+      <ConfirmDialog
+        open={confirming}
+        title="Replace the current draft?"
+        confirmLabel="Regenerate"
+        busyLabel="Starting…"
+        onConfirm={() => onGenerate()}
+        onClose={() => setConfirming(false)}
+      >
+        <p>
+          Nautilus writes a new draft from your answers. It replaces every section of {prd.title}, including edits
+          made in the editor.
+        </p>
+      </ConfirmDialog>
     </div>
   );
 }
