@@ -1,7 +1,6 @@
 """E10: PRD events and the inbox. One event per real change, notifications only
 for the fixed recipients, hidden once access goes, and nothing a client can forge."""
 
-import psycopg
 import pytest
 
 from conftest import add_to_prd, org_prd
@@ -58,14 +57,20 @@ def test_repeating_an_invite_records_nothing_new(team, db):
     assert inbox(team["nia"])["unread_count"] == 1
 
 
-def test_role_changes_and_removals_are_recorded_without_notifying(team, db):
+def test_a_role_change_notifies_only_that_person(team, db):
     olive, prd, ed = team["olive"], team["prd"], team["ed"]
     invite(olive, prd, ed, "viewer")
+    assert events(db, prd) == [("member_role_changed", {"user_id": ed.id, "from": "editor", "to": "viewer"})]
+    [item] = inbox(ed)["items"]
+    assert item["type"] == "member_role_changed" and item["payload"] == {"user_id": ed.id, "from": "editor", "to": "viewer"}
+    for other in ("olive", "vic", "ada", "nia"):
+        assert inbox(team[other])["unread_count"] == 0
+
+
+def test_a_removal_is_recorded_without_notifying(team, db):
+    olive, prd, ed = team["olive"], team["prd"], team["ed"]
     assert olive.api("DELETE", f"/prds/{prd}/members/{ed.id}").status_code == 204
-    assert events(db, prd) == [
-        ("member_role_changed", {"user_id": ed.id, "from": "editor", "to": "viewer"}),
-        ("member_removed", {"user_id": ed.id, "role": "viewer"}),
-    ]
+    assert events(db, prd) == [("member_removed", {"user_id": ed.id, "role": "editor"})]
     assert db.execute("select count(*) from notification where prd_id = %s", (prd,)).fetchone()[0] == 0
 
 
@@ -108,12 +113,6 @@ def test_review_decisions_and_done_work_notify_owners(team, db):
     record(db, team["prd"], "work_status_changed", team["ed"], '{"status": "done"}')
     assert [i["type"] for i in inbox(team["olive"])["items"]] == ["work_status_changed", "changes_requested", "approved"]
     assert inbox(team["vic"])["unread_count"] == 0
-
-
-@pytest.mark.parametrize("event_type", ["submitted", "round_approved", "superseded"])
-def test_reviewer_events_wait_for_e07(team, db, event_type):
-    with pytest.raises(psycopg.errors.RaiseException):
-        record(db, team["prd"], event_type, team["olive"])
 
 
 def test_mark_read_is_idempotent_and_updates_the_count(team):
