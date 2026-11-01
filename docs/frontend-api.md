@@ -133,7 +133,9 @@ v2 documents first.
     acceptance after a lost response returns the saved PRD instead of an error.
   - Errors: 409 `proposal_unavailable` (already used, expired, or not yours: discard the preview); 409
     `stale_revision` (the PRD changed since the preview: generate again); 422 `invalid_generation_record` (the
-    document carries an `ai_generated` mark the server didn't add).
+    document carries an `ai_generated` mark the server didn't add); 422 `unsupported_proposal` (this kind of AI
+    proposal can't be accepted through the save yet: discard it). Whole drafts from Generate, section edits
+    and review suggestions are accepted.
 
 ### People on a PRD
 
@@ -326,6 +328,41 @@ All routes: 404 if you're not an active member of the organization, 403 if you'r
   members, is 409 until they're moved out. Archived teams take no new members.
 - Team membership never changes anyone's org role or access to PRDs.
 
+### Managing members (admins)
+
+`PATCH /api/organizations/{id}/members/{user_id}` changes one member. Send only what changes; `null` clears
+`department_id`, `manager_id` or `title`.
+
+| Body field | Notes |
+|---|---|
+| `access_role` | `"member"` or `"admin"` |
+| `department_id` | a department of this organization (not archived), or `null` |
+| `manager_id` | an active member of this organization, or `null`; no loops |
+| `title` | up to 100 characters; `""` or `null` clears it |
+| `active` | `false` deactivates, `true` reactivates |
+| `replacement_manager_id` | only when deactivating someone who manages people: their new manager, or `null` for none |
+| `transfer_owner_to` | only when deactivating the only owner of some PRDs: an active member who becomes their owner |
+
+Response: 200 `{ "user_id", "active", "access_role", "department_id", "manager_id", "title" }`.
+
+| Status | `code` | When |
+|---|---|---|
+| 404 | `not_found` | You're not an active member of the organization, or the person isn't in it |
+| 403 | `forbidden` | You're a member but not an admin |
+| 409 | `last_admin` | Demoting or deactivating the organization's last active admin. Make someone else an admin first |
+| 409 | `has_direct_reports` | Deactivating someone who manages people without `replacement_manager_id`; the body lists them in `reports` (user ids) |
+| 409 | `owns_prds` | Deactivating the only owner of some PRDs without `transfer_owner_to`; the body lists them in `prds` (`[{ prd_id, title }]`) |
+| 409 | `active_elsewhere` | Reactivating someone who is now active in another organization (one per account) |
+| 409 | `department_not_empty`-style directory codes | e.g. moving someone into an archived department |
+| 422 | `manager_cycle`, `manager_inactive`, `not_in_organization`, `head_not_in_department` | Reporting lines would loop; the manager or replacement isn't an active member here; moving a department head out of their department |
+| 422 | `validation_error` | Unknown field, bad role, title too long |
+
+- **Deactivating** removes the person's access to every PRD in the organization at once (their roles stay, and come
+  back if they're reactivated). Their department-head and team-lead positions are cleared. Show the `reports` or
+  `prds` lists from a 409 so the admin can choose, then send the request again with the choice.
+- New owners from `transfer_owner_to` are recorded like a role change on each PRD.
+- The organization always keeps at least one active admin, even when two admins change each other at once.
+
 ## Generation preview (AI)
 
 `POST /api/prds/{id}/generate` drafts a whole PRD from its interview answers with Gemini. **It's a preview: nothing is
@@ -426,6 +463,24 @@ reject, reply to or resolve anything.
   (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`,
   `ai_unavailable`, `ai_budget_exhausted`).
 
+## Owning team and priority (A08)
+
+Neither is reviewed material: changing them doesn't change the revision, make a version or reset a review (Decision 9).
+The owning team grants no access. PRD responses add `owning_team_id` and `priority` (`low` | `medium` | `high` |
+`critical`, or null).
+
+| Route | Body | Response | Who |
+|---|---|---|---|
+| `POST /api/prds/{id}/classification` | `{ "revision": int }` | 200 `{ suggestion: { id, team_id, priority, rationale }, base_revision, generation_record_id }`. A preview: nothing on the PRD changes | Owner or org admin |
+| `PUT /api/prds/{id}/classification/{suggestion_id}/decision` | `{ "decision": "accepted" \| "rejected", "team_id"?, "priority"? }` (adjustments only with `accepted`; `team_id: null` means no team) | 200 `PRD` | Owner or org admin |
+| `PUT /api/prds/{id}/routing` | `{ "owning_team_id": uuid \| null, "priority": ... \| null }` | 200 `PRD` | Owner or org admin |
+
+- The suggestion uses AI (same limits and AI error codes as generation). It needs saved content (422 `needs_content`)
+  and at least one active team in the org (422 `no_teams`). A save while it runs gives 409 `stale_revision`.
+- A suggestion is decided once: a second decision is 409 `suggestion_unavailable`.
+- A team must be an active team of the PRD's org (422 `invalid_team`). Editors and viewers get 403.
+- Clients can't write `owning_team_id` or `priority` directly (Data API); use these routes.
+
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD or
@@ -466,13 +521,9 @@ about a PRD you can no longer see are hidden from the list and the unread count.
 
 Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
 
-### Organizations (Vineela)
-
-Next: admin routes for members (E02 part 2).
-
 ### AI (Marco)
 
-Open: #85 (AI section edits), #86 (owning team and priority), #106 (save events).
+Open: #106 (save events).
 Each adds its entry here or in the main reference as it merges.
 
 ### Version history (Marco, draft, #84)

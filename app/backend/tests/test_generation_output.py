@@ -85,3 +85,9 @@ def test_model_output_cannot_add_assumption_marks():
     text["marks"] = [{"type": "assumption"}]
     errors = validate_generated_document(document)
     assert codes(errors) == [{"code": "assumption_mark_not_allowed", "path": "/content/0/content/0/content/0/marks/0"}]
+
+
+def test_a_doc_without_content_is_missing_every_section():
+    # Same result as content: [] (no KeyError): all nine sections are missing.
+    errors = validate_generated_document({"type": "doc"})
+    assert [e.code for e in errors] == ["missing_section"] * 9

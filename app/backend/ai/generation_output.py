@@ -41,7 +41,7 @@ def validate_generated_document(document) -> list[DocumentError]:
     if errors:
         return errors
     generation = load_spec()["generation"]
-    sections = document["content"]
+    sections = document.get("content", [])  # missing = empty, as in the validator
     present = {section_type_of(section) for section in sections}
     for section_type in section_types():
         if section_type not in present:
