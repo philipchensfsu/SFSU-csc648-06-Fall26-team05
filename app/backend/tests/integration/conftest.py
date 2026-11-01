@@ -178,6 +178,17 @@ def add_to_prd(db, prd, user, role):
     db.execute("insert into prd_member (prd_id, user_id, role) values (%s, %s, %s)", (prd, user.id, role))
 
 
+def save_version(db, prd, user):
+    """Adds the PRD's next saved version, as S03's save would, and makes it current. Returns its id."""
+    version = db.execute(
+        "insert into prd_version (prd_id, content_json, doc_schema_version, created_by, origin, version_no, saved_revision) "
+        "select %s, '{\"type\": \"doc\", \"content\": []}', 2, %s, 'pm_edit', "
+        "(select coalesce(max(version_no), 0) + 1 from prd_version where prd_id = %s), revision + 1 from prd where id = %s "
+        "returning id::text", (prd, user.id, prd, prd)).fetchone()[0]
+    db.execute("update prd set current_version_id = %s, revision = revision + 1 where id = %s", (version, prd))
+    return version
+
+
 def remove_orgs_created_by(db, user_id):
     db.execute("delete from prd where organization_id in (select id from organization where created_by = %s)", (user_id,))
     db.execute("delete from organization where created_by = %s", (user_id,))
