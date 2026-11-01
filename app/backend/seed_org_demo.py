@@ -74,7 +74,10 @@ REVIEWS = {
 
 
 def email(key):
-    return f"demo.{key}@example.com"
+    """seed_demo.py's convention: tags on the demo address (name+tag@domain), so
+    a test run with a throwaway DEMO_EMAIL gets throwaway people."""
+    name, domain = seed_demo.DEMO_EMAIL.split("@", 1)
+    return f"{name}+{key}@{domain}"
 
 
 def ensure_person(supabase, key, name, password):
