@@ -106,7 +106,7 @@ submitted, or the last round was superseded by an edit). Use it for badges such 
 |---|---|---|---|
 | `POST /api/prds` | `{ "title": string ≤ 200, "project_id": uuid \| null }` | 201 `PRD` (status `draft`, revision 1, `my_role: "owner"`), in your organization | 403 `no_organization` if the account has none; 404 if `project_id` isn't one of **your** projects; 422 |
 | `GET /api/prds` | optional `?search=text` (matches title and content text); optional `?view=`: `owned` (PRDs you own), `shared` (PRDs you were invited to as editor or viewer: "Shared with me"), `needs_my_approval` (PRDs whose open round is waiting on your decision, also when another reviewer requested changes) or `waiting_for_approval` (PRDs you own with a round in review or changes requested) | 200 `PRD[]`, most recently updated first. Without `view`: every PRD you can see, which for an org admin is every PRD in the org | 422 unknown `view` |
-| `GET /api/prds/{id}` | | 200 `PRD` plus `approval` (below) | 404 |
+| `GET /api/prds/{id}` | | 200 `PRD` plus `approval` and `capabilities` (below) | 404 |
 | `PUT /api/prds/{id}` | `{ "revision": int, "title"?, "content_json"?, "content_text"? }`: only the fields you send change | 200 `PRD` with the new `revision` | 404 not visible; 403 visible but not editable; 409 `stale_revision`; 422 (`status_not_allowed` if `status` is sent) |
 | `DELETE /api/prds/{id}` | | 204 | 404 unless you're an owner or an org admin |
 
@@ -114,6 +114,18 @@ submitted, or the last round was superseded by an edit). Use it for badges such 
   `{ "round_id", "round_no", "version_id", "state", "required_count", "approved_count", "reviewers": [...] }`, where
   `reviewers` has the same shape as in a [review round](#reviews) (including each `explanation`). With nothing under
   review, the ids and `state` are `null`, the counts are `0` and `reviewers` is empty. An approved round keeps its counts.
+- **`capabilities`** (only on `GET /api/prds/{id}`) says what **you** may do right now. Use it to show or hide buttons
+  instead of working it out from `my_role`; the flags use the same rules the routes enforce.
+
+  | Flag | True when |
+  |---|---|
+  | `can_view`, `can_comment` | always (you can see the PRD; viewers comment too) |
+  | `can_edit`, `can_request_ai` | you're an owner, editor or org admin; once the PRD is approved (`final`/`assigned`), owners only |
+  | `can_delete`, `can_assign` | you're an owner or org admin (`can_assign`: manage people, choose reviewers) |
+  | `can_submit_review` | you're an owner or org admin, the PRD has a saved, non-empty version, and no review is open |
+  | `can_approve` | you're a reviewer on the current round who hasn't decided, and the round is still on the current version |
+
+  Work-status, classification and routing flags come with Marco's E14 and A08.
 - **Don't send `status` on save.** Review state changes only through the review workflow (Decision 6, #62). Both saves
   reject it with 422 `status_not_allowed`.
 - `content_json` is today's v1 shape (`{ description, sections: [...] }`). The Tiptap JSON v2 format is specified in
@@ -165,6 +177,8 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 - Pick invitees from the [organization directory](#organization-directory) (`members[].user_id`).
 - Inviting someone or changing their role sends them a [notification](#notifications); removing someone doesn't.
   Setting a role someone already has changes nothing.
+- Removing a reviewer who hasn't decided on the open round (and isn't an org admin, so can't see the PRD any more)
+  drops their review slot, as [deactivating a reviewer](#managing-members-admins) does.
 
 ### Comments
 
@@ -234,7 +248,9 @@ requests changes; when everyone has approved, the PRD becomes `final`.
   `superseded` notification. The old round keeps its decisions and explanations, so show superseded rounds as history
   (`GET .../reviews`). Reviewers who left are dropped; if none remain, or the PRD is emptied, it goes back to `draft`.
   Edits to an approved PRD are owner-only and go through a modal to confirm the reviewers.
-- The reviewer list is frozen when the round starts. Names and departments are as of submission.
+- The reviewer list is frozen when the round starts. Names and departments are as of submission. The one exception
+  for now: a reviewer who loses access (deactivated, or removed from the PRD) before deciding is dropped from the
+  round, and its `reviewers` no longer list them. Decisions already made stay.
 - **Deciding:** send the round's `version_id`. **Requesting changes needs an `explanation`**; it's saved as a comment
   on that version (optionally on one section) and shown as the reviewer's `explanation`. An approval can carry an
   optional note the same way.
@@ -345,11 +361,11 @@ All routes: 404 if you're not an active member of the organization, 403 if you'r
 
 | Body field | Notes |
 |---|---|
-| `access_role` | `"member"` or `"admin"` |
+| `access_role` | `"member"` or `"admin"` (not `null`) |
 | `department_id` | a department of this organization (not archived), or `null` |
 | `manager_id` | an active member of this organization, or `null`; no loops |
 | `title` | up to 100 characters; `""` or `null` clears it |
-| `active` | `false` deactivates, `true` reactivates |
+| `active` | `false` deactivates, `true` reactivates (not `null`) |
 | `replacement_manager_id` | only when deactivating someone who manages people: their new manager, or `null` for none |
 | `transfer_owner_to` | only when deactivating the only owner of some PRDs: an active member who becomes their owner |
 
@@ -371,6 +387,12 @@ Response: 200 `{ "user_id", "active", "access_role", "department_id", "manager_i
   back if they're reactivated). Their department-head and team-lead positions are cleared. Show the `reports` or
   `prds` lists from a 409 so the admin can choose, then send the request again with the choice.
 - New owners from `transfer_owner_to` are recorded like a role change on each PRD.
+- **Deactivating a reviewer** drops their *undecided* review slots on open rounds (decisions they already made stay).
+  A round left with only approvals completes (the PRD becomes `final`, `round_approved` notifies owners and
+  reviewers); a round left with no reviewers is superseded, the PRD goes back to `draft` and the owners get a
+  `superseded` notification. Both are system events: `actor_name` is `null`, and the payload has
+  `reason: "reviewer_deactivated"` and `removed_reviewer_id`. Removing a reviewer from the PRD does the same with
+  `reason: "reviewer_removed"`.
 - The organization always keeps at least one active admin, even when two admins change each other at once.
 
 ## Generation preview (AI)
@@ -494,7 +516,9 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
 - **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`; `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`;
   `approved`: `{ round_no }`; `changes_requested`: `{ round_no, section_type }`; `round_approved`:
-  `{ round_no, reviewer_id }` (the last approver). Coming with Marco's E09/E14: `superseded`, `work_status_changed`.
+  `{ round_no, reviewer_id }` (the last approver; `null` when the round completed because a pending reviewer lost
+  access, with `reason` and `removed_reviewer_id`: see [Managing members](#managing-members-admins)).
+  Coming with Marco's E09/E14: `superseded`, `work_status_changed`.
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
   the first one and `updated_at` is when the latest arrived; a growing batch moves back to the top of the inbox. Once

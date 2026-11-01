@@ -377,8 +377,21 @@ class ApprovalSummary(BaseModel):
     reviewers: list[ReviewerOut]
 
 
+class Capabilities(BaseModel):
+    can_view: bool
+    can_comment: bool
+    can_edit: bool
+    can_delete: bool
+    can_assign: bool
+    can_submit_review: bool
+    can_approve: bool
+    can_request_ai: bool
+
+
 class PRDDetailOut(PRDOut):
     approval: ApprovalSummary
+    # What the caller may do now (E03); the same rules the routes enforce.
+    capabilities: Capabilities
 
 
 NO_APPROVAL = {"round_id": None, "round_no": None, "version_id": None, "state": None,
@@ -408,7 +421,8 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
     prd = with_my_role(client, auth["user"].id, response.data)[0]
-    return {**prd, "approval": approval_summary(client, prd_id)}
+    capabilities = client.rpc("prd_capabilities", {"target_prd": str(prd_id)}).execute().data
+    return {**prd, "approval": approval_summary(client, prd_id), "capabilities": capabilities}
 
 
 class VersionActor(BaseModel):
@@ -457,6 +471,10 @@ def get_prd_version(prd_id: UUID, version_id: UUID, auth=Depends(get_current_use
     return prd_versions.get_version(auth["client"], str(prd_id), str(version_id))
 
 
+# Once PRD_SAVE_V2 is the only save path, remove the legacy update below and
+# revoke the client's update grant on prd.revision (#102): the legacy
+# compare-and-swap is the only reason clients may still write it, and a raw
+# Data API call could bump it and fail other editors' saves (Om, #102 review).
 @app.put("/api/prds/{prd_id}", response_model=PRDOut)
 def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user)):
     sent = payload.model_fields_set
@@ -1331,6 +1349,9 @@ def update_member(org_id: UUID, user_id: UUID, payload: MemberUpdate, auth=Depen
         raise ApiError(404, "Organization not found")
     changes = {key: str(value) if isinstance(value, UUID) else value
                for key, value in payload.model_dump(exclude_unset=True).items()}
+    for field in ("access_role", "active"):
+        if field in changes and changes[field] is None:
+            raise ApiError(422, f"{field} can't be null.", "validation_error")
     if changes.get("title") == "":
         changes["title"] = None
     params = {"target_org": str(org_id), "target_user": str(user_id), "changes": changes}
