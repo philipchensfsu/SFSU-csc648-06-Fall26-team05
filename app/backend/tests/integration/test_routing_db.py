@@ -193,8 +193,10 @@ def test_the_database_enforces_it_even_through_the_data_api(cast, db):
     prd = cast["prd"]
     r = cast["editor"].rest("PATCH", f"prd?id=eq.{prd}", json={"priority": "critical"})
     assert r.status_code == 403
-    r = cast["owner"].rest("PATCH", f"prd?id=eq.{prd}", json={"owning_team_id": cast["teams"]["foreign"]})
-    assert r.status_code in (400, 403)
+    # Even an owner can't write the columns directly (S02 grants); PUT /routing
+    # goes through set_prd_routing.
+    r = cast["owner"].rest("PATCH", f"prd?id=eq.{prd}", json={"owning_team_id": cast["teams"]["growth"]})
+    assert r.status_code == 403
     assert routing(db, prd)[:2] == (None, None)
     r = cast["owner"].rest("POST", "classification_suggestion",
                            json={"prd_id": prd, "base_revision": 2, "suggested_priority": "low", "rationale": "x"})
@@ -202,7 +204,33 @@ def test_the_database_enforces_it_even_through_the_data_api(cast, db):
 
 
 def test_running_api_checks_access_before_ai(cast):
+    # Holds whatever AI settings the running API has: access comes first.
     r = cast["editor"].api("POST", f"/prds/{cast['prd']}/classification", json={"revision": 2})
     assert r.status_code == 403
-    r = cast["owner"].api("POST", f"/prds/{cast['prd']}/classification", json={"revision": 2})
-    assert (r.status_code, r.json()["code"]) == (429, "ai_disabled")  # the local API runs with AI off
+
+
+def classify_with_real_client(cast, service, user):
+    """The real request path with the real Gemini client (no model double), so
+    the test sets the AI configuration itself instead of relying on the
+    running API's. Neither case below can reach the provider."""
+    with pytest.raises(AIError) as info:
+        classification.suggest_routing(as_user(user), service, actor_id=user.id, prd_id=cast["prd"], revision=2)
+    return info.value
+
+
+def test_with_ai_switched_off_the_owner_gets_ai_disabled(cast, db, service, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "false")
+    error = classify_with_real_client(cast, service, cast["owner"])
+    assert (error.status_code, error.code) == (429, "ai_disabled")
+    assert db.execute("select count(*) from classification_suggestion where prd_id = %s",
+                      (cast["prd"],)).fetchone() == (0,)
+
+
+def test_with_ai_on_but_no_key_the_owner_gets_ai_unavailable(cast, db, service, monkeypatch):
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_COOLDOWN_SECONDS", "0")
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)  # fails before any provider call
+    error = classify_with_real_client(cast, service, cast["owner"])
+    assert (error.status_code, error.code) == (503, "ai_unavailable")
+    assert db.execute("select count(*) from classification_suggestion where prd_id = %s",
+                      (cast["prd"],)).fetchone() == (0,)
