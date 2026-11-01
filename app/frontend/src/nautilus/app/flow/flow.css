@@ -776,6 +776,10 @@ button.nf-step:hover {
   font-size: 13px;
   color: #557479;
 }
+.nf-open-draft {
+  width: 100%;
+  height: 42px;
+}
 
 /* ---- create a PRD ------------------------------------------------------ */
 
