@@ -31,7 +31,9 @@ async function request(path, options = {}) {
     error.retryAfter = body.retry_after;
     // 422 invalid_document lists each problem with its path in the document.
     error.errors = body.errors;
-
+    // 409s from deactivating someone list who or what needs a decision first.
+    error.reports = body.reports;
+    error.prds = body.prds;
     throw error;
   }
 
@@ -105,4 +107,23 @@ export const api = {
     request(`/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ read: true }) }),
   // needs_my_approval or waiting_for_approval.
   listPrdsInView: (view) => request(`/prds?view=${encodeURIComponent(view)}`),
+
+  // Org admins only. Send just the fields that change; null clears one.
+  updateMember: (orgId, userId, changes) =>
+    request(`/organizations/${orgId}/members/${userId}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  createDepartment: (orgId, name) =>
+    request(`/organizations/${orgId}/departments`, { method: "POST", body: JSON.stringify({ name }) }),
+  updateDepartment: (orgId, departmentId, changes) =>
+    request(`/organizations/${orgId}/departments/${departmentId}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  createTeam: (orgId, name, departmentId) =>
+    request(`/organizations/${orgId}/teams`, {
+      method: "POST",
+      body: JSON.stringify({ name, department_id: departmentId ?? null }),
+    }),
+  updateTeam: (orgId, teamId, changes) =>
+    request(`/organizations/${orgId}/teams/${teamId}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  addTeamMember: (orgId, teamId, userId) =>
+    request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, { method: "PUT" }),
+  removeTeamMember: (orgId, teamId, userId) =>
+    request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
 };
