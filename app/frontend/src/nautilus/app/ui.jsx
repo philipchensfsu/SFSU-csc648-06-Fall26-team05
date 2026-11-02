@@ -77,7 +77,7 @@ export function Alert({ children, onRetry, onDismiss }) {
 // A modal on the native <dialog>, which brings focus trapping, the top
 // layer and Escape for free. Escape and clicks on the backdrop call onClose,
 // except while `busy` (a request is out).
-export function Modal({ open, title, onClose, busy = false, children }) {
+export function Modal({ open, title, onClose, busy = false, className = "", children }) {
   const ref = useRef(null);
   const pressedBackdrop = useRef(false);
   const titleId = useId();
@@ -96,7 +96,7 @@ export function Modal({ open, title, onClose, busy = false, children }) {
   return (
     <dialog
       ref={ref}
-      className="nw-modal"
+      className={`nw-modal ${className}`.trim()}
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();

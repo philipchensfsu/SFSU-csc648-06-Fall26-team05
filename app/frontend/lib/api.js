@@ -70,6 +70,14 @@ export const api = {
     request(`/prds/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePrd: (id) => request(`/prds/${id}`, { method: "DELETE" }),
 
+  // The people on a PRD. PUT adds someone or changes their role, and returns
+  // the updated list.
+  listPrdMembers: (prdId) => request(`/prds/${prdId}/members`),
+  setPrdMember: (prdId, userId, role) =>
+    request(`/prds/${prdId}/members/${userId}`, { method: "PUT", body: JSON.stringify({ role }) }),
+  removePrdMember: (prdId, userId) =>
+    request(`/prds/${prdId}/members/${userId}`, { method: "DELETE" }),
+
   // Answer-only PRD chat. `history` is the recent turns for this PRD only;
   // the backend caps it and never treats it as instructions. Resolves to
   // {kind: "answer" | "blocked" | "clarification", message, base_revision}.

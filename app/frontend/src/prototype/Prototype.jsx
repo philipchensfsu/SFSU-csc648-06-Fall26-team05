@@ -57,7 +57,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
 
-  // Takes only the detail fields and the review status from the row. The
+  // Takes only the detail fields, status and the caller's role from the row. The
   // revision stays the one the editor's content came from, so a newer save
   // elsewhere still ends in a 409 rather than being overwritten.
   const loadDetail = useCallback((id) => {
@@ -68,11 +68,21 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
         if (requestId !== latestDetail.current) return;
         setPrdDetail({ id, ...fromApiPrdDetail(row) });
         setPrds((current) =>
-          current.map((p) => (p.id === id ? { ...p, status: row.status, reviewState: row.review_state ?? null } : p)),
+          current.map((p) =>
+            p.id === id
+              ? { ...p, status: row.status, reviewState: row.review_state ?? null, myRole: row.my_role ?? p.myRole }
+              : p,
+          ),
         );
       })
       .catch((error) => {
         if (requestId !== latestDetail.current) return;
+        // This person can't see the PRD any more (removed from it, say).
+        if (error.status === 404) {
+          setActivePrdId(null);
+          setScreen("dashboard");
+          return;
+        }
         // A refetch that fails keeps what was already known.
         setPrdDetail((current) => (current?.id === id && current.capabilities ? current : { id, error: error.message }));
       });
@@ -450,6 +460,8 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
           prd={activePrd}
           detail={prdDetail?.id === activePrd.id ? prdDetail : null}
           onRetryDetail={() => loadDetail(activePrd.id)}
+          organizationId={organization?.organization_id}
+          userId={userId}
           // A save can change what's allowed and the banner, and the PUT
           // response doesn't say, so read the detail again.
           onSave={(doc) =>

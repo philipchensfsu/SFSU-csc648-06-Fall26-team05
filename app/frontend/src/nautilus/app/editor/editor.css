@@ -376,6 +376,95 @@
 .ne-changed strong {
   font-weight: 600;
 }
+.ne-share-modal {
+  width: min(600px, calc(100vw - 32px));
+}
+.ne-share-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ne-share-label {
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #557479;
+}
+.ne-share-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #DCEBEE;
+  border-radius: 12px;
+}
+.ne-share-person {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+}
+.ne-share-person + .ne-share-person {
+  border-top: 1px solid #DCEBEE;
+}
+.ne-share-who {
+  flex: 1 1 160px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-wrap: anywhere;
+}
+.ne-share-name {
+  font-size: 14px;
+  font-weight: 500;
+}
+.ne-share-email,
+.ne-share-note {
+  font-size: 13px;
+  color: #557479;
+}
+.ne-share-remove {
+  padding: 6px 4px;
+  border: 0;
+  background: none;
+  color: #8C2F1D;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ne-share-remove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.ne-share-confirm {
+  flex: 1 1 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #FFF1D6;
+  color: #7A4300;
+  font-size: 13px;
+}
+.ne-share-confirm-actions {
+  display: inline-flex;
+  gap: 8px;
+}
+.ne-share-add {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.ne-share-pick {
+  flex: 1 1 220px;
+  min-width: 0;
+}
 .ne-alert-action {
   padding: 0;
   border: 0;
