@@ -7,7 +7,7 @@ import { api } from "../../../../lib/api";
 import EditorPage from "./EditorPage";
 import { reviewerCandidates } from "../format";
 
-vi.mock("../../../../lib/api", () => ({ api: { getDirectory: vi.fn() } }));
+vi.mock("../../../../lib/api", () => ({ api: { getDirectory: vi.fn(), listReviews: vi.fn() } }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom doesn't implement the native dialog or scrolling.
@@ -101,6 +101,8 @@ function typeInto(field, value) {
 beforeEach(() => {
   vi.clearAllMocks();
   api.getDirectory.mockResolvedValue({ organization: { id: "org", name: "Campus Apps" }, members });
+  // The latest round's reviewers: Ben, and someone who has since left the org.
+  api.listReviews.mockResolvedValue({ items: [{ reviewers: [{ user_id: "ben" }, { user_id: "gone" }] }] });
 });
 
 afterEach(async () => {
@@ -251,5 +253,93 @@ describe("deciding on a review", () => {
     await click(buttonNamed("Approve"));
     await click(buttonNamed("Approve this version"));
     expect(host.querySelector(".ne-your-review").textContent).toContain("You already decided.");
+  });
+});
+
+describe("edits to an approved PRD", () => {
+  const refused = Object.assign(new Error("Confirm its reviewers"), { status: 409, code: "reapproval_required" });
+  const approvedOwner = { capabilities: { can_edit: true }, owners: [{ id: "alice", name: "Alice PM" }] };
+
+  // Confirming an assumption makes the document dirty without opening TipTap.
+  async function saveRefused(onSave) {
+    await show({ prd: { ...prd, status: "final", reviewState: "approved" }, detail: approvedOwner, userId: "alice", onSave });
+    await click(buttonNamed("Confirm"));
+    await click(buttonNamed("Save"));
+  }
+  const boxes = () => [...openDialog().querySelectorAll('input[type="checkbox"]')];
+
+  it("asks for reviewers instead of showing a conflict, starting from the latest round", async () => {
+    await saveRefused(vi.fn().mockRejectedValue(refused));
+    expect(openDialog().textContent).toContain("Your edits need new approval");
+    expect(api.listReviews).toHaveBeenCalledWith("p1", { limit: 1 });
+    expect(openDialog().textContent).not.toContain("Alice PM");
+    expect(boxes().map((box) => box.checked)).toEqual([true, false]);
+    expect(buttonNamed("Load the latest version")).toBeUndefined();
+    expect(host.textContent).not.toContain("Couldn’t save.");
+  });
+
+  it("sends the same edits again with the people confirmed", async () => {
+    const onSave = vi.fn().mockRejectedValueOnce(refused).mockResolvedValue();
+    await saveRefused(onSave);
+    await click(boxes()[1]);
+    await click(buttonNamed("Apply edits"));
+    const [first] = onSave.mock.calls[0];
+    const [second] = onSave.mock.calls[1];
+    expect(first.confirmedReviewerIds).toBeUndefined();
+    expect(second.confirmedReviewerIds).toEqual(["ben", "erin"]);
+    expect(second.sections).toEqual(first.sections);
+    expect(second.contentJson).toEqual(first.contentJson);
+    expect(openDialog()).toBeNull();
+    expect(buttonNamed("Save").disabled).toBe(true);
+  });
+
+  it("needs at least one reviewer", async () => {
+    await saveRefused(vi.fn().mockRejectedValue(refused));
+    expect(buttonNamed("Apply edits").disabled).toBe(false);
+    await click(boxes()[0]);
+    expect(buttonNamed("Apply edits").disabled).toBe(true);
+  });
+
+  it("drops the edits on Discard, saving nothing", async () => {
+    const onSave = vi.fn().mockRejectedValue(refused);
+    await saveRefused(onSave);
+    expect(host.querySelector("mark.nt-assumption")).toBeNull();
+    await click(buttonNamed("Discard edits"));
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(openDialog()).toBeNull();
+    expect(host.querySelector("mark.nt-assumption")).not.toBeNull();
+    expect(buttonNamed("Save").disabled).toBe(true);
+  });
+
+  it("keeps the edits on Keep editing", async () => {
+    await saveRefused(vi.fn().mockRejectedValue(refused));
+    await click(buttonNamed("Keep editing"));
+    expect(openDialog()).toBeNull();
+    expect(host.querySelector("mark.nt-assumption")).toBeNull();
+    expect(buttonNamed("Save").disabled).toBe(false);
+  });
+
+  it("shows why Apply was refused, and keeps the dialog open", async () => {
+    const onSave = vi.fn().mockRejectedValueOnce(refused).mockRejectedValueOnce(new Error("An owner can't review this PRD."));
+    await saveRefused(onSave);
+    await click(buttonNamed("Apply edits"));
+    expect(openDialog().textContent).toContain("An owner can't review this PRD.");
+  });
+
+  it("offers the latest version when someone else saved first", async () => {
+    const stale = Object.assign(new Error("Stale"), { status: 409, code: "stale_revision" });
+    await saveRefused(vi.fn().mockRejectedValueOnce(refused).mockRejectedValueOnce(stale));
+    await click(buttonNamed("Apply edits"));
+    expect(openDialog()).toBeNull();
+    expect(buttonNamed("Load the latest version")).toBeDefined();
+  });
+
+  it("can retry when the reviewers can't be read, and still discard", async () => {
+    api.listReviews.mockRejectedValueOnce(new Error("Network down"));
+    await saveRefused(vi.fn().mockRejectedValue(refused));
+    expect(openDialog().textContent).toContain("Couldn’t load the reviewers.");
+    expect(buttonNamed("Apply edits")).toBeUndefined();
+    await click(buttonNamed("Try again"));
+    expect(buttonNamed("Apply edits")).toBeDefined();
   });
 });

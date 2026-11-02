@@ -348,6 +348,8 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
         title,
         description,
         content_json: contentJson,
+        // Only when an owner confirms reviewers for edits to an approved PRD.
+        ...(doc.confirmedReviewerIds ? { confirmed_reviewer_ids: doc.confirmedReviewerIds } : {}),
       })
       .catch(async (error) => {
         if (error.code === "invalid_document") {
