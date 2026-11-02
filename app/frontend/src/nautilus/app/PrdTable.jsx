@@ -99,7 +99,7 @@ function PrdTable({ prds, projects, onOpenPrd, onOpenProject, onRenamePrd, onDel
                     )}
                   </td>
                   <td>
-                    <StatusChip status={prd.status} />
+                    <StatusChip status={prd.status} reviewState={prd.reviewState} />
                   </td>
                   <td className="nw-nowrap nw-row-date">{formatDay(prd.updatedAt)}</td>
                   <td className="nw-row-actions">

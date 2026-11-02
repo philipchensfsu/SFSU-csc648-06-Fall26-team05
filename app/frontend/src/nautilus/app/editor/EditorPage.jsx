@@ -4,7 +4,7 @@ import "../flow/flow.css";
 import "./editor.css";
 import { FlowBar } from "../flow/FlowBar";
 import AskAiPanel from "./AskAiPanel";
-import { editedWhen, formatDate } from "../format";
+import { approvalProgress, editedWhen, formatDate } from "../format";
 import { IconPencil } from "../icons";
 import { Alert, MenuButton, Modal, StatusChip } from "../ui";
 import { IconBack, IconChat, IconCheck, IconDownload } from "./editorIcons";
@@ -16,9 +16,6 @@ const TITLE_MAX = 200;
 // Matches the backend's description limit (docs/prd-document-format.md).
 const DESCRIPTION_MAX = 2000;
 
-// Who sees the editing tools: `my_role` from the API (Decisions 1-3).
-// Viewers get the read-only page and can still export.
-const EDIT_ROLES = new Set(["owner", "editor", "org_admin"]);
 const ROLE_LABELS = { owner: "Owner", editor: "Editor", viewer: "Viewer", org_admin: "Org admin" };
 
 // What the page says when the API answers 409: someone (or another tab)
@@ -149,11 +146,13 @@ function LeaveDialog({ open, onStay, onDiscard, onSave }) {
 
 // The PRD editor. Sections are edited one at a time (Edit, then Done) and
 // saved together with Save, which sends the revision it started from so a
-// newer save elsewhere is never overwritten (409). The owner edits; anyone
-// else the API shows the PRD to (admins, engineers on final PRDs) reads and
-// exports it.
+// newer save elsewhere is never overwritten (409). `detail.capabilities` says
+// who edits; anyone else the API shows the PRD to reads and exports it. The
+// page stays read-only until `detail` arrives.
 function EditorPage({
   prd,
+  detail,
+  onRetryDetail,
   exitLabel = "Back to dashboard",
   onSave,
   onReload,
@@ -187,7 +186,10 @@ function EditorPage({
   const ids = useId();
 
   const [railTab, setRailTab] = useState("review");
-  const canEdit = EDIT_ROLES.has(prd.myRole);
+  const canEdit = detail?.capabilities?.can_edit === true;
+  // Nothing says "View only" until the API has actually said so.
+  const viewOnly = Boolean(detail?.capabilities) && !canEdit;
+  const progress = approvalProgress(detail?.approval);
   const detailsChanged =
     editing === "details" && (details.title !== doc.title || details.description !== doc.description);
   const dirty = canEdit && (sectionTouched || detailsChanged || !sameDoc(doc, saved));
@@ -367,7 +369,9 @@ function EditorPage({
       return true;
     } catch (error) {
       setProblem(
-        error?.status === 409
+        // reapproval_required is a 409 too, but nothing changed: the backend's
+        // own sentence explains it, and reloading would only lose the edits.
+        error?.status === 409 && error.code !== "reapproval_required"
           ? CONFLICT
           : { title: "Couldn’t save.", message: error?.message || "Try again.", conflict: false },
       );
@@ -460,7 +464,7 @@ function EditorPage({
         ]}
         // Status is shown, not set here: it changes only through the review
         // workflow (Decision 6).
-        after={<StatusChip status={prd.status} />}
+        after={<StatusChip status={prd.status} reviewState={prd.reviewState} />}
         actions={
           <>
             {saveState ? (
@@ -469,9 +473,9 @@ function EditorPage({
                 {saveState[1]}
                 {saveState[2] ? <span className="ne-hide-sm"> · {saveState[2]}</span> : null}
               </span>
-            ) : (
+            ) : viewOnly ? (
               <span className="ne-viewonly">View only</span>
-            )}
+            ) : null}
             <MenuButton
               label="Export"
               className="nw-btn nw-btn-secondary ne-btn-38"
@@ -490,19 +494,32 @@ function EditorPage({
         }
       />
 
-      {problem ? (
+      {problem || detail?.error || detail?.changedSinceApproval ? (
         <div className="ne-alerts">
-          <Alert onDismiss={() => setProblem(null)}>
-            <strong>{problem.title}</strong> {problem.message}
-            {problem.conflict ? (
-              <>
-                {" "}
-                <button type="button" className="ne-alert-action" onClick={reload} disabled={reloading}>
-                  {reloading ? "Loading…" : "Load the latest version"}
-                </button>
-              </>
-            ) : null}
-          </Alert>
+          {detail?.changedSinceApproval ? (
+            <p className="ne-changed" role="status">
+              <strong>Changed since approval.</strong> This PRD was approved, then edited. The new version needs
+              approval again.
+            </p>
+          ) : null}
+          {detail?.error ? (
+            <Alert onRetry={onRetryDetail}>
+              <strong>Couldn’t check what you can do on this PRD.</strong> You can read it for now. {detail.error}
+            </Alert>
+          ) : null}
+          {problem ? (
+            <Alert onDismiss={() => setProblem(null)}>
+              <strong>{problem.title}</strong> {problem.message}
+              {problem.conflict ? (
+                <>
+                  {" "}
+                  <button type="button" className="ne-alert-action" onClick={reload} disabled={reloading}>
+                    {reloading ? "Loading…" : "Load the latest version"}
+                  </button>
+                </>
+              ) : null}
+            </Alert>
+          ) : null}
         </div>
       ) : null}
 
@@ -645,6 +662,12 @@ function EditorPage({
                     <dd>{ROLE_LABELS[prd.myRole]}</dd>
                   </div>
                 ) : null}
+                {progress ? (
+                  <div>
+                    <dt>Review</dt>
+                    <dd>{progress}</dd>
+                  </div>
+                ) : null}
                 <div>
                   <dt>Updated</dt>
                   <dd>{formatDate(prd.updatedAt)}</dd>
@@ -656,9 +679,13 @@ function EditorPage({
                   </div>
                 ) : null}
               </dl>
-              {canEdit ? null : (
-                <p className="ne-readonly-note">You can read and export this PRD. Ask its owner for edit access to change it.</p>
-              )}
+              {viewOnly ? (
+                <p className="ne-readonly-note">
+                  {prd.status === "final" || prd.status === "assigned"
+                    ? "This PRD is approved. Only its owners can change it now."
+                    : "You can read and export this PRD. Ask its owner for edit access to change it."}
+                </p>
+              ) : null}
             </header>
 
             {doc.sections.map((section, index) => {
@@ -739,6 +766,8 @@ function EditorPage({
               Review
               {toConfirm.length ? <span className="ne-rail-tab-count">{toConfirm.length}</span> : null}
             </button>
+            {/* Anyone who can view the PRD may ask (Decision 5). can_request_ai
+                is for the AI actions that change it. */}
             <button
               type="button"
               role="tab"

@@ -17,6 +17,27 @@ export function statusLabel(status) {
   return STATUS_LABEL[status] ?? status;
 }
 
+const REVIEW_LABEL = {
+  in_review: "In review",
+  changes_requested: "Changes requested",
+  approved: "Approved",
+};
+
+// The one badge a PRD shows: its review state while it has one, otherwise its
+// status. "Assigned" stays, since work has moved on from the approval.
+export function prdBadge(status, reviewState) {
+  if (status !== "assigned" && REVIEW_LABEL[reviewState]) {
+    return { tone: reviewState, label: REVIEW_LABEL[reviewState] };
+  }
+  return { tone: status, label: statusLabel(status) };
+}
+
+// "1 of 2 approved", or "" when the PRD has no reviewers to count.
+export function approvalProgress(approval) {
+  if (!approval?.required_count) return "";
+  return `${approval.approved_count} of ${approval.required_count} approved`;
+}
+
 // --- dates --------------------------------------------------------------
 
 const DAY_MS = 24 * 60 * 60 * 1000;

@@ -259,6 +259,10 @@ body:has(.nw-root) {
 .nw-chip-final .nw-chip-dot, .nw-dot-final { background: #1C9A62; }
 .nw-chip-assigned { background: #E3ECF8; color: #24508F; }
 .nw-chip-assigned .nw-chip-dot, .nw-dot-assigned { background: #3E73C2; }
+.nw-chip-changes_requested { background: #FCE6E1; color: #8C2F1D; }
+.nw-chip-changes_requested .nw-chip-dot { background: #D2553D; }
+.nw-chip-approved { background: #E3F5EC; color: #0E6139; }
+.nw-chip-approved .nw-chip-dot { background: #1C9A62; }
 
 .nw-avatar {
   flex: none;
