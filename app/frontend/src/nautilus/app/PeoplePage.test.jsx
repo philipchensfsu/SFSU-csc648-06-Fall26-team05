@@ -54,17 +54,26 @@ const refusal = (code, extra = {}) => Object.assign(new Error(`raw ${code}`), { 
 
 let root;
 let host;
-
-async function show() {
+async function show(recheckOrganization = vi.fn()) {
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
+
   await act(async () => {
     root.render(
-      <PeoplePage organization={{ organization_id: "org", name: "Campus Apps", access_role: "admin" }} userId="alice" />,
+      <PeoplePage
+        organization={{
+          organization_id: "org",
+          name: "Campus Apps",
+          access_role: "admin",
+        }}
+        userId="alice"
+        recheckOrganization={recheckOrganization}
+      />,
     );
   });
 }
+
 
 const buttonWith = (text) => [...document.querySelectorAll("button")].find((button) => button.textContent === text);
 const click = (button) => act(async () => button.click());
@@ -170,16 +179,51 @@ describe("editing a member", () => {
     expect(managers).toEqual(["No manager", "Alice PM", "Erin Engineer"]);
   });
 
-  it("stays open with a clear message when refused", async () => {
-    api.updateMember.mockRejectedValue(refusal("last_admin"));
-    await show();
-    await openAction("Alice PM", "Edit");
-    await choose(fieldNamed("Org role"), "member");
-    await click(buttonWith("Save"));
-    expect(dialog().textContent).toContain("Make someone else an admin first.");
-    expect(dialog().textContent).not.toContain("raw last_admin");
+ 
+it("confirms self-demotion and stays open with a clear message when refused", async () => {
+  api.updateMember.mockRejectedValue(refusal("last_admin"));
+
+  await show();
+  await openAction("Alice PM", "Edit");
+  await choose(fieldNamed("Org role"), "member");
+
+  await click(buttonWith("Save"));
+
+  expect(dialog().textContent).toContain("This changes your own access");
+  expect(api.updateMember).not.toHaveBeenCalled();
+
+  await click(buttonWith("Yes, change it"));
+
+  expect(api.updateMember).toHaveBeenCalledWith("org", "alice", {
+    access_role: "member",
   });
+  expect(dialog().textContent).toContain("Make someone else an admin first.");
+  expect(dialog().textContent).not.toContain("raw last_admin");
 });
+
+});
+
+it("refreshes organization permissions after confirming self-demotion", async () => {
+  const recheckOrganization = vi.fn();
+
+  await show(recheckOrganization);
+  await openAction("Alice PM", "Edit");
+  await choose(fieldNamed("Org role"), "member");
+
+  await click(buttonWith("Save"));
+
+  expect(dialog().textContent).toContain("This changes your own access");
+  expect(api.updateMember).not.toHaveBeenCalled();
+  expect(recheckOrganization).not.toHaveBeenCalled();
+
+  await click(buttonWith("Yes, change it"));
+
+  expect(api.updateMember).toHaveBeenCalledWith("org", "alice", {
+    access_role: "member",
+  });
+  expect(recheckOrganization).toHaveBeenCalledTimes(1);
+});
+
 
 describe("deactivating a member", () => {
   it("warns first and marks the person Deactivated in this session", async () => {

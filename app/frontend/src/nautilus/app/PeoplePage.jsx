@@ -33,7 +33,7 @@ function Placement({ member, departments, teams }) {
 // their org role, department, manager and title. The directory lists active
 // members only and no route lists deactivated ones, so someone deactivated
 // here stays visible until the page is left, and can't be reactivated yet.
-function PeoplePage({ organization, userId }) {
+function PeoplePage({ organization, userId, recheckOrganization }) {
   const orgId = organization.organization_id;
   const [directory, setDirectory] = useState(null);
   const [error, setError] = useState("");
@@ -231,6 +231,8 @@ function PeoplePage({ organization, userId }) {
           organizationId={orgId}
           departments={departments}
           members={members}
+          userId={userId}
+          recheckOrganization={recheckOrganization}
           onSaved={reload}
           onClose={() => setEditing(null)}
         />

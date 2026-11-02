@@ -27,6 +27,7 @@ function Workspace({
   account,
   organization,
   userId,
+  recheckOrganization,
   prds,
   prdsLoaded,
   prdsError,
@@ -131,7 +132,13 @@ function Workspace({
 
   let content;
   if (page === "people" && organization?.access_role === "admin") {
-    content = <PeoplePage organization={organization} userId={userId} />;
+    content = (
+  <PeoplePage
+    organization={organization}
+    userId={userId}
+    recheckOrganization={recheckOrganization}
+  />
+);
   } else if (page === "inbox") {
     content = <InboxPage onUnreadChange={setUnreadCount} onOpenPrdById={onOpenPrdById} />;
   } else if (page === "projects") {
