@@ -64,9 +64,11 @@ def test_the_seed_builds_the_directory_and_real_review_states(demo, db):
     assert states.pop("Bike Share Docking Map") == "in_review/changes_requested"
     assert states.pop("Dining Hall Menu Alerts") == "final/approved"
     assert states.pop("Recipe Meal Planner") == "final/approved"
+    assert states.pop("Expense Report Automation") == "final/approved"
+    assert states.pop("Employee Onboarding Checklist") == "in_review/in_review"
     assert set(states.values()) == {"draft/none"}  # seed_demo's bare statuses are gone
-    people = len(seed_org_demo.PEOPLE)
-    assert snapshot(db, org)[:3] == (people + 1, 3, len(seed_org_demo.TEAMS))
+    people = len(seed_org_demo.PEOPLE) + len(seed_demo.MEMBERS) + 1  # and the demo account
+    assert snapshot(db, org)[:3] == (people, 3, len(seed_org_demo.TEAMS))
     heads = dict(db.execute("select d.name, p.full_name from department d join profile p on p.id = d.head_id "
                             "where d.organization_id = %s", (org,)).fetchall())
     assert heads == {"Product": "Dana Lee", "Engineering": "Raj Patel", "Design": "Leo Kim"}
@@ -86,6 +88,32 @@ def test_review_actions_were_taken_by_the_people_themselves(demo, db):
     notified = db.execute("select count(distinct recipient_id) from notification n join prd p on p.id = n.prd_id "
                           "where p.organization_id = %s", (org,)).fetchone()[0]
     assert notified >= 5
+
+
+def test_an_owner_edit_during_review_resets_the_approval(demo, db):
+    seed_org_demo.seed(demo, anon_key=ANON_KEY)
+    org = org_of(db, demo)
+    rounds = db.execute("""
+        select r.state, r.version_id = p.current_version_id, pr.full_name, s.state
+        from review_round r join prd p on p.id = r.prd_id
+        join review_slot s on s.round_id = r.id join profile pr on pr.id = s.reviewer_id
+        where p.title = 'Employee Onboarding Checklist' and p.organization_id = %s""", (org,)).fetchall()
+    assert sorted(rounds) == [("in_review", True, "Dana Lee", "pending"), ("in_review", True, "Mei Chen", "pending"),
+                              ("superseded", False, "Dana Lee", "approved"), ("superseded", False, "Mei Chen", "pending")]
+    superseded = db.execute("""
+        select count(*) from notification n join prd_event e on e.id = n.event_id join prd p on p.id = n.prd_id
+        join profile pr on pr.id = n.recipient_id
+        where p.title = 'Employee Onboarding Checklist' and p.organization_id = %s and pr.full_name = 'Dana Lee'
+          and e.event_type = 'superseded'""", (org,)).fetchone()[0]
+    assert superseded == 1
+
+
+def test_the_owners_started_work_on_an_approved_prd(demo, db):
+    seed_org_demo.seed(demo, anon_key=ANON_KEY)
+    org = org_of(db, demo)
+    work = dict(db.execute("select title, work_status from prd where organization_id = %s", (org,)).fetchall())
+    assert work.pop("Expense Report Automation") == "in_progress"
+    assert set(work.values()) == {"not_started"}
 
 
 def test_the_solo_organization_has_one_member(demo, db):
