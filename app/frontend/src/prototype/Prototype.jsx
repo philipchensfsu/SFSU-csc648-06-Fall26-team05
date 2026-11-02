@@ -467,7 +467,9 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
 
   // The normal save, marked as this draft: the revision it was made from, and
   // the record id that tells the server the content came from the AI.
-  function acceptDraft(id) {
+  // `confirmedReviewerIds` is sent only after the server refused the save
+  // with reapproval_required and the owner confirmed who reviews it again.
+  function acceptDraft(id, confirmedReviewerIds) {
     const { draft } = generation;
     return api
       .updatePrd(id, {
@@ -476,6 +478,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
         description: draft.description,
         content_json: draft.contentJson,
         generation_record_id: draft.generationRecordId,
+        ...(confirmedReviewerIds ? { confirmed_reviewer_ids: confirmedReviewerIds } : {}),
       })
       .then((saved) => {
         applyRow(saved);
@@ -579,8 +582,12 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
           key={`${activePrd.id}:draft:${generationHere.startedAt}`}
           prd={draftPrd}
           detail={null}
+          // Owners only, so the reapproval dialog can leave them out of the
+          // reviewer list. A preview keeps detail null so its capabilities
+          // don't turn the editing tools on.
+          owners={prdDetail?.id === activePrd.id ? prdDetail.owners : []}
           aiDraft={{
-            onAccept: () => acceptDraft(activePrd.id),
+            onAccept: (confirmedReviewerIds) => acceptDraft(activePrd.id, confirmedReviewerIds),
             onDiscard: discardDraft,
             onRegenerate: startGeneration,
           }}
