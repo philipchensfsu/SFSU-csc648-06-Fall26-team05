@@ -112,6 +112,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ revision, version_id: versionId, reviewer_ids: reviewerIds }),
     }),
+  // Newest round first, superseded rounds included.
+  listReviews: (prdId, { limit = 25 } = {}) => request(`/prds/${prdId}/reviews?limit=${limit}`),
   // decision: approved or changes_requested, which needs an explanation.
   decideReview: (prdId, roundId, { versionId, decision, explanation }) =>
     request(`/prds/${prdId}/reviews/${roundId}/decision`, {
