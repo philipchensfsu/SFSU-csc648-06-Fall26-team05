@@ -18,7 +18,7 @@ export function describeGenerationError(error) {
     case "ai_busy":
       return `Nautilus is still working on another request of yours.${inAMoment}`;
     case "ai_provider_rate_limited":
-      return "The AI service is busy right now. Try again in a minute.";
+      return "The AI service is at its limit right now. Try again later.";
     case "ai_provider_error":
     case "ai_invalid_output":
       return "The AI couldn’t write a usable draft this time. Try again.";

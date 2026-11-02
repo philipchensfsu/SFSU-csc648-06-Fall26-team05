@@ -480,7 +480,7 @@ discarding it.
 | 422 | `validation_error` | Bad body (missing or non-positive `revision`, unknown field) | Show `detail` |
 | 429 | `ai_cooldown`, `ai_busy` | Per-user AI limits; the body and the `Retry-After` header include `retry_after` (seconds) | Disable AI actions until then |
 | 429 | `ai_disabled` | AI is switched off | Hide AI actions; manual editing works |
-| 429 | `ai_provider_rate_limited` | Gemini is rate limited | "Try again in a minute" |
+| 429 | `ai_provider_rate_limited` | Gemini refused for a rate limit, spending cap or daily quota | "Try again later" |
 | 502 | `ai_provider_error`, `ai_invalid_output` | Gemini failed or returned an unusable draft | Offer a retry |
 | 503 | `ai_unavailable`, `ai_budget_exhausted` | AI isn't configured or is out of quota | Keep manual editing |
 
