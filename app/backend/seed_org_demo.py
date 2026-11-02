@@ -7,7 +7,8 @@ what the review demo needs, in that same organization:
 - real review history: each review action runs as the person who takes it,
   signed in with their own session, through the same database functions the
   app uses, so rounds, decisions, comments, events and notifications are
-  exactly what the app would produce;
+  exactly what the app would produce. That includes an owner edit during
+  review (E09) and work started on an approved PRD (E14);
 - a second organization with a single member, for solo use.
 
 seed_demo.py marks some PRDs in_review or final without review rounds; this
@@ -67,9 +68,21 @@ REVIEWS = {
         ("submit", ["leo", "ava"]),
         ("decide", "leo", "approved", None, None), ("decide", "ava", "approved", None, None),
     ],
-    # TODO(Q03, after Marco's E09 #107): "Employee Onboarding Checklist" as a
-    # superseded round: submit, one approval, then an owner edit through the
-    # save, which supersedes the round and continues it on the new version.
+    # Approved, then the owners start the work (E14).
+    "Expense Report Automation": [
+        ("submit", ["raj", "sam"]),
+        ("decide", "raj", "approved", None, None), ("decide", "sam", "approved", None, None),
+        ("work", "not_started", "in_progress"),
+    ],
+    # An owner edit during review (E09): the round is superseded and continues
+    # on the new version, so Dana's approval is reset and she's notified.
+    "Employee Onboarding Checklist": [
+        ("submit", ["dana", "mei"]),
+        ("decide", "dana", "approved", None, None),
+        ("edit", {"requirements": ["FR-01: Checklist templates per role.", "FR-02: Mark steps done.",
+                                   "FR-03: Manager progress view.", "FR-04: HR reviews each template every quarter."],
+                  "open_questions": ["Should managers get a weekly digest of stuck steps?"]}),
+    ],
 }
 
 
@@ -134,6 +147,18 @@ def build_directory(supabase, org_id, ids):
         supabase.table("team").update({"lead_id": ids[key]}).eq("id", team_ids[team]).execute()
 
 
+def owner_edit(supabase, prd, title, changes):
+    """An owner's save through Marco's v2 save, as the app's PUT does it, and
+    the PRD as it is afterwards (new revision and version)."""
+    import prd_save
+
+    content = {**next(p for p in seed_demo.PRDS if p["title"] == title)["content"], **changes}
+    prd_save.save_prd(supabase, seed_demo.find_demo_user(supabase), prd["id"], prd["revision"],
+                      content_json=seed_demo.build_document(content))
+    return (supabase.table("prd").select("id, title, revision, current_version_id")
+            .eq("id", prd["id"]).execute().data[0])
+
+
 def play_reviews(supabase, org_id, owner_client, clients, ids):
     prds = {p["title"]: p for p in supabase.table("prd").select("id, title, revision, current_version_id")
             .eq("organization_id", org_id).execute().data}
@@ -142,7 +167,12 @@ def play_reviews(supabase, org_id, owner_client, clients, ids):
         round_id = None
         for action in actions:
             kind = action[0]
-            if kind == "invite":
+            if kind == "edit":
+                prd = owner_edit(supabase, prd, title, action[1])
+            elif kind == "work":
+                owner_client.rpc("set_prd_work_status", {"target_prd": prd["id"], "from_status": action[1],
+                                                         "to_status": action[2]}).execute()
+            elif kind == "invite":
                 owner_client.rpc("set_prd_member", {"target_prd": prd["id"], "target_user": ids[action[1]],
                                                     "new_role": action[2]}).execute()
             elif kind == "submit":
