@@ -29,6 +29,8 @@ async function request(path, options = {}) {
     // reason rather than the message; the AI limits add `retry_after`.
     error.code = body.code;
     error.retryAfter = body.retry_after;
+    // 422 invalid_document lists each problem with its path in the document.
+    error.errors = body.errors;
     error.reports = body.reports;
     error.prds = body.prds;
     throw error;
@@ -70,6 +72,14 @@ export const api = {
     request(`/prds/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePrd: (id) => request(`/prds/${id}`, { method: "DELETE" }),
 
+  // The people on a PRD. PUT adds someone or changes their role, and returns
+  // the updated list.
+  listPrdMembers: (prdId) => request(`/prds/${prdId}/members`),
+  setPrdMember: (prdId, userId, role) =>
+    request(`/prds/${prdId}/members/${userId}`, { method: "PUT", body: JSON.stringify({ role }) }),
+  removePrdMember: (prdId, userId) =>
+    request(`/prds/${prdId}/members/${userId}`, { method: "DELETE" }),
+
   // Answer-only PRD chat. `history` is the recent turns for this PRD only;
   // the backend caps it and never treats it as instructions. Resolves to
   // {kind: "answer" | "blocked" | "clarification", message, base_revision}.
@@ -85,46 +95,15 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ answer_text: answerText, skipped }),
     }),
-      updateMember: (orgId, userId, payload) =>
-    request(`/organizations/${orgId}/members/${userId}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    }),
 
-  createDepartment: (orgId, name) =>
-    request(`/organizations/${orgId}/departments`, {
-      method: "POST",
-      body: JSON.stringify({ name }),
-    }),
-
-  updateDepartment: (orgId, departmentId, payload) =>
-    request(`/organizations/${orgId}/departments/${departmentId}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    }),
-
-  createTeam: (orgId, name, departmentId) =>
-    request(`/organizations/${orgId}/teams`, {
-      method: "POST",
-      body: JSON.stringify({
-        name,
-        department_id: departmentId ?? null,
-      }),
-    }),
-
-  updateTeam: (orgId, teamId, payload) =>
-    request(`/organizations/${orgId}/teams/${teamId}`, {
-      method: "PATCH",
-      body: JSON.stringify(payload),
-    }),
-
-  addTeamMember: (orgId, teamId, userId) =>
-    request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, {
-      method: "PUT",
-    }),
-
-  removeTeamMember: (orgId, teamId, userId) =>
-    request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, {
-      method: "DELETE",
-    }),
+  // The inbox. Every page carries the full `unread_count`, whatever the filter.
+  listNotifications: ({ unreadOnly = false, limit = 25, cursor } = {}) => {
+    const params = new URLSearchParams({ unread_only: String(unreadOnly), limit: String(limit) });
+    if (cursor) params.set("cursor", cursor);
+    return request(`/notifications?${params}`);
+  },
+  markNotificationRead: (id) =>
+    request(`/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ read: true }) }),
+  // needs_my_approval or waiting_for_approval.
+  listPrdsInView: (view) => request(`/prds?view=${encodeURIComponent(view)}`),
 };

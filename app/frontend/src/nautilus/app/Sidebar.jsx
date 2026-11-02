@@ -5,6 +5,7 @@ import {
   IconDoc,
   IconFolder,
   IconGrid,
+  IconInbox,
   IconMenu,
   IconPeople,
   IconPlus,
@@ -14,7 +15,7 @@ import {
   IconX,
 } from "./icons";
 
-function NavItem({ icon, current, count, kbd, onClick, children }) {
+function NavItem({ icon, current, count, badge, kbd, onClick, children }) {
   return (
     <button
       type="button"
@@ -25,6 +26,12 @@ function NavItem({ icon, current, count, kbd, onClick, children }) {
       {icon}
       {children}
       {count !== undefined ? <span className="nw-nav-count">{count}</span> : null}
+      {badge ? (
+        <span className="nw-nav-badge">
+          {badge}
+          <span className="nw-sr"> unread</span>
+        </span>
+      ) : null}
       {kbd ? (
         <kbd className="nw-kbd nw-nav-kbd" aria-hidden="true">
           {kbd}
@@ -42,6 +49,7 @@ function Sidebar({
   organization,
   prdCount,
   projectCount,
+  unreadCount,
   recent,
   shortcut,
   menuOpen,
@@ -87,6 +95,14 @@ function Sidebar({
             onClick={() => onNavigate({ page: "dashboard" })}
           >
             Dashboard
+          </NavItem>
+          <NavItem
+            icon={<IconInbox />}
+            badge={unreadCount}
+            current={page === "inbox"}
+            onClick={() => onNavigate({ page: "inbox" })}
+          >
+            Inbox
           </NavItem>
           <NavItem
             icon={<IconDoc />}

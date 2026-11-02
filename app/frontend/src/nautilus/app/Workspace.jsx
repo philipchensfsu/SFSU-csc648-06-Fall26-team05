@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { api } from "../../../lib/api";
 import "./workspace.css";
+import "./inbox.css";
 import DashboardPage from "./DashboardPage";
+import InboxPage from "./InboxPage";
 import PeoplePage from "./PeoplePage";
 import ProjectsPage from "./ProjectsPage";
 import SearchPage from "./SearchPage";
@@ -8,13 +11,16 @@ import Sidebar from "./Sidebar";
 import { searchShortcutLabel } from "./format";
 import { Alert } from "./ui";
 
-const PAGE_TITLES = { dashboard: "Dashboard", projects: "Projects", search: "Search", people: "People" };
+const PAGE_TITLES = { dashboard: "Dashboard", inbox: "Inbox", projects: "Projects", search: "Search", people: "People" };
+// The backend has no live updates, so the unread count is read on every move
+// between pages and on this timer.
+const UNREAD_REFRESH_MS = 60000;
 
 // The signed-in home: sidebar plus the dashboard, a project, or search.
 // It holds no data of its own; Prototype.jsx passes the real PRDs and
 // projects from the API and the handlers that change them.
 //
-// view: { page: "dashboard" | "projects" | "search", projectId?, query?,
+// view: { page: "dashboard" | "inbox" | "projects" | "search", projectId?, query?,
 //         anchor?: "prds", visit } — `visit` changes on every navigation.
 function Workspace({
   view,
@@ -33,6 +39,7 @@ function Workspace({
   onQueryChange,
   onCreatePrd,
   onOpenPrd,
+  onOpenPrdById,
   onRenamePrd,
   onDeletePrd,
   onCreateProject,
@@ -46,7 +53,27 @@ function Workspace({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [shortcut] = useState(searchShortcutLabel);
+  const [unreadCount, setUnreadCount] = useState(0);
   const { page } = view;
+
+  // A failed read keeps the last count: the badge is a hint, not the inbox.
+  useEffect(() => {
+    let current = true;
+    function readCount() {
+      api
+        .listNotifications({ limit: 1 })
+        .then((result) => {
+          if (current) setUnreadCount(result.unread_count);
+        })
+        .catch(() => {});
+    }
+    readCount();
+    const timer = window.setInterval(readCount, UNREAD_REFRESH_MS);
+    return () => {
+      current = false;
+      window.clearInterval(timer);
+    };
+  }, [view.visit]);
 
   // Newest first everywhere: the table, the cards and Recent.
   const sorted = useMemo(
@@ -105,6 +132,8 @@ function Workspace({
   let content;
   if (page === "people" && organization?.access_role === "admin") {
     content = <PeoplePage organization={organization} userId={userId} />;
+  } else if (page === "inbox") {
+    content = <InboxPage onUnreadChange={setUnreadCount} onOpenPrdById={onOpenPrdById} />;
   } else if (page === "projects") {
     content = (
       <ProjectsPage
@@ -175,6 +204,7 @@ function Workspace({
         organization={organization}
         prdCount={prdsLoaded ? prds.length : undefined}
         projectCount={projectsLoaded ? projects.length : undefined}
+        unreadCount={unreadCount}
         recent={sorted.slice(0, 3)}
         shortcut={shortcut}
         menuOpen={menuOpen}
