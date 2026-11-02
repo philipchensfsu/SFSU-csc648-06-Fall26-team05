@@ -29,6 +29,8 @@ async function request(path, options = {}) {
     // reason rather than the message; the AI limits add `retry_after`.
     error.code = body.code;
     error.retryAfter = body.retry_after;
+    error.reports = body.reports;
+    error.prds = body.prds;
     throw error;
   }
 
@@ -82,5 +84,47 @@ export const api = {
     request(`/prds/${prdId}/intake/${questionKey}`, {
       method: "PUT",
       body: JSON.stringify({ answer_text: answerText, skipped }),
+    }),
+      updateMember: (orgId, userId, payload) =>
+    request(`/organizations/${orgId}/members/${userId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  createDepartment: (orgId, name) =>
+    request(`/organizations/${orgId}/departments`, {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+
+  updateDepartment: (orgId, departmentId, payload) =>
+    request(`/organizations/${orgId}/departments/${departmentId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  createTeam: (orgId, name, departmentId) =>
+    request(`/organizations/${orgId}/teams`, {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        department_id: departmentId ?? null,
+      }),
+    }),
+
+  updateTeam: (orgId, teamId, payload) =>
+    request(`/organizations/${orgId}/teams/${teamId}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    }),
+
+  addTeamMember: (orgId, teamId, userId) =>
+    request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, {
+      method: "PUT",
+    }),
+
+  removeTeamMember: (orgId, teamId, userId) =>
+    request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, {
+      method: "DELETE",
     }),
 };
