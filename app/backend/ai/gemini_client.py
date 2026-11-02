@@ -50,7 +50,7 @@ MESSAGES = {
     "ai_disabled": "AI is switched off right now. You can keep editing by hand.",
     "ai_unavailable": "AI isn't available right now. You can keep editing by hand.",
     "ai_budget_exhausted": "AI has reached its usage limit for now. You can keep editing by hand.",
-    "ai_provider_rate_limited": "The AI service is busy. Try again in a minute.",
+    "ai_provider_rate_limited": "The AI service is at its limit right now. Try again later.",
     "ai_provider_error": "The AI service didn't respond. Try again.",
     "ai_output_blocked": "The AI couldn't answer this request. Try rewording it.",
     "ai_invalid_output": "The AI's answer was incomplete. Try again.",

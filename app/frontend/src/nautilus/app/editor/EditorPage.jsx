@@ -4,6 +4,7 @@ import "../flow/flow.css";
 import "./editor.css";
 import { FlowBar } from "../flow/FlowBar";
 import AskAiPanel from "./AskAiPanel";
+import { isDraftOutOfDate } from "./aiDraft";
 import { ReapprovalDialog } from "./ReapprovalDialog";
 import { ApprovalsCard, YourReviewCard } from "./ReviewPanel";
 import { SubmitReviewDialog } from "./SubmitReviewDialog";
@@ -149,6 +150,23 @@ function LeaveDialog({ open, onStay, onDiscard, onSave }) {
   );
 }
 
+// Leaving an AI draft loses it, since nothing has been saved.
+function LeaveDraftDialog({ open, onStay, onDiscard }) {
+  return (
+    <Modal open={open} title="Discard this draft?" onClose={onStay}>
+      <p className="nw-modal-text">This AI draft isn’t saved. If you leave, you’ll need to generate it again.</p>
+      <div className="nw-modal-actions">
+        <button type="button" className="nw-btn nw-btn-secondary" onClick={onStay} data-autofocus>
+          Keep reviewing
+        </button>
+        <button type="button" className="nw-btn nw-btn-danger-outline" onClick={onDiscard}>
+          Discard draft
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 // --- the editor --------------------------------------------------------------
 
 // The PRD editor. Sections are edited one at a time (Edit, then Done) and
@@ -156,6 +174,9 @@ function LeaveDialog({ open, onStay, onDiscard, onSave }) {
 // newer save elsewhere is never overwritten (409). `detail.capabilities` says
 // who edits; anyone else the API shows the PRD to reads and exports it. The
 // page stays read-only until `detail` arrives.
+//
+// With `aiDraft` ({ onAccept, onDiscard, onRegenerate }) it previews an unsaved
+// AI draft instead: read-only, with `detail` null, until it's accepted.
 function EditorPage({
   prd,
   detail,
@@ -164,6 +185,7 @@ function EditorPage({
   userId,
   exitLabel = "Back to dashboard",
   onSave,
+  aiDraft = null,
   onSubmitReview,
   onDecideReview,
   onReload,
@@ -197,6 +219,7 @@ function EditorPage({
   const ids = useId();
 
   const [railTab, setRailTab] = useState("review");
+  const [accepting, setAccepting] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reviewChoice, setReviewChoice] = useState(null);
@@ -244,15 +267,16 @@ function EditorPage({
   }, [editing, ids]);
 
   // Closing or reloading the tab with unsaved changes asks first.
+  const unsaved = dirty || Boolean(aiDraft);
   useEffect(() => {
-    if (!dirty) return undefined;
+    if (!unsaved) return undefined;
     function onBeforeUnload(event) {
       event.preventDefault();
       event.returnValue = "";
     }
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [dirty]);
+  }, [unsaved]);
 
   // The contents list follows the section being read: the last one whose
   // top has passed 30% of the window.
@@ -491,8 +515,27 @@ function EditorPage({
   // Runs `action` (leaving the editor) now, or after asking when there are
   // unsaved changes.
   function guard(action) {
-    if (dirty) setLeaving(() => action);
+    if (unsaved) setLeaving(() => action);
     else action();
+  }
+
+  async function acceptDraft() {
+    setAccepting(true);
+    setProblem(null);
+    try {
+      await aiDraft.onAccept();
+    } catch (error) {
+      setAccepting(false);
+      setProblem(
+        isDraftOutOfDate(error)
+          ? {
+              title: "This draft is out of date.",
+              message: "The PRD changed or the draft expired. Generate a new one.",
+              regenerate: true,
+            }
+          : { title: "Couldn’t accept this draft.", message: error?.message || "Try again.", conflict: false },
+      );
+    }
   }
 
   function reload() {
@@ -574,15 +617,36 @@ function EditorPage({
                 Share
               </button>
             ) : null}
-            <MenuButton
-              label="Export"
-              className="nw-btn nw-btn-secondary ne-btn-38"
-              heading={dirty ? "Exports the last saved version" : "Download this PRD"}
-              items={exportItems}
-            >
-              <IconDownload />
-              Export
-            </MenuButton>
+            {aiDraft ? (
+              <>
+                <button
+                  type="button"
+                  className="nw-btn nw-btn-secondary ne-btn-38"
+                  onClick={aiDraft.onDiscard}
+                  disabled={accepting}
+                >
+                  Discard
+                </button>
+                <button
+                  type="button"
+                  className="nw-btn nw-btn-primary ne-btn-38"
+                  onClick={acceptDraft}
+                  disabled={accepting}
+                >
+                  {accepting ? "Accepting…" : "Accept draft"}
+                </button>
+              </>
+            ) : (
+              <MenuButton
+                label="Export"
+                className="nw-btn nw-btn-secondary ne-btn-38"
+                heading={dirty ? "Exports the last saved version" : "Download this PRD"}
+                items={exportItems}
+              >
+                <IconDownload />
+                Export
+              </MenuButton>
+            )}
             {canEdit ? (
               <button type="button" className="nw-btn nw-btn-primary ne-btn-38" onClick={save} disabled={saving || !dirty}>
                 {saving ? "Saving…" : "Save"}
@@ -620,8 +684,14 @@ function EditorPage({
         }
       />
 
-      {problem || detail?.error || detail?.changedSinceApproval ? (
+      {aiDraft || problem || detail?.error || detail?.changedSinceApproval ? (
         <div className="ne-alerts">
+          {aiDraft ? (
+            <p className="ne-changed" role="status">
+              <strong>AI draft, not saved yet.</strong> Read it through, then accept it to save it to this PRD and start
+              editing, or discard it.
+            </p>
+          ) : null}
           {detail?.changedSinceApproval ? (
             <p className="ne-changed" role="status">
               <strong>Changed since approval.</strong> This PRD was approved, then edited. The new version needs
@@ -641,6 +711,14 @@ function EditorPage({
                   {" "}
                   <button type="button" className="ne-alert-action" onClick={reload} disabled={reloading}>
                     {reloading ? "Loading…" : "Load the latest version"}
+                  </button>
+                </>
+              ) : null}
+              {problem.regenerate ? (
+                <>
+                  {" "}
+                  <button type="button" className="ne-alert-action" onClick={aiDraft.onRegenerate}>
+                    Generate again
                   </button>
                 </>
               ) : null}
@@ -895,27 +973,32 @@ function EditorPage({
               {toConfirm.length ? <span className="ne-rail-tab-count">{toConfirm.length}</span> : null}
             </button>
             {/* Anyone who can view the PRD may ask (Decision 5). can_request_ai
-                is for the AI actions that change it. */}
-            <button
-              type="button"
-              role="tab"
-              id={`${ids}-tab-ai`}
-              aria-selected={railTab === "ai"}
-              aria-controls={`${ids}-panel-ai`}
-              className={`ne-rail-tab${railTab === "ai" ? " is-active" : ""}`}
-              onClick={() => setRailTab("ai")}
-            >
-              Ask AI
-            </button>
+                is for the AI actions that change it. Not on an unsaved draft,
+                since the chat reads the saved PRD. */}
+            {aiDraft ? null : (
+              <button
+                type="button"
+                role="tab"
+                id={`${ids}-tab-ai`}
+                aria-selected={railTab === "ai"}
+                aria-controls={`${ids}-panel-ai`}
+                className={`ne-rail-tab${railTab === "ai" ? " is-active" : ""}`}
+                onClick={() => setRailTab("ai")}
+              >
+                Ask AI
+              </button>
+            )}
           </div>
 
-          <AskAiPanel
-            key={prd.id}
-            prd={prd}
-            id={`${ids}-panel-ai`}
-            labelledBy={`${ids}-tab-ai`}
-            hidden={railTab !== "ai"}
-          />
+          {aiDraft ? null : (
+            <AskAiPanel
+              key={prd.id}
+              prd={prd}
+              id={`${ids}-panel-ai`}
+              labelledBy={`${ids}-tab-ai`}
+              hidden={railTab !== "ai"}
+            />
+          )}
           {railTab === "ai" ? null : (
           <div role="tabpanel" id={`${ids}-panel-review`} aria-labelledby={`${ids}-tab-review`}>
           {canApprove ? (
@@ -1020,6 +1103,17 @@ function EditorPage({
         onClose={() => setSharing(false)}
       />
 
+      {aiDraft ? (
+        <LeaveDraftDialog
+          open={leaving !== null}
+          onStay={() => setLeaving(null)}
+          onDiscard={() => {
+            const action = leaving;
+            setLeaving(null);
+            action();
+          }}
+        />
+      ) : null}
       <ReapprovalDialog
         open={reapproving !== null}
         prdId={prd.id}
@@ -1042,7 +1136,7 @@ function EditorPage({
       />
 
       <LeaveDialog
-        open={leaving !== null}
+        open={leaving !== null && !aiDraft}
         onStay={() => setLeaving(null)}
         onDiscard={() => {
           const action = leaving;

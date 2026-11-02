@@ -1,12 +1,14 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import {
   QUESTIONS,
+  documentToSections,
   fromApiIntakeAnswers,
   fromApiPrd,
   fromApiPrdDetail,
   sameJson,
 } from "./data";
 import { api } from "../../lib/api";
+import { describeGenerationError, isAiUnavailable } from "../nautilus/app/editor/aiDraft";
 import Workspace from "../nautilus/app/Workspace";
 import CreatePrdPage from "../nautilus/app/flow/CreatePrdPage";
 import InterviewPage from "../nautilus/app/flow/InterviewPage";
@@ -45,9 +47,10 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
   const latestLoad = useRef(0);
   const visits = useRef(0);
   const answersRequested = useRef(new Set());
-  // The generation screen's state (GeneratingPage draws it). AI drafting
-  // isn't connected yet (#69/#70), so it offers "Start from my answers".
+  // The generation screen's state (GeneratingPage draws it), with the draft
+  // waiting to be accepted or discarded once it's done.
   const [generation, setGeneration] = useState(null);
+  const latestGeneration = useRef(0);
   // Bumped after "Load the latest version", so the editor remounts with it.
   const [editorVersion, setEditorVersion] = useState(0);
   // What the open PRD's detail read says the caller may do: { id, capabilities,
@@ -220,6 +223,12 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
   function openPrd(prd) {
     // A PRD opened from search may not be in the list yet.
     setPrds((current) => (current.some((p) => p.id === prd.id) ? current : [prd, ...current]));
+    // Back to a generation still running or a draft still waiting, as the
+    // generating screen promises when it says you can leave.
+    if (generation?.prdId === prd.id && generation.status !== "failed") {
+      go("generating", prd.id);
+      return;
+    }
     if (prd.sections) {
       go("editor", prd.id);
       return;
@@ -415,9 +424,72 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       .then((result) => applyReviewResult(id, result));
   }
 
-  function startGeneration() {
-    setGeneration({ status: "failed", unavailable: true, startedAt: Date.now(), error: "" });
+  // Runs from the latest revision, since nothing is being edited on this path.
+  // The answer is dropped if another generation has started since.
+  async function startGeneration() {
+    const id = activePrdId;
+    const requestId = ++latestGeneration.current;
+    const startedAt = Date.now();
+    setGeneration({ prdId: id, status: "running", startedAt, error: "" });
     go("generating");
+    try {
+      const row = await api.getPrd(id);
+      applyRow(row);
+      const result = await api.generatePrd(id, row.revision);
+      if (requestId !== latestGeneration.current) return;
+      const sections = documentToSections(result.proposal.content_json);
+      if (!sections) throw new Error("The AI didn’t return a usable draft. Try again.");
+      setGeneration({
+        prdId: id,
+        status: "done",
+        startedAt,
+        error: "",
+        draft: {
+          title: result.proposal.title,
+          description: result.proposal.description ?? null,
+          contentJson: result.proposal.content_json,
+          sections,
+          baseRevision: result.base_revision,
+          generationRecordId: result.generation_record_id,
+        },
+      });
+    } catch (error) {
+      if (requestId !== latestGeneration.current) return;
+      setGeneration({
+        prdId: id,
+        status: "failed",
+        startedAt,
+        error: describeGenerationError(error),
+        unavailable: isAiUnavailable(error),
+      });
+    }
+  }
+
+  // The normal save, marked as this draft: the revision it was made from, and
+  // the record id that tells the server the content came from the AI.
+  function acceptDraft(id) {
+    const { draft } = generation;
+    return api
+      .updatePrd(id, {
+        revision: draft.baseRevision,
+        title: draft.title,
+        description: draft.description,
+        content_json: draft.contentJson,
+        generation_record_id: draft.generationRecordId,
+      })
+      .then((saved) => {
+        applyRow(saved);
+        setGeneration(null);
+        setEditorVersion((version) => version + 1);
+        go("editor", id);
+      });
+  }
+
+  // Nothing was saved, so back to whatever the PRD already had.
+  function discardDraft() {
+    const hasContent = Boolean(activePrd?.sections);
+    setGeneration(null);
+    go(hasContent ? "editor" : "review");
   }
 
   // "Start from my answers": each answer goes into its section and nothing
@@ -478,17 +550,48 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
     />;
   }
 
-  if (screen === "generating" && activePrd && generation) {
+  const generationHere = generation?.prdId === activePrd?.id ? generation : null;
+  const draftPrd = generationHere?.draft
+    ? {
+        ...activePrd,
+        title: generationHere.draft.title,
+        description: generationHere.draft.description,
+        sections: generationHere.draft.sections,
+      }
+    : null;
+
+  if (screen === "generating" && activePrd && generationHere) {
     return <GeneratingPage
-      prd={activePrd}
-      generation={generation}
+      prd={draftPrd ?? activePrd}
+      generation={generationHere}
       onRetry={startGeneration}
       onDraftFromAnswers={() => startFromAnswers(activePrd.id)}
-      onOpen={() => go("editor")}
+      onOpen={() => go("draft")}
       onBackToAnswers={() => go("review")}
       onExit={() => go("dashboard", null)}
       onHome={() => showHome({ page: "dashboard" })}
     />;
+  }
+  if (screen === "draft" && draftPrd) {
+    return (
+      <Suspense fallback={null}>
+        <EditorPage
+          key={`${activePrd.id}:draft:${generationHere.startedAt}`}
+          prd={draftPrd}
+          detail={null}
+          aiDraft={{
+            onAccept: () => acceptDraft(activePrd.id),
+            onDiscard: discardDraft,
+            onRegenerate: startGeneration,
+          }}
+          onSave={() => Promise.resolve()}
+          onReload={() => Promise.resolve()}
+          onOpenAnswers={() => openAnswers(activePrd.id)}
+          onExit={() => showHome({ page: "dashboard" })}
+          onHome={() => showHome({ page: "dashboard" })}
+        />
+      </Suspense>
+    );
   }
   if (screen === "editor" && activePrd?.sections) {
     return (

@@ -137,9 +137,9 @@ function GeneratingPage({
       assumptions ? ` ${plural(assumptions, "statement is", "statements are")} marked as assumptions for you to confirm.` : ""
     }`;
   } else if (failed && generation.unavailable) {
-    heading = "AI drafting isn’t set up yet";
+    heading = "AI drafting isn’t available right now";
     lede =
-      "This server can’t write PRDs with AI yet. You can start the PRD from your interview answers instead: each answer goes into its section, nothing is made up, and you write the rest in the editor.";
+      "Nautilus can’t write PRDs with AI right now. You can start the PRD from your interview answers instead: each answer goes into its section, nothing is made up, and you write the rest in the editor.";
   } else if (failed) {
     heading = "Couldn’t build your PRD";
     lede = `${generation.error} Your answers are saved.`;
