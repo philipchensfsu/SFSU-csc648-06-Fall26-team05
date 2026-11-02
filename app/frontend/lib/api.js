@@ -31,8 +31,7 @@ async function request(path, options = {}) {
     error.retryAfter = body.retry_after;
     // 422 invalid_document lists each problem with its path in the document.
     error.errors = body.errors;
-    error.reports = body.reports;
-    error.prds = body.prds;
+
     throw error;
   }
 
