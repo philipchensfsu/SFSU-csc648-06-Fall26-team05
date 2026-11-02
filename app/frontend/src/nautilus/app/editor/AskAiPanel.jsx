@@ -20,7 +20,9 @@ function describeChatError(error) {
 // Om's #80 wiring). The conversation lives only here, so give it key={prd.id}
 // to start fresh on another PRD. It stays mounted while the Review tab is
 // showing, so switching tabs keeps the conversation.
-function AskAiPanel({ prd, id, labelledBy, hidden }) {
+// `standalone` is split view: the chat is its own pane, not a tab in the
+// side panel, so it carries no tab wiring and fills the pane.
+function AskAiPanel({ prd, id, labelledBy, hidden, standalone = false }) {
   const [chat, setChat] = useState([]);
   const [question, setQuestion] = useState("");
   const [asking, setAsking] = useState(false);
@@ -74,7 +76,13 @@ function AskAiPanel({ prd, id, labelledBy, hidden }) {
   }
 
   return (
-    <section className="ne-card ne-chat" role="tabpanel" id={id} aria-labelledby={labelledBy} hidden={hidden}>
+    <section
+      className={`ne-card ne-chat${standalone ? " ne-chat-standalone" : ""}`}
+      role={standalone ? undefined : "tabpanel"}
+      id={standalone ? undefined : id}
+      aria-labelledby={standalone ? undefined : labelledBy}
+      hidden={standalone ? undefined : hidden}
+    >
       <div className="ne-card-head">
         <h2 className="ne-card-title">Ask Nautilus about this PRD</h2>
       </div>

@@ -225,6 +225,8 @@ function EditorPage({
   const [reviewChoice, setReviewChoice] = useState(null);
   // The edits an approved PRD refused, waiting on "Your edits need new approval".
   const [reapproving, setReapproving] = useState(null);
+  // Split view: the chat beside the document instead of in the side panel.
+  const [split, setSplit] = useState(false);
   // Goes up when the header's Approve or Request changes is pressed.
   const [reviewJump, setReviewJump] = useState(0);
   const reviewCard = useRef(null);
@@ -611,6 +613,20 @@ function EditorPage({
             ) : viewOnly ? (
               <span className="ne-viewonly">View only</span>
             ) : null}
+            {/* Side by side with the chat, as the split-view design. Off by
+                default, so the usual three columns are what you get. Not
+                during an AI preview, which has no chat to put beside it. */}
+            {aiDraft ? null : (
+              <button
+                type="button"
+                className="nw-btn nw-btn-secondary ne-btn-38"
+                aria-pressed={split}
+                onClick={() => setSplit((on) => !on)}
+              >
+                <IconChat />
+                {split ? "Close chat" : "Ask Nautilus"}
+              </button>
+            )}
             {canShare ? (
               <button type="button" className="nw-btn nw-btn-secondary ne-btn-38" onClick={() => setSharing(true)}>
                 <IconPeople size={16} />
@@ -727,7 +743,15 @@ function EditorPage({
         </div>
       ) : null}
 
-      <div className="ne-body">
+      <div className={`ne-body${split ? " is-split" : ""}`}>
+        {/* Split view drops the contents list and the review panel, as the
+            design does, so the chat and the document each get real room.
+            Everything they hold is a toggle away. */}
+        {split ? (
+          <section className="ne-pane-chat" aria-label="Ask Nautilus">
+            <AskAiPanel key={prd.id} prd={prd} standalone />
+          </section>
+        ) : null}
         <nav aria-label="PRD sections" className="ne-outline">
           <button type="button" className="ne-outline-link" onClick={() => guard(onExit)}>
             <IconBack />
@@ -975,7 +999,7 @@ function EditorPage({
             {/* Anyone who can view the PRD may ask (Decision 5). can_request_ai
                 is for the AI actions that change it. Not on an unsaved draft,
                 since the chat reads the saved PRD. */}
-            {aiDraft ? null : (
+            {aiDraft || split ? null : (
               <button
                 type="button"
                 role="tab"
@@ -990,7 +1014,7 @@ function EditorPage({
             )}
           </div>
 
-          {aiDraft ? null : (
+          {aiDraft || split ? null : (
             <AskAiPanel
               key={prd.id}
               prd={prd}
