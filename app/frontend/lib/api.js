@@ -83,4 +83,15 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ answer_text: answerText, skipped }),
     }),
+
+  // The inbox. Every page carries the full `unread_count`, whatever the filter.
+  listNotifications: ({ unreadOnly = false, limit = 25, cursor } = {}) => {
+    const params = new URLSearchParams({ unread_only: String(unreadOnly), limit: String(limit) });
+    if (cursor) params.set("cursor", cursor);
+    return request(`/notifications?${params}`);
+  },
+  markNotificationRead: (id) =>
+    request(`/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ read: true }) }),
+  // needs_my_approval or waiting_for_approval.
+  listPrdsInView: (view) => request(`/prds?view=${encodeURIComponent(view)}`),
 };
