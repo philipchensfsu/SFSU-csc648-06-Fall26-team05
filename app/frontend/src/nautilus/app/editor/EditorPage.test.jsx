@@ -134,12 +134,4 @@ describe("EditorPage save errors", () => {
     expect(host.textContent).toContain("This PRD changed since you opened it.");
     expect(buttonNamed("Load the latest version")).toBeDefined();
   });
-
-  it("doesn't call reapproval_required a conflict", async () => {
-    const message = "This PRD is approved. Confirm its reviewers to save your edits.";
-    await saveRejectedWith(Object.assign(new Error(message), { status: 409, code: "reapproval_required" }));
-    expect(host.textContent).toContain(message);
-    expect(host.textContent).not.toContain("This PRD changed since you opened it.");
-    expect(buttonNamed("Load the latest version")).toBeUndefined();
-  });
 });

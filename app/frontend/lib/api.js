@@ -124,6 +124,25 @@ export const api = {
     request(`/organizations/${orgId}/teams/${teamId}`, { method: "PATCH", body: JSON.stringify(changes) }),
   addTeamMember: (orgId, teamId, userId) =>
     request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, { method: "PUT" }),
-  removeTeamMember: (orgId, teamId, userId) =>
+    removeTeamMember: (orgId, teamId, userId) =>
     request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
+
+  // Reviews: a round is tied to one saved version of the PRD.
+  submitReview: (prdId, { revision, versionId, reviewerIds }) =>
+    request(`/prds/${prdId}/reviews`, {
+      method: "POST",
+      body: JSON.stringify({ revision, version_id: versionId, reviewer_ids: reviewerIds }),
+    }),
+
+  // Newest round first, superseded rounds included.
+  listReviews: (prdId, { limit = 25 } = {}) =>
+    request(`/prds/${prdId}/reviews?limit=${limit}`),
+
+  // decision: approved or changes_requested, which needs an explanation.
+  decideReview: (prdId, roundId, { versionId, decision, explanation }) =>
+    request(`/prds/${prdId}/reviews/${roundId}/decision`, {
+      method: "PUT",
+      body: JSON.stringify({ version_id: versionId, decision, ...(explanation ? { explanation } : {}) }),
+    }),
 };
+

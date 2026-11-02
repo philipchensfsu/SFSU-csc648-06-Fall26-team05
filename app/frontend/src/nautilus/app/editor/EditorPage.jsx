@@ -4,6 +4,9 @@ import "../flow/flow.css";
 import "./editor.css";
 import { FlowBar } from "../flow/FlowBar";
 import AskAiPanel from "./AskAiPanel";
+import { ReapprovalDialog } from "./ReapprovalDialog";
+import { ApprovalsCard, YourReviewCard } from "./ReviewPanel";
+import { SubmitReviewDialog } from "./SubmitReviewDialog";
 import { approvalProgress, editedWhen, formatDate } from "../format";
 import { IconPencil, IconPeople } from "../icons";
 import { Alert, MenuButton, Modal, StatusChip } from "../ui";
@@ -26,6 +29,9 @@ const CONFLICT = {
   message: "Load the latest version to keep working. Unsaved edits here will be replaced.",
   conflict: true,
 };
+
+// A review is tied to one saved version, so these mean the page is out of date.
+const STALE_REVIEW_CODES = new Set(["stale_revision", "stale_version", "round_not_current"]);
 
 // --- the document --------------------------------------------------------
 
@@ -158,6 +164,8 @@ function EditorPage({
   userId,
   exitLabel = "Back to dashboard",
   onSave,
+  onSubmitReview,
+  onDecideReview,
   onReload,
   onOpenAnswers,
   onExit,
@@ -190,8 +198,17 @@ function EditorPage({
 
   const [railTab, setRailTab] = useState("review");
   const [sharing, setSharing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [reviewChoice, setReviewChoice] = useState(null);
+  // The edits an approved PRD refused, waiting on "Your edits need new approval".
+  const [reapproving, setReapproving] = useState(null);
+  // Goes up when the header's Approve or Request changes is pressed.
+  const [reviewJump, setReviewJump] = useState(0);
+  const reviewCard = useRef(null);
   const canEdit = detail?.capabilities?.can_edit === true;
   const canShare = detail?.capabilities?.can_assign === true;
+  const canSubmitReview = detail?.capabilities?.can_submit_review === true;
+  const canApprove = detail?.capabilities?.can_approve === true;
   // Nothing says "View only" until the API has actually said so.
   const viewOnly = Boolean(detail?.capabilities) && !canEdit;
   const progress = approvalProgress(detail?.approval);
@@ -373,10 +390,13 @@ function EditorPage({
       setSaved(next);
       return true;
     } catch (error) {
+      // Nothing was saved and the edits stay: the owner confirms reviewers next.
+      if (error?.code === "reapproval_required") {
+        setReapproving(next);
+        return false;
+      }
       setProblem(
-        // reapproval_required is a 409 too, but nothing changed: the backend's
-        // own sentence explains it, and reloading would only lose the edits.
-        error?.status === 409 && error.code !== "reapproval_required"
+        error?.status === 409
           ? CONFLICT
           : { title: "Couldn’t save.", message: error?.message || "Try again.", conflict: false },
       );
@@ -385,6 +405,73 @@ function EditorPage({
       setSaving(false);
     }
   }
+
+  // --- reviews -------------------------------------------------------------
+
+  // Sends the refused save again with the confirmed reviewers.
+  async function applyReapproval(reviewerIds) {
+    try {
+      await onSave({
+        ...reapproving,
+        contentJson: sectionsToDocument(reapproving.sections),
+        confirmedReviewerIds: reviewerIds,
+      });
+      setSaved(reapproving);
+      setReapproving(null);
+    } catch (error) {
+      if (error?.status !== 409) throw error;
+      setReapproving(null);
+      setProblem(CONFLICT);
+    }
+  }
+
+  function discardReapproval() {
+    setDoc(saved);
+    cancelEditing();
+    setReapproving(null);
+  }
+
+  // A review covers the saved version, so unsaved edits are saved first.
+  async function startSubmit() {
+    if (!dirty || (await save())) setSubmitting(true);
+  }
+
+  async function submitReview(reviewerIds) {
+    try {
+      await onSubmitReview(reviewerIds);
+      setSubmitting(false);
+    } catch (error) {
+      if (STALE_REVIEW_CODES.has(error?.code)) {
+        setSubmitting(false);
+        setProblem(CONFLICT);
+        return;
+      }
+      if (error?.code === "review_in_progress") onRetryDetail?.();
+      throw error;
+    }
+  }
+
+  async function decideReview(decision) {
+    try {
+      await onDecideReview(decision);
+      setReviewChoice(null);
+    } catch (error) {
+      if (!STALE_REVIEW_CODES.has(error?.code)) throw error;
+      setProblem(CONFLICT);
+    }
+  }
+
+  function jumpToReview(choice) {
+    setReviewChoice(choice);
+    setRailTab("review");
+    setReviewJump((value) => value + 1);
+  }
+
+  useEffect(() => {
+    if (!reviewJump) return;
+    reviewCard.current?.scrollIntoView({ block: "center", behavior: scrollBehavior() });
+    reviewCard.current?.querySelector("textarea")?.focus();
+  }, [reviewJump]);
 
   // Ctrl+S / ⌘S saves instead of saving the web page.
   useEffect(() => {
@@ -500,6 +587,34 @@ function EditorPage({
               <button type="button" className="nw-btn nw-btn-primary ne-btn-38" onClick={save} disabled={saving || !dirty}>
                 {saving ? "Saving…" : "Save"}
               </button>
+            ) : null}
+            {canSubmitReview ? (
+              <button
+                type="button"
+                className="nw-btn nw-btn-secondary ne-btn-38"
+                onClick={startSubmit}
+                disabled={saving}
+              >
+                Submit for review
+              </button>
+            ) : null}
+            {canApprove ? (
+              <>
+                <button
+                  type="button"
+                  className="nw-btn nw-btn-secondary ne-btn-38"
+                  onClick={() => jumpToReview("changes_requested")}
+                >
+                  Request changes
+                </button>
+                <button
+                  type="button"
+                  className="nw-btn nw-btn-primary ne-btn-38"
+                  onClick={() => jumpToReview("approved")}
+                >
+                  Approve
+                </button>
+              </>
             ) : null}
           </>
         }
@@ -694,7 +809,9 @@ function EditorPage({
                 <p className="ne-readonly-note">
                   {prd.status === "final" || prd.status === "assigned"
                     ? "This PRD is approved. Only its owners can change it now."
-                    : "You can read and export this PRD. Ask its owner for edit access to change it."}
+                    : canApprove
+                      ? "You’ve been asked to review this PRD. You can read and export it, but not edit it."
+                      : "You can read and export this PRD. Ask its owner for edit access to change it."}
                 </p>
               ) : null}
             </header>
@@ -801,6 +918,16 @@ function EditorPage({
           />
           {railTab === "ai" ? null : (
           <div role="tabpanel" id={`${ids}-panel-review`} aria-labelledby={`${ids}-tab-review`}>
+          {canApprove ? (
+            <YourReviewCard
+              ref={reviewCard}
+              choice={reviewChoice}
+              blocked={dirty}
+              onChoose={setReviewChoice}
+              onDecide={decideReview}
+            />
+          ) : null}
+          <ApprovalsCard approval={detail?.approval} userId={userId} />
           <section className="ne-card" aria-labelledby={`${ids}-confirm`}>
             <div className="ne-card-head">
               <h2 id={`${ids}-confirm`} ref={confirmHeading} tabIndex={-1} className="ne-card-title">
@@ -891,6 +1018,27 @@ function EditorPage({
         userId={userId}
         onChanged={onRetryDetail}
         onClose={() => setSharing(false)}
+      />
+
+      <ReapprovalDialog
+        open={reapproving !== null}
+        prdId={prd.id}
+        organizationId={organizationId}
+        owners={detail?.owners ?? []}
+        userId={userId}
+        onApply={applyReapproval}
+        onDiscard={discardReapproval}
+        onClose={() => setReapproving(null)}
+      />
+
+      <SubmitReviewDialog
+        open={submitting && canSubmitReview}
+        prd={{ ...prd, title: doc.title }}
+        organizationId={organizationId}
+        owners={detail?.owners ?? []}
+        userId={userId}
+        onSubmit={submitReview}
+        onClose={() => setSubmitting(false)}
       />
 
       <LeaveDialog

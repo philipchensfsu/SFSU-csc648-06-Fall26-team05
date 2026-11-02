@@ -348,6 +348,8 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
         title,
         description,
         content_json: contentJson,
+        // Only when an owner confirms reviewers for edits to an approved PRD.
+        ...(doc.confirmedReviewerIds ? { confirmed_reviewer_ids: doc.confirmedReviewerIds } : {}),
       })
       .catch(async (error) => {
         if (error.code === "invalid_document") {
@@ -375,6 +377,42 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       setPrdDetail({ id, ...fromApiPrdDetail(row) });
       setEditorVersion((version) => version + 1);
     });
+  }
+
+  // A review changes the PRD's revision and status, so the editor takes the
+  // new revision (or its next save would look stale) and reads the detail again.
+  function applyReviewResult(id, result) {
+    setPrds((current) =>
+      current.map((p) =>
+        p.id === id
+          ? { ...p, revision: result.revision, status: result.status, reviewState: result.round?.state ?? null }
+          : p,
+      ),
+    );
+    return loadDetail(id);
+  }
+
+  // The version comes from a fresh read, since a save just before this may not
+  // have reached the detail yet. The revision stays the editor's, so a save
+  // from someone else is refused rather than sent for review unseen.
+  function submitReview(id, reviewerIds) {
+    const prd = prds.find((p) => p.id === id);
+    if (!prd) return Promise.reject(new Error("This PRD is no longer in your list."));
+    return api
+      .getPrd(id)
+      .then((row) =>
+        api.submitReview(id, { revision: prd.revision, versionId: row.current_version?.id, reviewerIds }),
+      )
+      .then((result) => applyReviewResult(id, result));
+  }
+
+  // Decides on the round the page is showing, so a newer one is refused.
+  function decideReview(id, { decision, explanation }) {
+    const approval = prdDetail?.id === id ? prdDetail.approval : null;
+    if (!approval?.round_id) return Promise.reject(new Error("This review is no longer open."));
+    return api
+      .decideReview(id, approval.round_id, { versionId: approval.version_id, decision, explanation })
+      .then((result) => applyReviewResult(id, result));
   }
 
   function startGeneration() {
@@ -470,6 +508,8 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
               return saved;
             })
           }
+          onSubmitReview={(reviewerIds) => submitReview(activePrd.id, reviewerIds)}
+          onDecideReview={(decision) => decideReview(activePrd.id, decision)}
           onReload={() => reloadPrd(activePrd.id)}
           onOpenAnswers={() => openAnswers(activePrd.id)}
           onExit={() => showHome({ page: "dashboard" })}
