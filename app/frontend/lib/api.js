@@ -29,6 +29,8 @@ async function request(path, options = {}) {
     // reason rather than the message; the AI limits add `retry_after`.
     error.code = body.code;
     error.retryAfter = body.retry_after;
+    // 422 invalid_document lists each problem with its path in the document.
+    error.errors = body.errors;
     throw error;
   }
 
@@ -83,4 +85,15 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ answer_text: answerText, skipped }),
     }),
+
+  // The inbox. Every page carries the full `unread_count`, whatever the filter.
+  listNotifications: ({ unreadOnly = false, limit = 25, cursor } = {}) => {
+    const params = new URLSearchParams({ unread_only: String(unreadOnly), limit: String(limit) });
+    if (cursor) params.set("cursor", cursor);
+    return request(`/notifications?${params}`);
+  },
+  markNotificationRead: (id) =>
+    request(`/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ read: true }) }),
+  // needs_my_approval or waiting_for_approval.
+  listPrdsInView: (view) => request(`/prds?view=${encodeURIComponent(view)}`),
 };

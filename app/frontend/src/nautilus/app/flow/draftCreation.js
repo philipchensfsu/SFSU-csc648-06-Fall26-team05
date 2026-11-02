@@ -9,12 +9,8 @@ export function createDraftCreator(api, onSaved) {
         row = await api.createPrd(title, projectId);
         onSaved(row, answers);
       }
-      if (description && row.content_json?.description !== description) {
-        row = await api.updatePrd(row.id, {
-          revision: row.revision,
-          content_json: { ...row.content_json, description },
-          content_text: description,
-        });
+      if (description && row.description !== description) {
+        row = await api.updatePrd(row.id, { revision: row.revision, description });
         onSaved(row, answers);
       }
       if (notes && answers.notes !== notes) {

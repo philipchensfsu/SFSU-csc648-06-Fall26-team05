@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import EmptyDashboard from "./EmptyDashboard";
 import PrdTable from "./PrdTable";
+import SharedPrds from "./SharedPrds";
 import {
   assumptionCount,
   firstNameOf,
   formatDayTime,
   greeting,
   interviewProgress,
+  isSharedWithMe,
   listPhrase,
   plural,
   prdSummary,
@@ -26,6 +28,7 @@ function summaryLine(prds) {
   if (inReview) parts.push(`${plural(inReview, "PRD")} in review`);
   if (final) parts.push(plural(final, "final PRD"));
   if (assigned) parts.push(plural(assigned, "assigned PRD"));
+  if (!parts.length) return "You don’t have any PRDs of your own yet.";
   return `You have ${listPhrase(parts)}.`;
 }
 
@@ -84,10 +87,14 @@ function DashboardPage({
 }) {
   const [query, setQuery] = useState("");
 
+  // Shared PRDs get their own section, so they aren't counted as this person's.
+  const mine = useMemo(() => prds.filter((prd) => !isSharedWithMe(prd)), [prds]);
+  const shared = useMemo(() => prds.filter(isSharedWithMe), [prds]);
+
   // Up to three drafts and PRDs in review, most recently touched first.
   const attention = useMemo(
-    () => prds.filter((prd) => prd.status === "draft" || prd.status === "in_review").slice(0, 3),
-    [prds],
+    () => mine.filter((prd) => prd.status === "draft" || prd.status === "in_review").slice(0, 3),
+    [mine],
   );
 
   // Interview progress needs each draft's saved answers.
@@ -140,7 +147,7 @@ function DashboardPage({
               </>
             ) : null}
           </h1>
-          <p className="nw-lede">{summaryLine(prds)}</p>
+          <p className="nw-lede">{summaryLine(mine)}</p>
         </div>
         <form
           role="search"
@@ -181,14 +188,18 @@ function DashboardPage({
         </section>
       ) : null}
 
-      <PrdTable
-        prds={prds}
-        projects={projects}
-        onOpenPrd={onOpenPrd}
-        onOpenProject={(projectId) => onNavigate({ page: "projects", projectId })}
-        onRenamePrd={onRenamePrd}
-        onDeletePrd={onDeletePrd}
-      />
+      {mine.length ? (
+        <PrdTable
+          prds={mine}
+          projects={projects}
+          onOpenPrd={onOpenPrd}
+          onOpenProject={(projectId) => onNavigate({ page: "projects", projectId })}
+          onRenamePrd={onRenamePrd}
+          onDeletePrd={onDeletePrd}
+        />
+      ) : null}
+
+      {shared.length ? <SharedPrds prds={shared} onOpenPrd={onOpenPrd} /> : null}
     </div>
   );
 }
