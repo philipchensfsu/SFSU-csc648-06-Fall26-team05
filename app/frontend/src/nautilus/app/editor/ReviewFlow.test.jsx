@@ -7,7 +7,15 @@ import { api } from "../../../../lib/api";
 import EditorPage from "./EditorPage";
 import { reviewerCandidates } from "../format";
 
-vi.mock("../../../../lib/api", () => ({ api: { getDirectory: vi.fn(), listReviews: vi.fn() } }));
+// The editor's side panel loads comments as well, so the mock carries those.
+vi.mock("../../../../lib/api", () => ({
+  api: {
+    getDirectory: vi.fn(),
+    listReviews: vi.fn(),
+    listPrdComments: vi.fn(),
+    addPrdComment: vi.fn(),
+  },
+}));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom doesn't implement the native dialog or scrolling.
@@ -103,6 +111,7 @@ beforeEach(() => {
   api.getDirectory.mockResolvedValue({ organization: { id: "org", name: "Campus Apps" }, members });
   // The latest round's reviewers: Ben, and someone who has since left the org.
   api.listReviews.mockResolvedValue({ items: [{ reviewers: [{ user_id: "ben" }, { user_id: "gone" }] }] });
+  api.listPrdComments.mockResolvedValue({ items: [], next_cursor: null });
 });
 
 afterEach(async () => {
