@@ -124,7 +124,7 @@ function ResultRow({ row, term, projectById, prdCounts }) {
         <span className="nw-result-title">{title}</span>
         {text ? <span className="nw-result-text">{text}</span> : null}
         <span className="nw-result-meta">
-          <StatusChip status={prd.status} />
+          <StatusChip status={prd.status} reviewState={prd.reviewState} />
           Edited {editedWhen(prd.updatedAt)}
         </span>
       </span>

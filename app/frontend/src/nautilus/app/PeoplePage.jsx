@@ -9,22 +9,45 @@ import { Alert, Avatar } from "./ui";
 // need admin routes the backend doesn't have yet (E02).
 function PeoplePage({ organization, userId }) {
   const orgId = organization.organization_id;
-  const [members, setMembers] = useState(null);
+  const [directory, setDirectory] = useState(null);
   const [error, setError] = useState("");
   const [attempt, setAttempt] = useState(0);
+  const [search, setSearch] = useState("");
+  const [departmentFilter, setDepartmentFilter] = useState("");
 
   useEffect(() => {
     let current = true;
     api
       .getDirectory(orgId)
-      .then((directory) => current && setMembers(directory.members))
+      .then((data) => current && setDirectory(data))
       .catch((reason) => current && setError(reason.message));
     return () => {
       current = false;
     };
   }, [orgId, attempt]);
 
-  const admins = members?.filter((member) => member.access_role === "admin").length ?? 0;
+  const members = directory?.members ?? null;
+  const departments = directory?.departments ?? [];
+
+  const admins =
+    members?.filter((member) => member.access_role === "admin").length ?? 0;
+
+  const filteredMembers =
+    members?.filter((member) => {
+      const term = search.trim().toLowerCase();
+
+      const matchesSearch =
+        !term ||
+        member.name?.toLowerCase().includes(term) ||
+        member.email?.toLowerCase().includes(term) ||
+        member.title?.toLowerCase().includes(term);
+
+      const matchesDepartment =
+        !departmentFilter ||
+        member.department_id === departmentFilter;
+
+      return matchesSearch && matchesDepartment;
+    }) ?? [];
 
   return (
     <div className="nw-page">
@@ -35,7 +58,11 @@ function PeoplePage({ organization, userId }) {
           </h1>
           <p className="nw-lede">
             {members
-              ? `${members.length} ${members.length === 1 ? "person" : "people"} · ${admins} ${admins === 1 ? "admin" : "admins"}. Each PRD still chooses who can open it.`
+              ? `${members.length} ${
+                  members.length === 1 ? "person" : "people"
+                } · ${admins} ${
+                  admins === 1 ? "admin" : "admins"
+                }. Each PRD still chooses who can open it.`
               : "Everyone who has joined your organization."}
           </p>
         </div>
@@ -47,6 +74,31 @@ function PeoplePage({ organization, userId }) {
         <h2 id="nw-people-h" className="nw-h2">
           Members
         </h2>
+
+        <div className="nw-filter">
+          <input
+            type="search"
+            placeholder="Search people"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+
+          <select
+            className="nw-select"
+            value={departmentFilter}
+            onChange={(event) => setDepartmentFilter(event.target.value)}
+          >
+            <option value="">All departments</option>
+            {departments
+              .filter((department) => !department.archived)
+              .map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+          </select>
+        </div>
+
         {error ? (
           <Alert
             onRetry={() => {
@@ -71,20 +123,26 @@ function PeoplePage({ organization, userId }) {
                 </tr>
               </thead>
               <tbody>
-                {members.map((member) => (
+                {filteredMembers.map((member) => (
                   <tr key={member.user_id}>
                     <td>
                       <span className="nw-person">
-                        <Avatar initials={initialsOf(member.name, member.email)} />
+                        <Avatar
+                          initials={initialsOf(member.name, member.email)}
+                        />
                         <span>
                           {member.name || member.email}
-                          {member.user_id === userId ? <span className="nw-person-you"> (you)</span> : null}
+                          {member.user_id === userId ? (
+                            <span className="nw-person-you"> (you)</span>
+                          ) : null}
                         </span>
                       </span>
                     </td>
                     <td className="nw-person-email">{member.email}</td>
                     <td>
-                      <span className={`nw-role nw-role-${member.access_role}`}>
+                      <span
+                        className={`nw-role nw-role-${member.access_role}`}
+                      >
                         {member.access_role === "admin" ? "Admin" : "Member"}
                       </span>
                     </td>

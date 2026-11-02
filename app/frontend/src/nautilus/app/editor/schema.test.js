@@ -3,50 +3,13 @@
 // (docs/prd-document-format.md §9): setContent, then getJSON, then compare.
 // When python3 is available, the editor's output is also checked with the
 // backend's own validator (app/backend/prd_document.py).
-import { execFileSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { Editor } from "@tiptap/core";
 import { afterAll, describe, expect, it } from "vitest";
+import { hasPython, normalize, validFixtures, validateFile } from "./prdTestFixtures";
 import { isAllowedLink, prdDocumentExtensions, toSavedDocument } from "./schema";
-
-const REPO = resolve(__dirname, "../../../../../..");
-const VALID = join(REPO, "app/shared/fixtures/prd_document/valid");
-const VALIDATOR = join(REPO, "app/backend/prd_document.py");
-
-// TipTap writes every attribute, using its defaults where the fixture left
-// one out. These are the defaults the spec accepts (§9 "Exact attribute
-// shapes"), so a fixture that omits them means the same document.
-const LINK_DEFAULTS = { target: "_blank", rel: "noopener noreferrer nofollow", class: null };
-const TABLE_CELL_DEFAULTS = { colspan: 1, rowspan: 1, colwidth: null };
-const ORDERED_LIST_DEFAULTS = { start: 1 };
-
-function withDefaults(type, attrs) {
-  if (type === "link") return { ...LINK_DEFAULTS, ...attrs };
-  if (type === "tableCell" || type === "tableHeader") return { ...TABLE_CELL_DEFAULTS, ...attrs };
-  if (type === "orderedList") return { ...ORDERED_LIST_DEFAULTS, ...attrs };
-  return attrs;
-}
-
-// The same document either way: defaults filled in, empty `attrs` dropped,
-// and marks in a fixed order (ProseMirror orders them by schema rank).
-function normalize(node) {
-  const out = { type: node.type };
-  if (node.text !== undefined) out.text = node.text;
-  const attrs = withDefaults(node.type, node.attrs ?? {});
-  if (Object.keys(attrs).length) out.attrs = attrs;
-  if (node.marks?.length) {
-    out.marks = node.marks
-      .map((mark) => {
-        const markAttrs = withDefaults(mark.type, mark.attrs ?? {});
-        return Object.keys(markAttrs).length ? { type: mark.type, attrs: markAttrs } : { type: mark.type };
-      })
-      .sort((a, b) => a.type.localeCompare(b.type));
-  }
-  if (node.content) out.content = node.content.map(normalize);
-  return out;
-}
 
 function roundTrip(document) {
   const editor = new Editor({ extensions: prdDocumentExtensions(), content: document });
@@ -55,23 +18,11 @@ function roundTrip(document) {
   return json;
 }
 
-function hasPython() {
-  try {
-    execFileSync("python3", ["--version"], { stdio: "ignore" });
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-const fixtures = readdirSync(VALID)
-  .filter((name) => name.endsWith(".json"))
-  .map((name) => [name, JSON.parse(readFileSync(join(VALID, name), "utf8")).document]);
 const outputDir = mkdtempSync(join(tmpdir(), "prd-roundtrip-"));
 const outputs = [];
 
 describe("valid fixtures round-trip through the editor schema", () => {
-  it.each(fixtures)("%s", (name, document) => {
+  it.each(validFixtures)("%s", (name, document) => {
     const output = roundTrip(document);
     expect(normalize(output)).toEqual(normalize(document));
     const file = join(outputDir, name);
@@ -83,8 +34,7 @@ describe("valid fixtures round-trip through the editor schema", () => {
     if (!hasPython()) return;
     // Every editor output must pass the backend's saved-document check.
     for (const file of outputs) {
-      const result = execFileSync("python3", ["-I", VALIDATOR, file], { encoding: "utf8" });
-      expect(result.split("\n")[0]).toBe(`${file}: valid`);
+      expect(validateFile(file)).toBe(`${file}: valid`);
     }
   });
 });

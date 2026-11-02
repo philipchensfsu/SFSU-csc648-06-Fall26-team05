@@ -29,6 +29,9 @@ async function request(path, options = {}) {
     // reason rather than the message; the AI limits add `retry_after`.
     error.code = body.code;
     error.retryAfter = body.retry_after;
+    // 422 invalid_document lists each problem with its path in the document.
+    error.errors = body.errors;
+
     throw error;
   }
 
@@ -68,6 +71,14 @@ export const api = {
     request(`/prds/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePrd: (id) => request(`/prds/${id}`, { method: "DELETE" }),
 
+  // The people on a PRD. PUT adds someone or changes their role, and returns
+  // the updated list.
+  listPrdMembers: (prdId) => request(`/prds/${prdId}/members`),
+  setPrdMember: (prdId, userId, role) =>
+    request(`/prds/${prdId}/members/${userId}`, { method: "PUT", body: JSON.stringify({ role }) }),
+  removePrdMember: (prdId, userId) =>
+    request(`/prds/${prdId}/members/${userId}`, { method: "DELETE" }),
+
   // Answer-only PRD chat. `history` is the recent turns for this PRD only;
   // the backend caps it and never treats it as instructions. Resolves to
   // {kind: "answer" | "blocked" | "clarification", message, base_revision}.
@@ -82,5 +93,31 @@ export const api = {
     request(`/prds/${prdId}/intake/${questionKey}`, {
       method: "PUT",
       body: JSON.stringify({ answer_text: answerText, skipped }),
+    }),
+
+  // The inbox. Every page carries the full `unread_count`, whatever the filter.
+  listNotifications: ({ unreadOnly = false, limit = 25, cursor } = {}) => {
+    const params = new URLSearchParams({ unread_only: String(unreadOnly), limit: String(limit) });
+    if (cursor) params.set("cursor", cursor);
+    return request(`/notifications?${params}`);
+  },
+  markNotificationRead: (id) =>
+    request(`/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ read: true }) }),
+  // needs_my_approval or waiting_for_approval.
+  listPrdsInView: (view) => request(`/prds?view=${encodeURIComponent(view)}`),
+
+  // Reviews: a round is tied to one saved version of the PRD.
+  submitReview: (prdId, { revision, versionId, reviewerIds }) =>
+    request(`/prds/${prdId}/reviews`, {
+      method: "POST",
+      body: JSON.stringify({ revision, version_id: versionId, reviewer_ids: reviewerIds }),
+    }),
+  // Newest round first, superseded rounds included.
+  listReviews: (prdId, { limit = 25 } = {}) => request(`/prds/${prdId}/reviews?limit=${limit}`),
+  // decision: approved or changes_requested, which needs an explanation.
+  decideReview: (prdId, roundId, { versionId, decision, explanation }) =>
+    request(`/prds/${prdId}/reviews/${roundId}/decision`, {
+      method: "PUT",
+      body: JSON.stringify({ version_id: versionId, decision, ...(explanation ? { explanation } : {}) }),
     }),
 };

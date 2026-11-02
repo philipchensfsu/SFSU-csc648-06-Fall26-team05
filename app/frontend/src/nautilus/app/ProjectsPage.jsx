@@ -26,7 +26,7 @@ function PrdCard({ prd, account, userId, questions, onOpenPrd }) {
   return (
     <article className="nw-pcard">
       <div className="nw-card-head">
-        <StatusChip status={prd.status} />
+        <StatusChip status={prd.status} reviewState={prd.reviewState} />
         <span className="nw-card-date">{formatDay(prd.updatedAt)}</span>
       </div>
       <div>

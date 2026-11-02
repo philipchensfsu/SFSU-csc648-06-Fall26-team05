@@ -30,8 +30,8 @@ class FakeService:
     """Records the rpc call and returns a canned row, or raises a database error.
     Serves one staged proposal for AI saves."""
 
-    def __init__(self, error_code=None, proposal=None):
-        self.error_code, self.calls, self.proposal = error_code, [], proposal
+    def __init__(self, error_code=None, proposal=None, message="from postgres"):
+        self.error_code, self.calls, self.proposal, self.message = error_code, [], proposal, message
 
     def table(self, name):
         assert name == "ai_proposal"
@@ -47,7 +47,7 @@ class FakeService:
 
     def execute(self):
         if self.error_code:
-            raise APIError({"code": self.error_code, "message": "from postgres"})
+            raise APIError({"code": self.error_code, "message": self.message})
         return SimpleNamespace(data={"id": PRD, "revision": 2})
 
 
@@ -136,7 +136,9 @@ def test_v1_content_is_rejected():
     ("NT403", 403, "forbidden"),
     ("NT409", 409, "stale_revision"),
     ("NT422", 422, "invalid_generation_record"),
-    ("NTREV", 409, "review_integration_pending"),
+    ("NTREV", 409, "reapproval_required"),
+    ("NTOWN", 403, "owner_required"),
+    ("NTCRL", 422, "confirmed_reviewers_not_allowed"),
     ("NTPRP", 409, "proposal_unavailable"),
 ])
 def test_database_errors_map_to_api_errors(sqlstate, status, code):
@@ -169,6 +171,41 @@ def test_a_raw_id_is_never_accepted_as_the_actor(actor):
     with pytest.raises(TypeError):
         save_prd(service, actor, PRD, 1, title="New title")
     assert service.calls == []
+
+
+@pytest.mark.parametrize("message, status, code", [
+    ("no_reviewers", 422, "validation_error"),
+    ("reviewer_not_in_organization", 422, "not_in_organization"),
+    ("owner_cannot_review", 422, "owner_cannot_review"),
+    ("empty_prd", 422, "empty_prd"),
+    ("approved_round_needs_owner", 409, "reapproval_required"),
+])
+def test_review_errors_from_the_round_functions_map_to_api_errors(message, status, code):
+    with pytest.raises(SaveError) as caught:
+        save_prd(FakeService("P0001", message=message), USER, PRD, 1, title="t", confirmed_reviewer_ids=[])
+    assert (caught.value.status_code, caught.value.code) == (status, code)
+
+
+def test_other_p0001_errors_go_to_the_shared_handler():
+    with pytest.raises(APIError):
+        save_prd(FakeService("P0001", message="something_else"), USER, PRD, 1, title="t")
+
+
+def test_confirmed_reviewers_are_sent_as_ids_and_default_to_none():
+    service = FakeService()
+    save_prd(service, USER, PRD, 1, title="t")
+    assert service.calls[0][1]["p_confirmed_reviewers"] is None
+    reviewer = "11111111-1111-1111-1111-111111111111"
+    save_prd(service, USER, PRD, 1, title="t", confirmed_reviewer_ids=[reviewer.upper()])
+    assert service.calls[1][1]["p_confirmed_reviewers"] == [reviewer]
+
+
+@pytest.mark.parametrize("bad", [["not-an-id"], [None], ["11111111-1111-1111-1111-111111111111"] * 51])
+def test_bad_confirmed_reviewer_lists_are_refused_before_the_database(bad):
+    service = FakeService()
+    with pytest.raises(SaveError) as caught:
+        save_prd(service, USER, PRD, 1, title="t", confirmed_reviewer_ids=bad)
+    assert caught.value.code == "validation_error" and service.calls == []
 
 
 def test_an_empty_doc_without_content_saves_with_empty_text():

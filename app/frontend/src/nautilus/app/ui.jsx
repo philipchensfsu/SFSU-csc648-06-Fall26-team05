@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { statusLabel } from "./format";
+import { prdBadge } from "./format";
 import { IconAlert, IconX } from "./icons";
 
-// A PRD's status as a coloured pill: Draft, In review, Final or Assigned.
-export function StatusChip({ status }) {
+// A PRD's status as a coloured pill: Draft, Final or Assigned, or its review
+// state (In review, Changes requested, Approved) while it has one.
+export function StatusChip({ status, reviewState = null }) {
+  const { tone, label } = prdBadge(status, reviewState);
   return (
-    <span className={`nw-chip nw-chip-${status}`}>
+    <span className={`nw-chip nw-chip-${tone}`}>
       <span className="nw-chip-dot" aria-hidden="true" />
-      {statusLabel(status)}
+      {label}
     </span>
   );
 }
@@ -75,7 +77,7 @@ export function Alert({ children, onRetry, onDismiss }) {
 // A modal on the native <dialog>, which brings focus trapping, the top
 // layer and Escape for free. Escape and clicks on the backdrop call onClose,
 // except while `busy` (a request is out).
-export function Modal({ open, title, onClose, busy = false, children }) {
+export function Modal({ open, title, onClose, busy = false, className = "", children }) {
   const ref = useRef(null);
   const pressedBackdrop = useRef(false);
   const titleId = useId();
@@ -94,7 +96,7 @@ export function Modal({ open, title, onClose, busy = false, children }) {
   return (
     <dialog
       ref={ref}
-      className="nw-modal"
+      className={`nw-modal ${className}`.trim()}
       aria-labelledby={titleId}
       onCancel={(event) => {
         event.preventDefault();

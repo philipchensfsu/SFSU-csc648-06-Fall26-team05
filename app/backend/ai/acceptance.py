@@ -26,9 +26,11 @@ from errors import ApiError
 
 PROPOSAL_UNAVAILABLE = (409, "This AI suggestion is no longer available", "proposal_unavailable")
 STALE_REVISION = (409, "This PRD changed since you last loaded it. Refresh and try again.", "stale_revision")
-# Kinds this save can accept today; section edits (A04) and review
-# suggestions (E12) add theirs when they exist.
-ACCEPTED_KINDS = ("generate",)
+# Kinds this save can accept: whole drafts (A03), section edits (A04) and
+# revision suggestions from review feedback (E12).
+ACCEPTED_KINDS = ("generate", "ai_edit", "review_suggestion")
+SECTION_SCOPE = (422, "Accepting a section edit can only change that section", "proposal_scope")
+SUGGESTION_SCOPE = (422, "Accepting a suggestion can only change the sections it suggested", "proposal_scope")
 
 
 class AcceptanceError(ApiError):
@@ -65,6 +67,12 @@ def prepare(service_client, *, actor_id, prd_id, base_revision: int, generation_
         raise AcceptanceError(422, "This kind of AI suggestion can't be accepted yet", "unsupported_proposal")
 
     proposed = proposal["content"]
+    if proposal["kind"] == "ai_edit":
+        return _prepare_scoped(service_client, prd_id, {proposed["section_type"]}, [proposed["section"]],
+                               str(generation_record_id), title, description, content_json, unset, SECTION_SCOPE)
+    if proposal["kind"] == "review_suggestion":
+        return _prepare_scoped(service_client, prd_id, set(proposed["section_types"]), proposed["sections"],
+                               str(generation_record_id), title, description, content_json, unset, SUGGESTION_SCOPE)
     if content_json is unset:
         marked, marked_sections = unset, ()
     else:
@@ -81,6 +89,31 @@ def prepare(service_client, *, actor_id, prd_id, base_revision: int, generation_
     return Acceptance(content_json=marked,
                       apply_context_patch=unedited and proposal["context_patch"] is not None,
                       marked_sections=marked_sections)
+
+
+def _prepare_scoped(service_client, prd_id, targets: set, proposed_sections: list, generation_record_id: str,
+                    title, description, content_json, unset, scope_error) -> Acceptance:
+    """A section edit (one section) or a review suggestion (the sections it
+    suggested) changes those sections and nothing else. Every other section
+    must match the saved document, and title and description are left out.
+    A suggested section is marked ai_generated only if accepted exactly as
+    proposed; an edited one is saved without the mark."""
+    if content_json is unset or title is not unset or description is not unset:
+        raise AcceptanceError(*scope_error)
+    if generation_record_id in _mark_ids(content_json):
+        raise AcceptanceError(422, "The AI content in this save doesn't match a successful generation",
+                              "invalid_generation_record")
+    saved = (service_client.table("prd").select("content_json").eq("id", str(prd_id)).execute().data or [{}])[0]
+    saved_others = _sections_except(saved.get("content_json") or {}, targets)
+    if _sections_except(content_json, targets) != saved_others:
+        raise AcceptanceError(*scope_error)
+    marked, marked_sections = _mark_unedited_sections(
+        content_json, {"content": proposed_sections}, generation_record_id)
+    return Acceptance(content_json=marked, apply_context_patch=False, marked_sections=marked_sections)
+
+
+def _sections_except(document: dict, section_types: set) -> list:
+    return [s for s in document.get("content", []) if s.get("attrs", {}).get("type") not in section_types]
 
 
 def _mark_unedited_sections(document: dict, proposed: dict, generation_record_id: str):

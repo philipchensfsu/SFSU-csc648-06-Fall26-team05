@@ -60,3 +60,19 @@ def test_hosted_targets_are_refused_without_the_flag(monkeypatch, url):
 def test_local_targets_are_allowed(monkeypatch, url):
     monkeypatch.setenv("SUPABASE_URL", url)
     seed_demo.require_local_target(allow_hosted=False)
+
+
+def test_members_have_valid_roles_on_demo_prds():
+    titles = {prd["title"] for prd in seed_demo.PRDS}
+    roles = [role for member in seed_demo.MEMBERS for role in member["prds"].values()]
+    for member in seed_demo.MEMBERS:
+        assert set(member["prds"]) <= titles, member["tag"]
+        assert set(member["prds"]) < titles  # every member has PRDs they can't see
+    assert set(roles) <= {"editor", "viewer"} and "viewer" in roles  # owners stay the admin
+
+
+def test_member_addresses_follow_the_demo_address(monkeypatch):
+    monkeypatch.setattr(seed_demo, "DEMO_EMAIL", "it-demo-1234@example.com")
+    emails = [seed_demo.member_email(m) for m in seed_demo.MEMBERS]
+    assert emails == [f"it-demo-1234+{m['tag']}@example.com" for m in seed_demo.MEMBERS]
+    assert len(set(emails)) == len(emails)

@@ -55,6 +55,9 @@ def test_bad_values_are_422(org):
     assert patch(org, "ada", "mia", access_role="owner").status_code == 422
     assert patch(org, "ada", "mia", title="x" * 101).status_code == 422
     assert patch(org, "ada", "mia", nickname="x").status_code == 422
+    for null_field in ("access_role", "active"):
+        r = patch(org, "ada", "mia", **{null_field: None})
+        assert r.status_code == 422 and r.json()["code"] == "validation_error", null_field
 
 
 def test_reporting_lines_cant_loop_or_point_outside(org):

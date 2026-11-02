@@ -6,7 +6,10 @@ Creates or reuses, for one demo account only:
 - its organization, with the account as admin (one org per account, #71);
 - its projects;
 - ten PRDs in the agreed v2 format (Tiptap JSON, docs/prd-document-format.md),
-  validated with the shared validator, with their interview answers.
+  validated with the shared validator, with their interview answers;
+- two member accounts in the same organization, with per-PRD roles (one
+  editor, one viewer, and PRDs they aren't on), to show the admin, member
+  and viewer views.
 
 PRD content goes through the reviewed save core (prd_save.save_prd, #55), so
 every PRD with content gets a real version, server-derived content_text and
@@ -18,9 +21,10 @@ metadata only; no approvals are invented.
 
 Re-runnable: it deletes only PRDs and projects owned by the demo account
 (their versions, answers, roles and context cascade) and recreates them. The
-demo organization and membership are reused. Nobody else's data is touched,
-and it refuses to run if the demo account is a non-admin member of someone
-else's organization.
+demo organization and memberships are reused, and the members' PRD roles
+are re-added to the new PRDs. Nobody else's data is touched: it refuses to
+run if the demo account is a non-admin member of someone else's
+organization, or a demo member belongs to another organization.
 
 Usage, from app/backend (the local stack is the default target):
     python seed_demo.py                 # SUPABASE_* from the environment/.env
@@ -30,8 +34,9 @@ It refuses non-local Supabase URLs unless --allow-hosted is given. Running it
 against the hosted project is part of the hosted rollout plan (Marco's
 go-ahead, after the migrations), not something to do ad hoc.
 
-The password is never stored in the repo. A new account without
-DEMO_PASSWORD gets a random password, printed once.
+Passwords are never stored in the repo. DEMO_PASSWORD applies to every demo
+account (admin and members); a new account without it gets a random
+password, printed once.
 """
 
 import argparse
@@ -44,6 +49,22 @@ DEMO_EMAIL = os.environ.get("DEMO_EMAIL", "nautilus.demo@example.com")
 DEMO_NAME = "Nautilus Demo PM"
 DEMO_ORG = "Nautilus Demo"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "host.docker.internal"}
+
+# Members of the demo organization (plain members, not admins). Their
+# addresses follow DEMO_EMAIL as name+tag@domain, so a throwaway demo address
+# gets throwaway members. "prds" maps PRD titles to that member's role; a
+# member sees only the PRDs listed.
+MEMBERS = [
+    {"tag": "engineer", "name": "Nautilus Demo Engineer",
+     "prds": {"Campus Study Group Finder": "editor", "Expense Report Automation": "viewer"}},
+    {"tag": "stakeholder", "name": "Nautilus Demo Stakeholder",
+     "prds": {"Campus Study Group Finder": "viewer"}},
+]
+
+
+def member_email(member):
+    local, domain = DEMO_EMAIL.split("@", 1)
+    return f"{local}+{member['tag']}@{domain}"
 
 
 def section_order():
@@ -348,33 +369,41 @@ def require_local_target(allow_hosted):
                          "and needs --allow-hosted.")
 
 
-def find_demo_user(supabase):
+def find_user(supabase, email):
     for user in supabase.auth.admin.list_users(per_page=1000):
-        if user.email == DEMO_EMAIL:
+        if user.email == email:
             return user
     return None
 
 
-def ensure_demo_user(supabase):
+def find_demo_user(supabase):
+    return find_user(supabase, DEMO_EMAIL)
+
+
+def ensure_account(supabase, email, name):
     """Returns (user, note). An existing account keeps its password unless
     DEMO_PASSWORD is set. A new account without it gets a random one, which
     is the only time a password is printed."""
     password = os.environ.get("DEMO_PASSWORD")
-    user = find_demo_user(supabase)
+    user = find_user(supabase, email)
     if user:
         if password:
             supabase.auth.admin.update_user_by_id(user.id, {"password": password})
-            return user, "Existing account: password set from DEMO_PASSWORD."
-        return user, "Existing account: password unchanged (set DEMO_PASSWORD to reset it)."
+            return user, f"{email}: existing account, password set from DEMO_PASSWORD."
+        return user, f"{email}: existing account, password unchanged (set DEMO_PASSWORD to reset it)."
     generated = password is None
     password = password or secrets.token_urlsafe(12)
     created = supabase.auth.admin.create_user({
-        "email": DEMO_EMAIL, "password": password, "email_confirm": True,
-        "user_metadata": {"full_name": DEMO_NAME},
+        "email": email, "password": password, "email_confirm": True,
+        "user_metadata": {"full_name": name},
     })
     if generated:
-        return created.user, f"New account. Demo password: {password}\nSave this now: it isn't stored anywhere else."
-    return created.user, "New account: password set from DEMO_PASSWORD."
+        return created.user, f"{email}: new account. Password: {password}\nSave this now: it isn't stored anywhere else."
+    return created.user, f"{email}: new account, password set from DEMO_PASSWORD."
+
+
+def ensure_demo_user(supabase):
+    return ensure_account(supabase, DEMO_EMAIL, DEMO_NAME)
 
 
 def ensure_demo_org(supabase, user_id):
@@ -393,6 +422,30 @@ def ensure_demo_org(supabase, user_id):
     return org_id
 
 
+def ensure_org_member(supabase, user_id, org_id):
+    """A plain, active member of the demo organization. Never moves an
+    account out of another organization (one active org per account)."""
+    rows = (supabase.table("organization_member").select("organization_id")
+            .eq("user_id", user_id).eq("active", True).execute().data)
+    if rows and rows[0]["organization_id"] != org_id:
+        raise SystemExit(f"Demo member {user_id} belongs to another organization; not adding them.")
+    supabase.table("organization_member").upsert(
+        {"organization_id": org_id, "user_id": user_id, "access_role": "member", "active": True},
+        on_conflict="organization_id,user_id").execute()
+
+
+def ensure_members(supabase, org_id):
+    """Returns [(member spec, user, note)] for the demo members, each an
+    active member of the demo organization."""
+    members = []
+    for member in MEMBERS:
+        user, note = ensure_account(supabase, member_email(member), member["name"])
+        supabase.table("profile").update({"full_name": member["name"]}).eq("id", user.id).execute()
+        ensure_org_member(supabase, user.id, org_id)
+        members.append((member, user, note))
+    return members
+
+
 def seed(supabase, allow_hosted=False):
     import prd_save
 
@@ -402,6 +455,7 @@ def seed(supabase, allow_hosted=False):
     user_id = user.id
     supabase.table("profile").update({"full_name": DEMO_NAME}).eq("id", user_id).execute()
     org_id = ensure_demo_org(supabase, user_id)
+    members = ensure_members(supabase, org_id)
 
     # Only the demo account's own rows. PRDs first (their roles, versions,
     # answers and context cascade), then its projects.
@@ -414,11 +468,13 @@ def seed(supabase, allow_hosted=False):
                              .execute().data[0]["id"])
 
     # Oldest first, so "recently updated" ordering matches the story.
+    prd_ids = {}
     for prd in sorted(PRDS, key=lambda p: -p["days_ago"]):
         row = (supabase.table("prd").insert({
             "title": prd["title"], "owner_id": user_id, "organization_id": org_id,
             "project_id": project_ids.get(prd["project"]),
         }).execute().data[0])
+        prd_ids[prd["title"]] = row["id"]
         answers = [{"prd_id": row["id"], "question_key": key, "answer_text": text, "skipped": text == ""}
                    for key, text in prd["answers"].items()]
         if answers:
@@ -431,8 +487,18 @@ def seed(supabase, allow_hosted=False):
             # Demo metadata only: there's no review workflow yet (E07/E08).
             supabase.table("prd").update({"status": prd["status"]}).eq("id", row["id"]).execute()
 
-    print(f"Seeded {len(PROJECTS)} projects and {len(PRDS)} PRDs for {DEMO_EMAIL} in {DEMO_ORG!r}")
-    print(note)
+    # The members' roles, granted by the demo admin. Written directly like
+    # the rest of the demo data, so no member_added events or notifications
+    # are recorded (nobody gets an invite in their inbox).
+    supabase.table("prd_member").insert([
+        {"prd_id": prd_ids[title], "user_id": user.id, "role": role, "granted_by": user_id}
+        for member, user, _ in members for title, role in member["prds"].items()
+    ]).execute()
+
+    print(f"Seeded {len(PROJECTS)} projects and {len(PRDS)} PRDs for {DEMO_EMAIL} in {DEMO_ORG!r}, "
+          f"with {len(members)} members")
+    for line in [note] + [member_note for _, _, member_note in members]:
+        print(line)
     return org_id
 
 

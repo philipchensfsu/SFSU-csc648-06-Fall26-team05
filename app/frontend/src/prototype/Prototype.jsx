@@ -1,10 +1,10 @@
-import { Suspense, lazy, useCallback, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useRef, useState } from "react";
 import {
   QUESTIONS,
   fromApiIntakeAnswers,
   fromApiPrd,
-  sectionsToContentJson,
-  sectionsToText,
+  fromApiPrdDetail,
+  sameJson,
 } from "./data";
 import { api } from "../../lib/api";
 import Workspace from "../nautilus/app/Workspace";
@@ -50,8 +50,52 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
   const [generation, setGeneration] = useState(null);
   // Bumped after "Load the latest version", so the editor remounts with it.
   const [editorVersion, setEditorVersion] = useState(0);
+  // What the open PRD's detail read says the caller may do: { id, capabilities,
+  // approval, ... }, { id, error } if it couldn't be read, null until it arrives.
+  const [prdDetail, setPrdDetail] = useState(null);
+  const latestDetail = useRef(0);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
+
+  // Takes only the detail fields, status and the caller's role from the row. The
+  // revision stays the one the editor's content came from, so a newer save
+  // elsewhere still ends in a 409 rather than being overwritten.
+  const loadDetail = useCallback((id) => {
+    const requestId = ++latestDetail.current;
+    return api
+      .getPrd(id)
+      .then((row) => {
+        if (requestId !== latestDetail.current) return;
+        setPrdDetail({ id, ...fromApiPrdDetail(row) });
+        setPrds((current) =>
+          current.map((p) =>
+            p.id === id
+              ? { ...p, status: row.status, reviewState: row.review_state ?? null, myRole: row.my_role ?? p.myRole }
+              : p,
+          ),
+        );
+      })
+      .catch((error) => {
+        if (requestId !== latestDetail.current) return;
+        // This person can't see the PRD any more (removed from it, say).
+        if (error.status === 404) {
+          setActivePrdId(null);
+          setScreen("dashboard");
+          return;
+        }
+        // A refetch that fails keeps what was already known.
+        setPrdDetail((current) => (current?.id === id && current.capabilities ? current : { id, error: error.message }));
+      });
+  }, []);
+
+  useEffect(() => {
+    if (screen !== "editor" || !activePrdId) return undefined;
+    loadDetail(activePrdId);
+    return () => {
+      latestDetail.current += 1;
+      setPrdDetail(null);
+    };
+  }, [screen, activePrdId, loadDetail]);
 
   const loadProjects = useCallback(() => {
     setProjectsError(null);
@@ -197,6 +241,12 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       .catch((error) => setPrdsError(error.message));
   }
 
+  // The inbox only knows a PRD's id. Rejects if this person can't open it.
+  async function openPrdById(id) {
+    const known = prds.find((prd) => prd.id === id);
+    openPrd(known ?? fromApiPrd(await api.getPrd(id)));
+  }
+
   // Renaming uses the same optimistic-concurrency check as saving content;
   // on a 409 the list is reloaded so trying again works.
   function renamePrd(prd, title) {
@@ -276,39 +326,37 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
   }
 
   // Shared by the editor's Save and "Start from my answers": saves the title,
-  // description and sections in one PUT, with the revision the UI last saw
-  // (409 if someone else saved first). Status is never sent (Decision 6).
+  // description and v2 document (`contentJson`) in one PUT, with the revision
+  // the UI last saw (409 if someone else saved first). The server derives
+  // content_text, and status is never sent (Decision 6).
   function saveDocument(id, doc) {
     const prd = prds.find((p) => p.id === id);
     if (!prd) return Promise.reject(new Error("This PRD is no longer in your list."));
     const title = doc.title ?? prd.title;
-    const description = doc.description ?? prd.description;
-    const contentJson = sectionsToContentJson(doc.sections, description);
-    const contentText = sectionsToText(doc.sections, description);
+    const description = (doc.description ?? prd.description) || null;
+    const contentJson = doc.contentJson;
 
     function matchesRequestedSave(row) {
-      const savedSections = row.content_json?.sections;
       return row.title === title
-        && row.content_text === contentText
-        && row.content_json?.description === contentJson.description
-        && Array.isArray(savedSections)
-        && savedSections.length === contentJson.sections.length
-        && savedSections.every((saved, index) => {
-          const requested = contentJson.sections[index];
-          return saved.type === requested.type
-            && saved.title === requested.title
-            && saved.html === requested.html;
-        });
+        && (row.description || null) === description
+        && sameJson(row.content_json, contentJson);
     }
 
     return api
       .updatePrd(id, {
         revision: prd.revision,
         title,
+        description,
         content_json: contentJson,
-        content_text: contentText,
+        // Only when an owner confirms reviewers for edits to an approved PRD.
+        ...(doc.confirmedReviewerIds ? { confirmed_reviewer_ids: doc.confirmedReviewerIds } : {}),
       })
       .catch(async (error) => {
+        if (error.code === "invalid_document") {
+          // The editor's schema should never produce this; the paths say where.
+          console.error("The server rejected the document:", error.errors);
+          throw new Error("This PRD has content that can’t be saved. Undo your last change and try again.", { cause: error });
+        }
         if (error.status !== 409) throw error;
 
         // The first save may have succeeded even if its response was lost.
@@ -326,8 +374,45 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
   function reloadPrd(id) {
     return api.getPrd(id).then((row) => {
       applyRow(row);
+      setPrdDetail({ id, ...fromApiPrdDetail(row) });
       setEditorVersion((version) => version + 1);
     });
+  }
+
+  // A review changes the PRD's revision and status, so the editor takes the
+  // new revision (or its next save would look stale) and reads the detail again.
+  function applyReviewResult(id, result) {
+    setPrds((current) =>
+      current.map((p) =>
+        p.id === id
+          ? { ...p, revision: result.revision, status: result.status, reviewState: result.round?.state ?? null }
+          : p,
+      ),
+    );
+    return loadDetail(id);
+  }
+
+  // The version comes from a fresh read, since a save just before this may not
+  // have reached the detail yet. The revision stays the editor's, so a save
+  // from someone else is refused rather than sent for review unseen.
+  function submitReview(id, reviewerIds) {
+    const prd = prds.find((p) => p.id === id);
+    if (!prd) return Promise.reject(new Error("This PRD is no longer in your list."));
+    return api
+      .getPrd(id)
+      .then((row) =>
+        api.submitReview(id, { revision: prd.revision, versionId: row.current_version?.id, reviewerIds }),
+      )
+      .then((result) => applyReviewResult(id, result));
+  }
+
+  // Decides on the round the page is showing, so a newer one is refused.
+  function decideReview(id, { decision, explanation }) {
+    const approval = prdDetail?.id === id ? prdDetail.approval : null;
+    if (!approval?.round_id) return Promise.reject(new Error("This review is no longer open."));
+    return api
+      .decideReview(id, approval.round_id, { versionId: approval.version_id, decision, explanation })
+      .then((result) => applyReviewResult(id, result));
   }
 
   function startGeneration() {
@@ -339,7 +424,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
   // is made up (draftFromAnswers.js).
   async function startFromAnswers(id) {
     const prd = prds.find((p) => p.id === id);
-    await saveDocument(id, { sections: draftFromAnswers(prd?.answers ?? {}) });
+    await saveDocument(id, { contentJson: draftFromAnswers(prd?.answers ?? {}) });
     go("editor", id);
   }
 
@@ -411,7 +496,20 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
         <EditorPage
           key={`${activePrd.id}:${editorVersion}`}
           prd={activePrd}
-          onSave={(doc) => saveDocument(activePrd.id, doc)}
+          detail={prdDetail?.id === activePrd.id ? prdDetail : null}
+          onRetryDetail={() => loadDetail(activePrd.id)}
+          organizationId={organization?.organization_id}
+          userId={userId}
+          // A save can change what's allowed and the banner, and the PUT
+          // response doesn't say, so read the detail again.
+          onSave={(doc) =>
+            saveDocument(activePrd.id, doc).then((saved) => {
+              loadDetail(activePrd.id);
+              return saved;
+            })
+          }
+          onSubmitReview={(reviewerIds) => submitReview(activePrd.id, reviewerIds)}
+          onDecideReview={(decision) => decideReview(activePrd.id, decision)}
           onReload={() => reloadPrd(activePrd.id)}
           onOpenAnswers={() => openAnswers(activePrd.id)}
           onExit={() => showHome({ page: "dashboard" })}
@@ -441,6 +539,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       onQueryChange={setSearchQuery}
       onCreatePrd={startNewPrd}
       onOpenPrd={openPrd}
+      onOpenPrdById={openPrdById}
       onRenamePrd={renamePrd}
       onDeletePrd={deletePrd}
       onCreateProject={createProject}

@@ -17,6 +17,27 @@ export function statusLabel(status) {
   return STATUS_LABEL[status] ?? status;
 }
 
+const REVIEW_LABEL = {
+  in_review: "In review",
+  changes_requested: "Changes requested",
+  approved: "Approved",
+};
+
+// The one badge a PRD shows: its review state while it has one, otherwise its
+// status. "Assigned" stays, since work has moved on from the approval.
+export function prdBadge(status, reviewState) {
+  if (status !== "assigned" && REVIEW_LABEL[reviewState]) {
+    return { tone: reviewState, label: REVIEW_LABEL[reviewState] };
+  }
+  return { tone: status, label: statusLabel(status) };
+}
+
+// "1 of 2 approved", or "" when the PRD has no reviewers to count.
+export function approvalProgress(approval) {
+  if (!approval?.required_count) return "";
+  return `${approval.approved_count} of ${approval.required_count} approved`;
+}
+
 // --- dates --------------------------------------------------------------
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -99,8 +120,22 @@ export function initialsOf(name, email) {
   return ((email ?? "").trim()[0] ?? "?").toUpperCase();
 }
 
+// Who can review a PRD: everyone in the org except its owners. When its owners
+// are the whole org, the backend lets them review it themselves.
+export function reviewerCandidates(members, owners) {
+  const ownerIds = new Set(owners.map((owner) => owner.id));
+  const others = members.filter((person) => !ownerIds.has(person.user_id));
+  return others.length ? others : members;
+}
+
 export function firstNameOf(name) {
   return (name ?? "").trim().split(/\s+/)[0] ?? "";
+}
+
+// PRDs someone invited this person to, the same rule as GET /api/prds?view=shared.
+// An org admin's view of someone else's PRD doesn't count: nobody shared it.
+export function isSharedWithMe(prd) {
+  return prd.myRole === "editor" || prd.myRole === "viewer";
 }
 
 // --- words --------------------------------------------------------------

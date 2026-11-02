@@ -28,6 +28,10 @@ services:
       SUPABASE_ANON_KEY: *anon-key
       SUPABASE_SERVICE_ROLE_KEY: *service-role-key
       WATCHFILES_FORCE_POLLING: ${DOCKER_POLLING:-false}
+      # The v2 save (S03) is on for this local stack, so the v2 editor works
+      # against local Supabase. Production keeps it off until the hosted
+      # rollout. `PRD_SAVE_V2=false docker compose up` tries the legacy save.
+      PRD_SAVE_V2: ${PRD_SAVE_V2:-true}
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
