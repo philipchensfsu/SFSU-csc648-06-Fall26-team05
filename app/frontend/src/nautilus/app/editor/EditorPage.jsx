@@ -4,6 +4,7 @@ import "../flow/flow.css";
 import "./editor.css";
 import { FlowBar } from "../flow/FlowBar";
 import AskAiPanel from "./AskAiPanel";
+import { ReapprovalDialog } from "./ReapprovalDialog";
 import { ApprovalsCard, YourReviewCard } from "./ReviewPanel";
 import { SubmitReviewDialog } from "./SubmitReviewDialog";
 import { approvalProgress, editedWhen, formatDate } from "../format";
@@ -199,6 +200,8 @@ function EditorPage({
   const [sharing, setSharing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reviewChoice, setReviewChoice] = useState(null);
+  // The edits an approved PRD refused, waiting on "Your edits need new approval".
+  const [reapproving, setReapproving] = useState(null);
   // Goes up when the header's Approve or Request changes is pressed.
   const [reviewJump, setReviewJump] = useState(0);
   const reviewCard = useRef(null);
@@ -387,10 +390,13 @@ function EditorPage({
       setSaved(next);
       return true;
     } catch (error) {
+      // Nothing was saved and the edits stay: the owner confirms reviewers next.
+      if (error?.code === "reapproval_required") {
+        setReapproving(next);
+        return false;
+      }
       setProblem(
-        // reapproval_required is a 409 too, but nothing changed: the backend's
-        // own sentence explains it, and reloading would only lose the edits.
-        error?.status === 409 && error.code !== "reapproval_required"
+        error?.status === 409
           ? CONFLICT
           : { title: "Couldn’t save.", message: error?.message || "Try again.", conflict: false },
       );
@@ -401,6 +407,29 @@ function EditorPage({
   }
 
   // --- reviews -------------------------------------------------------------
+
+  // Sends the refused save again with the confirmed reviewers.
+  async function applyReapproval(reviewerIds) {
+    try {
+      await onSave({
+        ...reapproving,
+        contentJson: sectionsToDocument(reapproving.sections),
+        confirmedReviewerIds: reviewerIds,
+      });
+      setSaved(reapproving);
+      setReapproving(null);
+    } catch (error) {
+      if (error?.status !== 409) throw error;
+      setReapproving(null);
+      setProblem(CONFLICT);
+    }
+  }
+
+  function discardReapproval() {
+    setDoc(saved);
+    cancelEditing();
+    setReapproving(null);
+  }
 
   // A review covers the saved version, so unsaved edits are saved first.
   async function startSubmit() {
@@ -989,6 +1018,17 @@ function EditorPage({
         userId={userId}
         onChanged={onRetryDetail}
         onClose={() => setSharing(false)}
+      />
+
+      <ReapprovalDialog
+        open={reapproving !== null}
+        prdId={prd.id}
+        organizationId={organizationId}
+        owners={detail?.owners ?? []}
+        userId={userId}
+        onApply={applyReapproval}
+        onDiscard={discardReapproval}
+        onClose={() => setReapproving(null)}
       />
 
       <SubmitReviewDialog
