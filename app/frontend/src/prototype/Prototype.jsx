@@ -8,6 +8,7 @@ import {
   sameJson,
 } from "./data";
 import { api } from "../../lib/api";
+import { startsInInterview } from "../nautilus/app/format";
 import { describeGenerationError, isAiUnavailable } from "../nautilus/app/editor/aiDraft";
 import Workspace from "../nautilus/app/Workspace";
 import CreatePrdPage from "../nautilus/app/flow/CreatePrdPage";
@@ -229,7 +230,11 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       go("generating", prd.id);
       return;
     }
-    if (prd.sections) {
+    // Anything with content opens in the editor. So does a PRD with nothing
+    // saved that doesn't belong in the interview -- one in review, approved,
+    // or opened by someone who can't write it -- which lands on the editor's
+    // empty state rather than being asked interview questions.
+    if (prd.sections || !startsInInterview(prd)) {
       go("editor", prd.id);
       return;
     }
@@ -593,7 +598,9 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       </Suspense>
     );
   }
-  if (screen === "editor" && activePrd?.sections) {
+  // `sections` is null until a PRD has saved content; the editor shows its
+  // empty state for those, so only the PRD itself has to be loaded.
+  if (screen === "editor" && activePrd) {
     return (
       <Suspense fallback={null}>
         <EditorPage

@@ -804,6 +804,10 @@
   color: #557479;
   font-size: 14px;
 }
+/* A whole document with nothing saved yet, rather than one empty section. */
+.ne-empty-doc {
+  margin-top: 24px;
+}
 .ne-link-btn {
   padding: 0;
   border: 0;
