@@ -105,4 +105,17 @@ export const api = {
     request(`/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ read: true }) }),
   // needs_my_approval or waiting_for_approval.
   listPrdsInView: (view) => request(`/prds?view=${encodeURIComponent(view)}`),
+
+  // Reviews: a round is tied to one saved version of the PRD.
+  submitReview: (prdId, { revision, versionId, reviewerIds }) =>
+    request(`/prds/${prdId}/reviews`, {
+      method: "POST",
+      body: JSON.stringify({ revision, version_id: versionId, reviewer_ids: reviewerIds }),
+    }),
+  // decision: approved or changes_requested, which needs an explanation.
+  decideReview: (prdId, roundId, { versionId, decision, explanation }) =>
+    request(`/prds/${prdId}/reviews/${roundId}/decision`, {
+      method: "PUT",
+      body: JSON.stringify({ version_id: versionId, decision, ...(explanation ? { explanation } : {}) }),
+    }),
 };

@@ -120,6 +120,14 @@ export function initialsOf(name, email) {
   return ((email ?? "").trim()[0] ?? "?").toUpperCase();
 }
 
+// Who can review a PRD: everyone in the org except its owners. When its owners
+// are the whole org, the backend lets them review it themselves.
+export function reviewerCandidates(members, owners) {
+  const ownerIds = new Set(owners.map((owner) => owner.id));
+  const others = members.filter((person) => !ownerIds.has(person.user_id));
+  return others.length ? others : members;
+}
+
 export function firstNameOf(name) {
   return (name ?? "").trim().split(/\s+/)[0] ?? "";
 }
