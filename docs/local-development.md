@@ -146,6 +146,19 @@ docker compose exec -e DEMO_PASSWORD='<choose one>' backend python seed_demo.py
 - **Local only by default:** it refuses a non-local `SUPABASE_URL` unless `--allow-hosted` is given. Seeding the hosted project is part of the hosted rollout plan, after its migrations and with Marco's go-ahead. Don't run it against production ad hoc.
 - **Today's editor:** it still reads the v1 format, so it shows these v2 documents as empty until the v2 editor lands. PRD responses include `description` only once #81 merges. Until then, the seeded descriptions are stored but not returned.
 
+### Org and review demo data
+
+`app/backend/seed_org_demo.py` runs `seed_demo.py` first, then adds to the same organization:
+- ten people (`nautilus.demo+<name>@example.com`) with departments, teams, heads, leads, managers and titles;
+- real review history, each action taken by that person through their own session: Campus Study Group Finder in review with comments, Bike Share Docking Map with changes requested, Dining Hall Menu Alerts and Recipe Meal Planner approved, Expense Report Automation approved with work in progress, and Employee Onboarding Checklist edited by its owner during review (Dana's approval is reset). The other PRDs are drafts;
+- a one-person organization, Rivera Studio (`nautilus.demo+solo@example.com`).
+
+```
+docker compose exec -e DEMO_PASSWORD='<choose one>' backend python seed_org_demo.py
+```
+
+`DEMO_PASSWORD` is required here: every account signs in with it to take its review actions. Reruns and `--allow-hosted` work as for `seed_demo.py`.
+
 ## 7. Running without Docker (optional)
 
 > **Check your env files first.** Your existing `app/backend/.env` and `app/frontend/.env.local`
