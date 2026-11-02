@@ -70,6 +70,10 @@ export const api = {
   updatePrd: (id, payload) =>
     request(`/prds/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePrd: (id) => request(`/prds/${id}`, { method: "DELETE" }),
+  // A preview of a whole PRD: nothing is saved until it's accepted with a save
+  // that carries the response's generation_record_id.
+  generatePrd: (id, revision) =>
+    request(`/prds/${id}/generate`, { method: "POST", body: JSON.stringify({ revision }) }),
 
   // The people on a PRD. PUT adds someone or changes their role, and returns
   // the updated list.
