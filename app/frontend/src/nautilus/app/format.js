@@ -103,6 +103,12 @@ export function firstNameOf(name) {
   return (name ?? "").trim().split(/\s+/)[0] ?? "";
 }
 
+// PRDs someone invited this person to, the same rule as GET /api/prds?view=shared.
+// An org admin's view of someone else's PRD doesn't count: nobody shared it.
+export function isSharedWithMe(prd) {
+  return prd.myRole === "editor" || prd.myRole === "viewer";
+}
+
 // --- words --------------------------------------------------------------
 
 // plural(1, "PRD") -> "1 PRD", plural(3, "PRD") -> "3 PRDs"

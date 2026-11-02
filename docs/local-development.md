@@ -53,6 +53,12 @@ Open **http://localhost:5173** and sign in with a test account:
 
 These are test-only accounts from `supabase/seed.sql` and exist only locally.
 
+**The v2 save is on locally.** `compose.yaml` sets `PRD_SAVE_V2=true`, so `PUT /api/prds/{id}`
+takes v2 documents with a separate `description` (see [frontend-api.md](frontend-api.md)). The
+hosted app keeps the legacy save until the coordinated rollout, so don't assume production behaves
+like this yet. To try the legacy save locally: `PRD_SAVE_V2=false docker compose up`. Run
+`supabase db reset` after pulling so every migration the v2 save needs is applied.
+
 Edits under `app/backend` and `app/frontend` reload automatically.
 
 ## 3. Everyday commands
@@ -156,7 +162,7 @@ cd app/backend
 python3 -m venv venv && source venv/bin/activate
 pip install -r requirements-dev.txt   # app + test tools
 cp .env.example .env    # use the URL and keys from `supabase status`
-uvicorn main:app --reload
+PRD_SAVE_V2=true uvicorn main:app --reload   # same v2 save as compose.yaml
 
 # frontend (Node 22), in another terminal
 cd app/frontend

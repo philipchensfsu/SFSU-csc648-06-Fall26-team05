@@ -196,6 +196,12 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       .catch((error) => setPrdsError(error.message));
   }
 
+  // The inbox only knows a PRD's id. Rejects if this person can't open it.
+  async function openPrdById(id) {
+    const known = prds.find((prd) => prd.id === id);
+    openPrd(known ?? fromApiPrd(await api.getPrd(id)));
+  }
+
   // Renaming uses the same optimistic-concurrency check as saving content;
   // on a 409 the list is reloaded so trying again works.
   function renamePrd(prd, title) {
@@ -436,6 +442,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       onQueryChange={setSearchQuery}
       onCreatePrd={startNewPrd}
       onOpenPrd={openPrd}
+      onOpenPrdById={openPrdById}
       onRenamePrd={renamePrd}
       onDeletePrd={deletePrd}
       onCreateProject={createProject}
