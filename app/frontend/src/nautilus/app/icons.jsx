@@ -59,6 +59,67 @@ export function IconSearch(props) {
   );
 }
 
+export function IconInbox(props) {
+  return (
+    <Svg {...props}>
+      <path d="M3 13h5l2 3h4l2-3h5" />
+      <path d="M5.5 5h13l2.5 8v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z" />
+    </Svg>
+  );
+}
+
+export function IconFlag(props) {
+  return (
+    <Svg {...props}>
+      <path d="M5 21V4h12l-2.5 4.5L17 13H5" />
+    </Svg>
+  );
+}
+
+export function IconClock(props) {
+  return (
+    <Svg {...props}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 7.5V12l3 2" />
+    </Svg>
+  );
+}
+
+export function IconComment(props) {
+  return (
+    <Svg {...props}>
+      <path d="M4 5h16v11H9.5L5 20v-4H4z" />
+    </Svg>
+  );
+}
+
+export function IconCheck(props) {
+  return (
+    <Svg {...props}>
+      <path d="m5 12.5 4.5 4.5L19 7" />
+    </Svg>
+  );
+}
+
+export function IconUserPlus(props) {
+  return (
+    <Svg {...props}>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0" />
+      <path d="M19 8v6M16 11h6" />
+    </Svg>
+  );
+}
+
+export function IconRefresh(props) {
+  return (
+    <Svg {...props}>
+      <path d="M20 12a8 8 0 1 1-2.4-5.7L20 8.5" />
+      <path d="M20 3.5v5h-5" />
+    </Svg>
+  );
+}
+
 export function IconPeople(props) {
   return (
     <Svg {...props}>
