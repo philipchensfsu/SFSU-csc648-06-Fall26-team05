@@ -9,7 +9,7 @@ import { IconPencil } from "../icons";
 import { Alert, MenuButton, Modal, StatusChip } from "../ui";
 import { IconBack, IconChat, IconCheck, IconDownload } from "./editorIcons";
 import { exportMarkdown, exportPdf, exportWord } from "./exporters";
-import { cleanHtml, isEmptyHtml } from "./html";
+import { cleanHtml, isEmptyHtml, sectionsToDocument } from "./html";
 import { SectionEditor } from "./SectionEditor";
 
 const TITLE_MAX = 200;
@@ -362,7 +362,7 @@ function EditorPage({
     setSaving(true);
     setProblem(null);
     try {
-      await onSave(next);
+      await onSave({ ...next, contentJson: sectionsToDocument(next.sections) });
       setSaved(next);
       return true;
     } catch (error) {

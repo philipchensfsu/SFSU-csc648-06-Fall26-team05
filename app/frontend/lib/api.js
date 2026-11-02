@@ -29,6 +29,8 @@ async function request(path, options = {}) {
     // reason rather than the message; the AI limits add `retry_after`.
     error.code = body.code;
     error.retryAfter = body.retry_after;
+    // 422 invalid_document lists each problem with its path in the document.
+    error.errors = body.errors;
     throw error;
   }
 
