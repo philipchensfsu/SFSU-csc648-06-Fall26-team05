@@ -70,30 +70,20 @@ function PeoplePage({ organization, userId }) {
   const departments = directory?.departments ?? [];
   const teams = directory?.teams ?? [];
 
-  const admins =
-    members?.filter((member) => member.access_role === "admin").length ?? 0;
+  const admins = members?.filter((member) => member.access_role === "admin").length ?? 0;
 
   const deactivatedIds = new Set(deactivated.map((member) => member.user_id));
-  const rows = [
-    ...(members ?? []).filter((member) => !deactivatedIds.has(member.user_id)),
-    ...deactivated,
-  ];
+  const rows = [...(members ?? []).filter((member) => !deactivatedIds.has(member.user_id)), ...deactivated];
 
-  const filteredMembers = rows.filter((member) => {
-    const term = search.trim().toLowerCase();
-
-    const matchesSearch =
-      !term ||
-      member.name?.toLowerCase().includes(term) ||
-      member.email?.toLowerCase().includes(term) ||
-      member.title?.toLowerCase().includes(term);
-
-    const matchesDepartment =
-      !departmentFilter ||
-      member.department_id === departmentFilter;
-
-    return matchesSearch && matchesDepartment;
-  });
+  const term = search.trim().toLowerCase();
+  const filteredMembers = rows.filter(
+    (member) =>
+      (!term ||
+        member.name?.toLowerCase().includes(term) ||
+        member.email?.toLowerCase().includes(term) ||
+        member.title?.toLowerCase().includes(term)) &&
+      (!departmentFilter || member.department_id === departmentFilter),
+  );
 
   return (
     <div className="nw-page">
@@ -104,11 +94,7 @@ function PeoplePage({ organization, userId }) {
           </h1>
           <p className="nw-lede">
             {members
-              ? `${members.length} ${
-                  members.length === 1 ? "person" : "people"
-                } · ${admins} ${
-                  admins === 1 ? "admin" : "admins"
-                }. Each PRD still chooses who can open it.`
+              ? `${members.length} ${members.length === 1 ? "person" : "people"} · ${admins} ${admins === 1 ? "admin" : "admins"}. Each PRD still chooses who can open it.`
               : "Everyone who has joined your organization."}
           </p>
         </div>
@@ -179,52 +165,31 @@ function PeoplePage({ organization, userId }) {
                 {filteredMembers.map((member) => {
                   const name = personName(member);
                   const isDeactivated = deactivatedIds.has(member.user_id);
-                  const details = [
-                    member.title,
-                    member.name ? member.email : null,
-                  ].filter(Boolean);
+                  const details = [member.title, member.name ? member.email : null].filter(Boolean);
                   return (
                     <tr key={member.user_id}>
                       <td>
                         <span className="nw-person">
-                          <Avatar
-                            initials={initialsOf(member.name, member.email)}
-                          />
+                          <Avatar initials={initialsOf(member.name, member.email)} />
                           <span className="nw-person-text">
                             <span>
                               {name}
-                              {member.user_id === userId ? (
-                                <span className="nw-person-you"> (you)</span>
-                              ) : null}
+                              {member.user_id === userId ? <span className="nw-person-you"> (you)</span> : null}
                             </span>
-                            {details.length ? (
-                              <span className="nw-person-sub">
-                                {details.join(" · ")}
-                              </span>
-                            ) : null}
+                            {details.length ? <span className="nw-person-sub">{details.join(" · ")}</span> : null}
                           </span>
                         </span>
                       </td>
                       <td>
-                        <Placement
-                          member={member}
-                          departments={departments}
-                          teams={teams}
-                        />
+                        <Placement member={member} departments={departments} teams={teams} />
                       </td>
                       <td>
-                        <span
-                          className={`nw-role nw-role-${member.access_role}`}
-                        >
+                        <span className={`nw-role nw-role-${member.access_role}`}>
                           {member.access_role === "admin" ? "Admin" : "Member"}
                         </span>
                       </td>
                       <td>
-                        <span
-                          className={`nw-chip ${
-                            isDeactivated ? "nw-chip-draft" : "nw-chip-final"
-                          }`}
-                        >
+                        <span className={`nw-chip ${isDeactivated ? "nw-chip-draft" : "nw-chip-final"}`}>
                           {isDeactivated ? "Deactivated" : "Active"}
                         </span>
                       </td>
@@ -233,21 +198,11 @@ function PeoplePage({ organization, userId }) {
                           <MenuButton
                             label={`Actions for ${name}`}
                             items={[
-                              {
-                                label: "Edit",
-                                onSelect: () => setEditing(member),
-                              },
-                              // Your own access stays; another admin can
-                              // deactivate you.
+                              { label: "Edit", onSelect: () => setEditing(member) },
+                              // Your own access stays; another admin can deactivate you.
                               ...(member.user_id === userId
                                 ? []
-                                : [
-                                    {
-                                      label: "Deactivate",
-                                      danger: true,
-                                      onSelect: () => setDeactivating(member),
-                                    },
-                                  ]),
+                                : [{ label: "Deactivate", danger: true, onSelect: () => setDeactivating(member) }]),
                             ]}
                           >
                             <IconMore />
