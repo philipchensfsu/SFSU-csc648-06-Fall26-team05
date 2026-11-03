@@ -89,21 +89,30 @@ function AskAiPanel({
       content: message.text,
     }));
 
-    setChat((log) => [...log, { from: "you", text: asked }]);
+    const turn = { from: "you", text: asked };
+    setChat((log) => [...log, turn]);
     setQuestion("");
     setAsking(true);
     setChatError(null);
+    // A shared conversation outlives this panel (split view moves the chat
+    // and remounts it), so its answer still goes in after a remount; the
+    // owner drops it if another PRD has opened. A panel's own conversation
+    // goes with it.
+    const keep = () => mounted.current || Boolean(setSharedChat);
 
     try {
       const reply = await api.chatAboutPrd(prd.id, { revision: prd.revision, message: asked, history });
-      if (!mounted.current) return;
+      if (!keep()) return;
       setChat((log) => [...log, { from: "ai", kind: reply.kind, text: reply.message }]);
     } catch (error) {
-      if (!mounted.current) return;
-      // Keep what they typed so they can send it again.
-      setQuestion(asked);
-      setChat((log) => log.slice(0, -1));
-      setChatError(describeChatError(error));
+      if (!keep()) return;
+      // The question goes back out of the conversation (and into the box,
+      // if it's still here) so it can be sent again.
+      setChat((log) => log.filter((message) => message !== turn));
+      if (mounted.current) {
+        setQuestion(asked);
+        setChatError(describeChatError(error));
+      }
     } finally {
       if (mounted.current) setAsking(false);
     }
