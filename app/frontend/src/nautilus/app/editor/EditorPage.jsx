@@ -6,6 +6,8 @@ import { FlowBar } from "../flow/FlowBar";
 import AskAiPanel from "./AskAiPanel";
 import CommentsPanel from "./CommentsPanel";
 import { isDraftOutOfDate } from "./aiDraft";
+import PrdProposalComparison from "./PrdProposalComparison";
+import { describeProposalError, mustAskAgain, needsReapproval, sessionMessagesFrom } from "./proposal";
 import { ReapprovalDialog } from "./ReapprovalDialog";
 import { ApprovalsCard, YourReviewCard } from "./ReviewPanel";
 import { SubmitReviewDialog } from "./SubmitReviewDialog";
@@ -36,6 +38,8 @@ const CONFLICT = {
 // again. Accepting an AI draft has no such document, so it holds this
 // instead and the draft is accepted again with the reviewers confirmed.
 const DRAFT_REAPPROVAL = "ai-draft";
+// The same for accepting a proposal from the chat (conversational editing).
+const PROPOSAL_REAPPROVAL = "ai-proposal";
 
 // A review is tied to one saved version, so these mean the page is out of date.
 const STALE_REVIEW_CODES = new Set(["stale_revision", "stale_version", "round_not_current"]);
@@ -157,16 +161,20 @@ function LeaveDialog({ open, onStay, onDiscard, onSave }) {
 }
 
 // Leaving an AI draft loses it, since nothing has been saved.
-function LeaveDraftDialog({ open, onStay, onDiscard }) {
+function LeaveDraftDialog({ open, onStay, onDiscard, proposal = false }) {
   return (
-    <Modal open={open} title="Discard this draft?" onClose={onStay}>
-      <p className="nw-modal-text">This AI draft isn’t saved. If you leave, you’ll need to generate it again.</p>
+    <Modal open={open} title={proposal ? "Discard these changes?" : "Discard this draft?"} onClose={onStay}>
+      <p className="nw-modal-text">
+        {proposal
+          ? "The proposed changes aren’t saved. If you leave, you can propose them again from the chat."
+          : "This AI draft isn’t saved. If you leave, you’ll need to generate it again."}
+      </p>
       <div className="nw-modal-actions">
         <button type="button" className="nw-btn nw-btn-secondary" onClick={onStay} data-autofocus>
           Keep reviewing
         </button>
         <button type="button" className="nw-btn nw-btn-danger-outline" onClick={onDiscard}>
-          Discard draft
+          {proposal ? "Discard changes" : "Discard draft"}
         </button>
       </div>
     </Modal>
@@ -183,6 +191,13 @@ function LeaveDraftDialog({ open, onStay, onDiscard }) {
 //
 // With `aiDraft` ({ onAccept, onDiscard, onRegenerate }) it previews an unsaved
 // AI draft instead: read-only, with `detail` null, until it's accepted.
+//
+// Conversational editing: `chat` / `setChat` hold the Ask AI conversation
+// (kept by Prototype, so it outlives this page). For people who can ask the
+// AI for changes, "Propose changes" calls `onRequestProposal(instruction,
+// sessionMessages)`. While `proposal` is set, the page shows the saved PRD
+// beside it instead of the editor; `onAcceptProposal(confirmedReviewerIds?)`
+// saves it and `onDiscardProposal()` drops it.
 function EditorPage({
   prd,
   detail,
@@ -194,6 +209,12 @@ function EditorPage({
   exitLabel = "Back to dashboard",
   onSave,
   aiDraft = null,
+  chat,
+  setChat,
+  proposal = null,
+  onRequestProposal,
+  onAcceptProposal,
+  onDiscardProposal,
   onSubmitReview,
   onDecideReview,
   onReload,
@@ -235,6 +256,10 @@ function EditorPage({
   const [reapproving, setReapproving] = useState(null);
   // Split view: the chat beside the document instead of in the side panel.
   const [split, setSplit] = useState(false);
+  // Conversational editing: asking for a proposal, and what went wrong.
+  const [proposing, setProposing] = useState(false);
+  const [proposeError, setProposeError] = useState(null);
+  const [proposalProblem, setProposalProblem] = useState(null); // { message, askAgain }
   // Goes up when the header's Approve or Request changes is pressed.
   const [reviewJump, setReviewJump] = useState(0);
   const reviewCard = useRef(null);
@@ -242,6 +267,9 @@ function EditorPage({
   const canShare = detail?.capabilities?.can_assign === true;
   const canSubmitReview = detail?.capabilities?.can_submit_review === true;
   const canApprove = detail?.capabilities?.can_approve === true;
+  // The backend's own rule for asking the AI to change this PRD (owners only
+  // once it's approved); it refuses anyone else before using any AI quota.
+  const canPropose = !aiDraft && Boolean(onRequestProposal) && detail?.capabilities?.can_request_ai === true;
   // Nothing says "View only" until the API has actually said so.
   const viewOnly = Boolean(detail?.capabilities) && !canEdit;
   const progress = approvalProgress(detail?.approval);
@@ -277,7 +305,7 @@ function EditorPage({
   }, [editing, ids]);
 
   // Closing or reloading the tab with unsaved changes asks first.
-  const unsaved = dirty || Boolean(aiDraft);
+  const unsaved = dirty || Boolean(aiDraft) || Boolean(proposal);
   useEffect(() => {
     if (!unsaved) return undefined;
     function onBeforeUnload(event) {
@@ -444,6 +472,16 @@ function EditorPage({
 
   // Sends the refused save again with the confirmed reviewers.
   async function applyReapproval(reviewerIds) {
+    if (reapproving === PROPOSAL_REAPPROVAL) {
+      try {
+        await onAcceptProposal(reviewerIds);
+        setReapproving(null);
+      } catch (error) {
+        setReapproving(null);
+        setProposalProblem({ message: describeProposalError(error), askAgain: mustAskAgain(error) });
+      }
+      return;
+    }
     // The AI draft is accepted again with the reviewers confirmed; Prototype
     // sends them with the save that the server refused.
     if (reapproving === DRAFT_REAPPROVAL) {
@@ -477,6 +515,11 @@ function EditorPage({
   }
 
   function discardReapproval() {
+    if (reapproving === PROPOSAL_REAPPROVAL) {
+      setReapproving(null);
+      leaveProposal();
+      return;
+    }
     // Discarding an AI draft is the preview's own Discard, not a revert of
     // edits made here: there are none.
     if (reapproving === DRAFT_REAPPROVAL) {
@@ -580,6 +623,65 @@ function EditorPage({
     }
   }
 
+  // --- conversational editing -------------------------------------------------
+
+  // "Propose changes" in the chat. The proposal is compared with the saved
+  // PRD and accepted as a whole, so unsaved edits are saved first; nothing is
+  // asked of the AI until they are.
+  async function requestProposal(instruction) {
+    if (proposing) return;
+    setProposeError(null);
+    if (dirty) {
+      setProposeError("Save your edits first, then propose changes.");
+      return;
+    }
+    setProposing(true);
+    try {
+      const result = await onRequestProposal(instruction, sessionMessagesFrom(chat));
+      // Refusals and clarifications are answers in the chat; a proposal opens
+      // the comparison (Prototype sets `proposal`) and its explanation joins
+      // the conversation.
+      setChat?.((log) => [...log, { from: "ai", kind: result.kind, text: result.message }]);
+    } catch (error) {
+      if (error?.code === "stale_revision") {
+        // Someone saved since this page loaded: the banner offers the latest
+        // version, and the conversation stays for asking again.
+        setProposeError("This PRD changed since you opened it. Load the latest version, then propose changes again.");
+        setProblem(CONFLICT);
+      } else {
+        setProposeError(describeProposalError(error));
+      }
+    } finally {
+      setProposing(false);
+    }
+  }
+
+  async function acceptProposal() {
+    setAccepting(true);
+    setProposalProblem(null);
+    try {
+      await onAcceptProposal();
+    } catch (error) {
+      setAccepting(false);
+      // An approved PRD: the owner confirms reviewers, then it's sent again.
+      if (needsReapproval(error)) {
+        setReapproving(PROPOSAL_REAPPROVAL);
+        return;
+      }
+      setProposalProblem({ message: describeProposalError(error), askAgain: mustAskAgain(error) });
+    }
+  }
+
+  // Back to the PRD without the proposal. After a conflict the latest
+  // version is loaded too, so asking again starts from it. The conversation
+  // stays either way.
+  function leaveProposal(reloadAfter = false) {
+    setProposalProblem(null);
+    setAccepting(false);
+    onDiscardProposal();
+    if (reloadAfter) reload();
+  }
+
   function reload() {
     setReloading(true);
     Promise.resolve(onReload()).catch((error) => {
@@ -637,12 +739,15 @@ function EditorPage({
         crumbs={[
           { label: "Dashboard", onClick: () => guard(onHome) },
           { label: doc.title },
-          { label: "Editor", current: true },
+          { label: proposal ? "Proposed changes" : "Editor", current: true },
         ]}
         // Status is shown, not set here: it changes only through the review
         // workflow (Decision 6).
         after={<StatusChip status={prd.status} reviewState={prd.reviewState} />}
         actions={
+          // The comparison has its own Accept and Discard; nothing else here
+          // applies to a proposal.
+          proposal ? null : (
           <>
             {saveState ? (
               <span className={`ne-savestate ${saveState[0]}`} role="status">
@@ -739,6 +844,7 @@ function EditorPage({
               </>
             ) : null}
           </>
+          )
         }
       />
 
@@ -785,13 +891,49 @@ function EditorPage({
         </div>
       ) : null}
 
+      {proposal ? (
+        <div className="ne-compare">
+          <PrdProposalComparison
+            currentDocument={proposal.originalDocument}
+            proposedDocument={proposal.proposedDocument}
+            explanation={proposal.explanation}
+            busy={accepting}
+            onAccept={acceptProposal}
+            onDiscard={() => leaveProposal()}
+            notice={
+              proposalProblem ? (
+                <Alert onDismiss={proposalProblem.askAgain ? undefined : () => setProposalProblem(null)}>
+                  {proposalProblem.message}
+                  {proposalProblem.askAgain ? (
+                    <>
+                      {" "}
+                      <button type="button" className="ne-alert-action" onClick={() => leaveProposal(true)}>
+                        Back to the PRD
+                      </button>
+                    </>
+                  ) : null}
+                </Alert>
+              ) : null
+            }
+          />
+        </div>
+      ) : (
       <div className={`ne-body${split ? " is-split" : ""}`}>
         {/* Split view drops the contents list and the review panel, as the
             design does, so the chat and the document each get real room.
             Everything they hold is a toggle away. */}
         {split ? (
           <section className="ne-pane-chat" aria-label="Ask Nautilus">
-            <AskAiPanel key={prd.id} prd={prd} standalone />
+            <AskAiPanel
+              key={prd.id}
+              prd={prd}
+              standalone
+              chat={chat}
+              setChat={setChat}
+              onPropose={canPropose ? requestProposal : undefined}
+              proposing={proposing}
+              proposeError={proposeError}
+            />
           </section>
         ) : null}
         <nav aria-label="PRD sections" className="ne-outline">
@@ -1094,6 +1236,11 @@ function EditorPage({
               id={`${ids}-panel-ai`}
               labelledBy={`${ids}-tab-ai`}
               hidden={railTab !== "ai"}
+              chat={chat}
+              setChat={setChat}
+              onPropose={canPropose ? requestProposal : undefined}
+              proposing={proposing}
+              proposeError={proposeError}
             />
           )}
           {aiDraft ? null : (
@@ -1200,6 +1347,7 @@ function EditorPage({
           )}
         </aside>
       </div>
+      )}
 
       {/* Closes by itself if a change here takes away the right to manage people. */}
       <ShareDialog
@@ -1211,13 +1359,15 @@ function EditorPage({
         onClose={() => setSharing(false)}
       />
 
-      {aiDraft ? (
+      {aiDraft || proposal ? (
         <LeaveDraftDialog
+          proposal={Boolean(proposal)}
           open={leaving !== null}
           onStay={() => setLeaving(null)}
           onDiscard={() => {
             const action = leaving;
             setLeaving(null);
+            if (proposal) onDiscardProposal();
             action();
           }}
         />
@@ -1244,7 +1394,7 @@ function EditorPage({
       />
 
       <LeaveDialog
-        open={leaving !== null && !aiDraft}
+        open={leaving !== null && !aiDraft && !proposal}
         onStay={() => setLeaving(null)}
         onDiscard={() => {
           const action = leaving;
