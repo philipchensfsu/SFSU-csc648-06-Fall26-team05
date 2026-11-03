@@ -168,3 +168,23 @@ def test_someone_elses_or_an_expired_proposal_cant_be_adjusted(cast, db, service
     assert info.value.code == "proposal_unavailable"
     assert db.execute("select count(*) from ai_proposal a join prd p on p.id = a.prd_id where p.id = %s",
                       (cast["prd"],)).fetchone() == (1,)  # nothing new staged
+
+
+def test_a_section_put_back_by_an_adjustment_is_saved_without_the_ai_mark(cast, db, service):
+    saved_goals = copy.deepcopy(next(s for s in DOC["content"] if s["attrs"]["type"] == "goals"))
+    first = request_revision(cast["editor"], cast["prd"], service)  # changes goals and metrics
+
+    def restore_goals(prompt, **kwargs):
+        return GeminiResult(data={"sections": [saved_goals], "explanation": "Put the goals back."}, model="fake",
+                            prompt_tokens=5, output_tokens=7)
+
+    second = chat_revision.propose_revision(
+        as_user(cast["editor"]), service, actor_id=cast["editor"].id, prd_id=cast["prd"], revision=2,
+        instruction="Keep the original goals.", session_messages=[],
+        previous_generation_record_id=first["generation_record_id"], modules=doubles(), call_model=restore_goals)
+    assert second["proposal"]["section_types"] == ["success_metrics"]
+
+    saved = accept(cast["editor"], cast["prd"], service, second)
+    by_type = {s["attrs"]["type"]: s for s in saved["content_json"]["content"]}
+    assert by_type["goals"] == saved_goals  # the person's own text, unmarked
+    assert second["generation_record_id"] in json.dumps(by_type["success_metrics"])

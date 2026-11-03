@@ -219,10 +219,14 @@ def propose_revision(user_client, service_client, *, actor_id, prd_id: str, revi
                 _record_failure(service_client, actor_id, prd_id, revision, calls, "owner_required", prompt_version)
                 raise
         # Every section changed so far, in the standard order: acceptance lets
-        # only these differ from the saved PRD.
+        # only these differ from the saved PRD. A section the model returned
+        # exactly as saved (or an adjustment put back) isn't a change, so it
+        # leaves the scope; otherwise accepting it would mark the person's own
+        # text as AI-written.
         changed = set(pending.section_types if pending else ()) | {s["attrs"]["type"] for s in sections}
-        changed_types = [t for t in section_types() if t in changed]
         by_type = {s["attrs"]["type"]: s for s in merged["content"]}
+        saved_by_type = {s["attrs"]["type"]: s for s in document.get("content", [])}
+        changed_types = [t for t in section_types() if t in changed and by_type.get(t) != saved_by_type.get(t)]
         proposal = {"section_types": changed_types, "sections": [by_type[t] for t in changed_types],
                     "content_json": merged}
         kind = "review_suggestion" if pending and pending.kind == "review_suggestion" else PROPOSAL_KIND
