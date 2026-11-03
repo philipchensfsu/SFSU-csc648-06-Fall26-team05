@@ -195,7 +195,9 @@ function LeaveDraftDialog({ open, onStay, onDiscard, proposal = false }) {
 // Conversational editing: `chat` / `setChat` hold the Ask AI conversation
 // (kept by Prototype, so it outlives this page). For people who can ask the
 // AI for changes, "Propose changes" calls `onRequestProposal(instruction,
-// sessionMessages)`. While `proposal` is set, the page shows the saved PRD
+// sessionMessages)`; for owners, the Comments tab's "Ask AI to address" calls
+// `onRequestFeedbackProposal(commentIds, instruction)` (review suggestions).
+// While `proposal` is set, the page shows the saved PRD
 // beside it instead of the editor; `onAcceptProposal(confirmedReviewerIds?)`
 // saves it and `onDiscardProposal()` drops it.
 function EditorPage({
@@ -213,6 +215,7 @@ function EditorPage({
   setChat,
   proposal = null,
   onRequestProposal,
+  onRequestFeedbackProposal,
   onAcceptProposal,
   onDiscardProposal,
   onSubmitReview,
@@ -270,6 +273,12 @@ function EditorPage({
   // The backend's own rule for asking the AI to change this PRD (owners only
   // once it's approved); it refuses anyone else before using any AI quota.
   const canPropose = !aiDraft && Boolean(onRequestProposal) && detail?.capabilities?.can_request_ai === true;
+  // Revisions from review comments are owners-only (E12), with comments on
+  // the current version; the backend's flag says so.
+  const canSuggest =
+    !aiDraft &&
+    Boolean(onRequestFeedbackProposal) &&
+    detail?.capabilities?.can_request_review_suggestions === true;
   // Nothing says "View only" until the API has actually said so.
   const viewOnly = Boolean(detail?.capabilities) && !canEdit;
   const progress = approvalProgress(detail?.approval);
@@ -653,6 +662,23 @@ function EditorPage({
       }
     } finally {
       setProposing(false);
+    }
+  }
+
+  // "Ask AI to address" in the Comments tab. The panel shows the error and
+  // keeps the picked comments, so this rejects with a sentence to show.
+  async function requestFeedbackProposal(commentIds, instruction) {
+    if (dirty) throw new Error("Save your edits first, then ask for changes.");
+    try {
+      await onRequestFeedbackProposal(commentIds, instruction);
+    } catch (error) {
+      if (error?.code === "stale_revision") {
+        setProblem(CONFLICT);
+        throw new Error("This PRD changed since you opened it. Load the latest version, then try again.", {
+          cause: error,
+        });
+      }
+      throw new Error(describeProposalError(error), { cause: error });
     }
   }
 
@@ -1248,6 +1274,7 @@ function EditorPage({
               key={`comments-${prd.id}`}
               prd={prd}
               currentVersionId={detail?.currentVersion?.id ?? null}
+              onSuggest={canSuggest ? requestFeedbackProposal : undefined}
               onRefresh={onRetryDetail}
               id={`${ids}-panel-comments`}
               labelledBy={`${ids}-tab-comments`}

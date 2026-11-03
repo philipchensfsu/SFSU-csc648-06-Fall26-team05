@@ -1629,4 +1629,29 @@
 .ne-comment-actions {
   display: flex;
   justify-content: flex-end;
+  gap: 8px;
+}
+/* Picking comments for the AI to address (owners). */
+.ne-comments-ai {
+  margin-left: auto;
+  font-size: 13px;
+}
+.ne-comment.is-picked {
+  border-color: #1D6F7A;
+  background: #F2FAFB;
+}
+.ne-comment-pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 8px;
+  color: #102C33;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ne-comment-pick.is-off {
+  color: #557479;
+  font-weight: 400;
+  cursor: default;
 }
