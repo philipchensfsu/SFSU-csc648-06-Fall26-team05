@@ -5,6 +5,7 @@ import {
   describeProposalError,
   mustAskAgain,
   needsReapproval,
+  requestFeedbackRevision,
   requestRevision,
   sessionMessagesFrom,
 } from "./proposal";
@@ -18,7 +19,7 @@ const reply = {
   base_revision: 4,
   generation_record_id: "rec-1",
 };
-const apiError = (status, code) => Object.assign(new Error(`raw ${code}`), { status, code });
+const apiError = (status, code, message = `raw ${code}`) => Object.assign(new Error(message), { status, code });
 
 function fakeApi(overrides = {}) {
   return {
@@ -81,6 +82,41 @@ describe("requestRevision", () => {
   });
 });
 
+describe("requestFeedbackRevision", () => {
+  it("asks about the chosen comments and compares with the same fresh read", async () => {
+    const api = fakeApi({
+      requestReviewSuggestion: vi.fn().mockResolvedValue({
+        explanation: "Added the missing risk.",
+        proposal: { section_types: ["risks"], sections: [], content_json: proposed },
+        base_revision: 4,
+        generation_record_id: "rec-2",
+      }),
+    });
+    const result = await requestFeedbackRevision(api, "p1", { revision: 4, feedbackIds: ["c1", "c2"], instruction: null });
+    expect(api.requestReviewSuggestion).toHaveBeenCalledWith("p1", { revision: 4, feedbackIds: ["c1", "c2"], instruction: null });
+    expect(result.kind).toBe("proposal");
+    expect(result.proposal).toMatchObject({
+      baseRevision: 4,
+      generationRecordId: "rec-2",
+      originalDocument: saved,
+      proposedDocument: proposed,
+      explanation: "Added the missing risk.",
+      feedbackIds: ["c1", "c2"],
+    });
+  });
+
+  it("refuses before asking when the PRD moved on", async () => {
+    const api = fakeApi({
+      getPrd: vi.fn().mockResolvedValue({ id: "p1", revision: 6, content_json: saved }),
+      requestReviewSuggestion: vi.fn(),
+    });
+    await expect(requestFeedbackRevision(api, "p1", { revision: 4, feedbackIds: ["c1"] })).rejects.toMatchObject({
+      code: "stale_revision",
+    });
+    expect(api.requestReviewSuggestion).not.toHaveBeenCalled();
+  });
+});
+
 describe("accepting", () => {
   const proposal = { baseRevision: 4, generationRecordId: "rec-1", proposedDocument: proposed };
 
@@ -130,7 +166,10 @@ describe("errors", () => {
   it("words the reasons the person can act on", () => {
     expect(describeProposalError(apiError(409, "stale_revision"))).toContain("Ask Nautilus again");
     expect(describeProposalError(apiError(409, "proposal_unavailable"))).toContain("expired");
-    expect(describeProposalError(apiError(403, "owner_required"))).toContain("only its owners");
+    expect(describeProposalError(apiError(403, "owner_required", "Only the PRD's owners can edit it after approval."))).toBe(
+      "Only the PRD's owners can edit it after approval.",
+    );
+    expect(describeProposalError(apiError(422, "feedback_not_current"))).toContain("older version");
     expect(describeProposalError({ code: "ai_cooldown", retryAfter: 3 })).toContain("Try again in 3s");
     expect(describeProposalError(apiError(500, "internal_error"))).toBe("raw internal_error");
   });
