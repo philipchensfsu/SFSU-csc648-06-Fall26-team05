@@ -9,9 +9,15 @@
 // - Accepting sends the server's proposed document exactly as received, with
 //   generation_record_id and without title or description: the save refuses
 //   either, even unchanged (proposal_scope).
-// - A save whose response was lost is sent once more as it was. The server
-//   answers a repeat of an accepted proposal with the saved PRD, so nothing
-//   is applied twice. A 409 is a real conflict and is never retried.
+// - A save whose response was lost is sent once more as it was. Nothing is
+//   ever applied twice: save_prd (20261101032100_e09_reapproval.sql, the
+//   "retry after a lost response" check before the stale check) answers a
+//   repeat with the saved PRD when this person's proposal was accepted and
+//   its save is still the current version. If someone else saved in between,
+//   the repeat gets 409 like any stale save, and the person is told to ask
+//   again although their change did save; telling those apart would need the
+//   PRD's current version to name its generation record, which GET
+//   /api/prds/{id} doesn't return. A 409 is never retried.
 import { describeGenerationError } from "./aiDraft";
 
 const EMPTY_DOCUMENT = { type: "doc", content: [] };
@@ -85,7 +91,8 @@ export async function acceptProposal(api, prdId, proposal, { confirmedReviewerId
     return await api.updatePrd(prdId, body);
   } catch (error) {
     // No status: the request never got an answer. It may still have been
-    // saved, and the server answers the same request with that save.
+    // saved; the server answers the same request with that save while it's
+    // still the current version (see the top of this file).
     if (error?.status !== undefined) throw error;
     return api.updatePrd(prdId, body);
   }
