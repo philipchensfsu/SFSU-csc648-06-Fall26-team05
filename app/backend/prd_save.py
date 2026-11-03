@@ -167,7 +167,22 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
             raise  # the shared S01 handler turns it into a safe 4xx/500
         status, detail, code = known
         raise SaveError(status, detail, code) from None
-    return response.data
+    return _with_review_status(service_client, prd_id, response.data, reviewers)
+
+
+def _with_review_status(service_client, prd_id, row, reviewers):
+    """An owner's confirmed edit to an approved PRD starts a new review round
+    inside save_prd after the saved row is captured, so that row still says
+    `final`. Takes the status the round left instead. Only when the revision
+    is still this save's: a later save by someone else must not come back as
+    this one's result, or the client would build on a revision it never
+    saw."""
+    if reviewers is None or not isinstance(row, dict):
+        return row
+    fresh = (service_client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data or [None])[0]
+    if fresh and fresh["revision"] == row.get("revision"):
+        return {**row, "status": fresh["status"]}
+    return row
 
 
 def verified_actor_id(verified_user) -> str:

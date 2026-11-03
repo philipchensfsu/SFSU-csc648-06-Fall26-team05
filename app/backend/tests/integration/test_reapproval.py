@@ -8,6 +8,7 @@ doesn't depend on E08's decision route.
 """
 
 import copy
+import os
 
 import pytest
 from supabase import create_client
@@ -166,11 +167,13 @@ def test_approved_prds_take_only_an_owners_confirmed_edit(team, db, service):
 def test_an_owners_confirmed_edit_starts_a_new_round_with_one_submitted_event(team, db, service):
     approved_round = approve(db, team)
     # The owner keeps Ann, drops Bob and Cy, and adds Dee in the modal.
-    save(service, db, team["olive"], team["prd"], content_json=doc("Edited after approval"),
-         confirmed_reviewer_ids=[team["ann"].id, team["dee"].id])
+    saved = save(service, db, team["olive"], team["prd"], content_json=doc("Edited after approval"),
+                 confirmed_reviewer_ids=[team["ann"].id, team["dee"].id])
 
-    _, new_version, status = state(db, team["prd"])
+    revision, new_version, status = state(db, team["prd"])
     assert status == "in_review"
+    # The returned row says so too, not the `final` it had when it was saved.
+    assert (saved["status"], saved["revision"]) == ("in_review", revision)
     (old_id, _, old_state, _), (new_round, round_no, new_state, round_version) = rounds(db, team["prd"])
     assert (old_id, old_state) == (approved_round, "superseded")
     assert (round_no, new_state, round_version) == (2, "in_review", new_version)
@@ -197,3 +200,18 @@ def test_a_save_that_changes_nothing_needs_no_list_and_records_nothing(team, db,
     before = state(db, team["prd"])
     save(service, db, team["olive"], team["prd"], content_json=doc("First"))  # same content
     assert state(db, team["prd"]) == before and events_after_submit(db, team["prd"]) == []
+
+
+@pytest.mark.skipif(os.environ.get("LOCAL_PRD_SAVE_V2", "").lower() not in ("true", "1", "on", "yes"),
+                    reason="the API isn't running with PRD_SAVE_V2=true")
+def test_the_put_route_returns_the_status_the_new_round_left(team, db, service):
+    """The regression the frontend saw: PUT on an approved PRD with confirmed
+    reviewers answered `final` while the PRD was already back in review."""
+    approve(db, team)
+    revision = state(db, team["prd"])[0]
+    r = team["olive"].api("PUT", f"/prds/{team['prd']}", json={
+        "revision": revision, "content_json": doc("Edited after approval"),
+        "confirmed_reviewer_ids": [team["ann"].id]})
+    assert r.status_code == 200, r.json()
+    assert (r.json()["status"], r.json()["revision"]) == ("in_review", state(db, team["prd"])[0])
+    assert state(db, team["prd"])[2] == "in_review"

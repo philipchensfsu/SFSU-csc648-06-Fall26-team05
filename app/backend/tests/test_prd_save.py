@@ -30,12 +30,14 @@ class FakeService:
     """Records the rpc call and returns a canned row, or raises a database error.
     Serves one staged proposal for AI saves."""
 
-    def __init__(self, error_code=None, proposal=None, message="from postgres"):
+    def __init__(self, error_code=None, proposal=None, message="from postgres", prd_now=None):
         self.error_code, self.calls, self.proposal, self.message = error_code, [], proposal, message
+        # What a re-read of the PRD sees after the save (the status E09 left).
+        self.prd_now = prd_now or {"revision": 2, "status": "in_review"}
 
     def table(self, name):
-        assert name == "ai_proposal"
-        rows = [self.proposal] if self.proposal else []
+        assert name in ("ai_proposal", "prd")
+        rows = ([self.proposal] if self.proposal else []) if name == "ai_proposal" else [self.prd_now]
         query = SimpleNamespace(execute=lambda: SimpleNamespace(data=rows))
         query.select = lambda *_: query
         query.eq = lambda *_: query
@@ -198,6 +200,25 @@ def test_confirmed_reviewers_are_sent_as_ids_and_default_to_none():
     reviewer = "11111111-1111-1111-1111-111111111111"
     save_prd(service, USER, PRD, 1, title="t", confirmed_reviewer_ids=[reviewer.upper()])
     assert service.calls[1][1]["p_confirmed_reviewers"] == [reviewer]
+
+
+def test_a_confirmed_edit_returns_the_status_the_new_round_left():
+    # save_prd captures its row before E09 opens the new round, so the row
+    # still says final; the status is read again for this revision.
+    service = FakeService()
+    saved = save_prd(service, USER, PRD, 1, title="t", confirmed_reviewer_ids=["11111111-1111-1111-1111-111111111111"])
+    assert saved == {"id": PRD, "revision": 2, "status": "in_review"}
+
+
+def test_a_later_save_by_someone_else_is_never_returned_as_this_one():
+    service = FakeService(prd_now={"revision": 3, "status": "in_review"})
+    saved = save_prd(service, USER, PRD, 1, title="t", confirmed_reviewer_ids=["11111111-1111-1111-1111-111111111111"])
+    assert saved == {"id": PRD, "revision": 2}
+
+
+def test_other_saves_are_returned_as_the_database_gave_them():
+    service = FakeService(prd_now={"revision": 2, "status": "draft"})
+    assert save_prd(service, USER, PRD, 1, title="t") == {"id": PRD, "revision": 2}
 
 
 @pytest.mark.parametrize("bad", [["not-an-id"], [None], ["11111111-1111-1111-1111-111111111111"] * 51])
