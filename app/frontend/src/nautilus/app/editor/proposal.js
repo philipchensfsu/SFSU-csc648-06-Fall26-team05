@@ -20,10 +20,13 @@ const MAX_SESSION_MESSAGES = 20;
 
 // The chat's turns ({ from: "you" | "ai", text }) as session_messages, the
 // most recent ones only. Refusals and clarifications are left out: they're
-// fixed text, not part of the discussion.
+// fixed text, not part of the discussion. A proposal's explanation stays, so
+// a follow-up can refer to what was proposed.
+const DISCUSSION = new Set(["answer", "proposal"]);
+
 export function sessionMessagesFrom(chat) {
   return (chat ?? [])
-    .filter((message) => message.text && (message.from === "you" || message.kind === "answer" || !message.kind))
+    .filter((message) => message.text && (message.from === "you" || DISCUSSION.has(message.kind) || !message.kind))
     .slice(-MAX_SESSION_MESSAGES)
     .map((message) => ({ role: message.from === "ai" ? "assistant" : "user", content: message.text }));
 }
