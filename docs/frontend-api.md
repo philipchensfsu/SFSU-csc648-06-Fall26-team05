@@ -257,7 +257,7 @@ its review.
 | `GET /api/prds/{id}/comments?version_id=&limit=25&cursor=` | | 200 `{ "items": Comment[], "next_cursor": "string \| null" }`, **oldest first**; without `version_id`, every version's comments | 404 if you can't see the PRD; 400 `invalid_cursor` |
 | `POST /api/prds/{id}/comments` | `{ "version_id": "uuid", "section_type": null \| "<section type>", "body": "1–5,000 chars" }` | 201 `Comment` | 404; 409 `no_saved_version` (the PRD has never been saved: disable the comment box); 409 `stale_version` (someone saved since: reload, keep the draft, post again); 422 `validation_error` (blank or too-long body, unknown section) |
 
-- Send the `current_version_id` from the PRD you loaded as `version_id`.
+- Send the `current_version.id` from `GET /api/prds/{id}` as `version_id`.
 - `section_type` is one of the nine section types in [`prd-document-format.md`](prd-document-format.md), or `null`
   for the whole PRD.
 - **`body` is plain text: escape it when rendering**, and keep line breaks.
@@ -291,7 +291,7 @@ requests changes; when everyone has approved, the PRD becomes `final`.
 | `GET /api/prds/{id}/reviews?limit=25&cursor=` | | 200 `{ "items": ReviewRound[], "next_cursor": … }`, newest first, superseded rounds included | 404; 400 `invalid_cursor` |
 | `PUT /api/prds/{id}/reviews/{round_id}/decision` | `{ "version_id": "uuid", "decision": "approved" \| "changes_requested", "explanation"?: "string", "section_type"?: null \| "<section type>" }` | 200 `{ "round": ReviewRound, "revision": int, "status": "in_review" \| "final" }` | 404 can't see the PRD or round; 403 not a reviewer on it, or `owner_cannot_review`; 409 `stale_version` (the PRD changed since submission), `round_not_current`, `decision_already_made`; 422 `validation_error` (no explanation for changes, over 5,000 characters, unknown section) |
 
-- Send the `revision` and `current_version_id` of the PRD you loaded.
+- Send the `revision` and `current_version.id` of the PRD you loaded (`GET /api/prds/{id}`).
 - Pick reviewers from the [organization directory](#organization-directory). Reviewers who aren't on the PRD yet
   are added as **viewers**, so they can read and comment. Each reviewer gets a `submitted` notification.
 - **Owners can't review their own PRD**, unless the PRD's owners are everyone in the org (`owner_review_allowed`
