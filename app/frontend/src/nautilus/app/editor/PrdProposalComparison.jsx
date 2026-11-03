@@ -34,9 +34,7 @@ function Words({ parts, side }) {
 function Side({ parts, side, missing }) {
   return (
     <div className={`nc-side nc-side-${side}`}>
-      <span className="nc-side-label" aria-hidden="true">
-        {side === "current" ? "Current" : "Proposed"}
-      </span>
+      <span className="nc-side-label">{side === "current" ? "Current" : "Proposed"}</span>
       {parts ? <Words parts={parts} side={side} /> : <p className="nc-empty">{missing}</p>}
     </div>
   );
