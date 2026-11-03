@@ -1173,35 +1173,48 @@
 }
 
 /* Ask AI: answer-only chat about the PRD. */
+/* The question reads as something you asked; the answer reads as writing
+   about the document, not a reply in a chat app. Only the question gets a
+   bubble. */
+/* The rail is narrow, so the note drops under the heading rather than
+   squeezing it onto two lines. It sits beside it in a wider panel. */
+.ne-chat .ne-card-head {
+  flex-wrap: wrap;
+}
+.ne-chat .ne-card-title {
+  white-space: nowrap;
+}
+.ne-chat-scope {
+  margin-left: auto;
+  color: #557479;
+  font-size: 13px;
+  font-weight: 400;
+}
 .ne-chat-log {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 18px;
   max-height: 52vh;
   overflow-y: auto;
 }
-.ne-bubble {
-  max-width: 92%;
-  padding: 8px 12px;
-  border-radius: 12px;
-  font-size: 13.5px;
-  line-height: 1.5;
+.ne-turn {
+  font-size: 14.5px;
+  line-height: 1.55;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.ne-bubble-you {
+.ne-turn-you {
   align-self: flex-end;
-  background: #102C33;
-  color: #FFFFFF;
-  border-bottom-right-radius: 4px;
-}
-.ne-bubble-ai {
-  align-self: flex-start;
-  background: #EAF3F5;
+  max-width: 82%;
+  padding: 9px 14px;
+  border-radius: 12px;
+  background: #E3F6F8;
   color: #102C33;
-  border-bottom-left-radius: 4px;
 }
-.ne-bubble.is-waiting {
+.ne-turn-ai {
+  color: #102C33;
+}
+.ne-turn.is-waiting {
   color: #557479;
 }
 .ne-chat-error {

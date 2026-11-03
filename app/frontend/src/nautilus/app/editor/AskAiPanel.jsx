@@ -76,21 +76,20 @@ function AskAiPanel({ prd, id, labelledBy, hidden }) {
   return (
     <section className="ne-card ne-chat" role="tabpanel" id={id} aria-labelledby={labelledBy} hidden={hidden}>
       <div className="ne-card-head">
-        <h2 className="ne-card-title">Ask Nautilus about this PRD</h2>
+        <h2 className="ne-card-title">Ask Nautilus</h2>
+        <span className="ne-chat-scope">Answers use this PRD only</span>
       </div>
       {chat.length || asking ? (
         <ol ref={list} className="ne-chat-log" aria-live="polite">
           {chat.map((message, index) => (
-            <li key={index} className={`ne-bubble ne-bubble-${message.from}`}>
+            <li key={index} className={`ne-turn ne-turn-${message.from}`}>
               {message.text}
             </li>
           ))}
-          {asking ? <li className="ne-bubble ne-bubble-ai is-waiting">Thinking…</li> : null}
+          {asking ? <li className="ne-turn ne-turn-ai is-waiting">Thinking…</li> : null}
         </ol>
       ) : (
-        <p className="ne-card-note">
-          Ask about what’s in this PRD, like “What are the open risks?” Answers only use this PRD, and nothing is changed.
-        </p>
+        <p className="ne-card-note">Ask about what’s in this PRD, like “What are the open risks?” Nothing is changed.</p>
       )}
       {chatError ? (
         <p className="ne-chat-error" role="alert">
