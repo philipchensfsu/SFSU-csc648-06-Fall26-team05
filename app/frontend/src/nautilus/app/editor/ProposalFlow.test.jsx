@@ -143,6 +143,17 @@ describe("the chat", () => {
     expect(turns()).toHaveLength(2);
   });
 
+  it("still gets an answer when split view moves the chat mid-question", async () => {
+    let answer;
+    api.chatAboutPrd.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
+    await show();
+    await click(buttonNamed("Ask AI"));
+    await ask("Is the goal measurable?");
+    await click(buttonNamed("Ask Nautilus")); // the side panel's chat unmounts
+    await act(async () => answer({ kind: "answer", message: "Not yet." }));
+    expect(turns()).toEqual(["Is the goal measurable?", "Not yet."]);
+  });
+
   it("offers Propose changes only to people who can ask for changes", async () => {
     await show({ detail: { capabilities: { can_edit: true, can_request_ai: false } } });
     await click(buttonNamed("Ask AI"));

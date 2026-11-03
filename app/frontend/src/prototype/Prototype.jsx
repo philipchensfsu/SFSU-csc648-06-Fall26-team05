@@ -10,6 +10,7 @@ import {
 import { api } from "../../lib/api";
 import { startsInInterview } from "../nautilus/app/format";
 import { describeGenerationError, isAiUnavailable } from "../nautilus/app/editor/aiDraft";
+import { chatMessages, updateChatLog } from "../nautilus/app/editor/chatLog";
 import {
   acceptProposal,
   requestAdjustment,
@@ -78,9 +79,17 @@ function Prototype({
   // editor, so they outlive its remounts (a reload, an accepted proposal)
   // and the chat moving between the side panel and split view.
   const [chatLog, setChatLog] = useState(null);
+  // The PRD open now. AI replies come back after an await, through callbacks
+  // bound to the PRD that was open when they started; a reply for one that's
+  // no longer open is dropped (editor/chatLog.js).
+  const openPrdIdRef = useRef(null);
   const [aiProposal, setAiProposal] = useState(null);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
+
+  useEffect(() => {
+    openPrdIdRef.current = activePrdId;
+  }, [activePrdId]);
 
   // Takes only the detail fields, status and the caller's role from the row. The
   // revision stays the one the editor's content came from, so a newer save
@@ -531,14 +540,17 @@ function Prototype({
   // --- conversational editing ------------------------------------------------
 
   function chatFor(id) {
-    return chatLog?.prdId === id ? chatLog.messages : [];
+    return chatMessages(chatLog, id);
   }
 
   function setChatFor(id, update) {
-    setChatLog((current) => {
-      const messages = current?.prdId === id ? current.messages : [];
-      return { prdId: id, messages: typeof update === "function" ? update(messages) : update };
-    });
+    setChatLog((current) => updateChatLog(current, id, openPrdIdRef.current, update));
+  }
+
+  // A proposal only opens on the PRD it was made for, and only while that
+  // PRD is still the one open.
+  function openProposal(id, proposal) {
+    if (openPrdIdRef.current === id) setAiProposal({ ...proposal, prdId: id });
   }
 
   // Asks for one proposal from the conversation, against the revision this
@@ -548,7 +560,7 @@ function Prototype({
     const prd = prds.find((p) => p.id === id);
     if (!prd) throw new Error("This PRD is no longer in your list.");
     const result = await requestRevision(api, id, { revision: prd.revision, instruction, sessionMessages });
-    if (result.kind === "proposal") setAiProposal({ prdId: id, ...result.proposal });
+    if (result.kind === "proposal") openProposal(id, result.proposal);
     return result;
   }
 
@@ -557,7 +569,7 @@ function Prototype({
     const prd = prds.find((p) => p.id === id);
     if (!prd) throw new Error("This PRD is no longer in your list.");
     const result = await requestFeedbackRevision(api, id, { revision: prd.revision, feedbackIds: commentIds, instruction });
-    setAiProposal({ prdId: id, ...result.proposal });
+    openProposal(id, result.proposal);
     return result;
   }
 
