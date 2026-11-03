@@ -894,6 +894,20 @@ function EditorPage({
               ) : null}
             </header>
 
+            {doc.sections.length ? null : (
+              // Nothing saved yet: a PRD in review or approved, or one a
+              // viewer opened. The interview is only offered to a draft its
+              // opener can write, so there is nothing to send them to here.
+              <div className="ne-empty ne-empty-doc">
+                <span>This PRD has no content yet.</span>
+                {canEdit ? (
+                  <button type="button" className="ne-link-btn" onClick={openAnswers}>
+                    Answer the interview questions
+                  </button>
+                ) : null}
+              </div>
+            )}
+
             {doc.sections.map((section, index) => {
               const headingId = `${ids}-h-${section.id}`;
               const isEditing = editing === section.id;

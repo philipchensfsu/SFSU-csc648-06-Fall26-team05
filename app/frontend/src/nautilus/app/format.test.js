@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { approvalProgress, prdBadge } from "./format";
+import { approvalProgress, prdBadge, startsInInterview } from "./format";
 
 describe("prdBadge", () => {
   it("shows the status when nothing is under review", () => {
@@ -26,5 +26,24 @@ describe("approvalProgress", () => {
   it("says nothing without reviewers", () => {
     expect(approvalProgress({ approved_count: 0, required_count: 0 })).toBe("");
     expect(approvalProgress(null)).toBe("");
+  });
+});
+
+describe("startsInInterview", () => {
+  it("sends a writable draft with nothing saved to the interview", () => {
+    expect(startsInInterview({ status: "draft", myRole: "owner" })).toBe(true);
+    expect(startsInInterview({ status: "draft", myRole: "editor" })).toBe(true);
+    expect(startsInInterview({ status: "draft", myRole: "org_admin" })).toBe(true);
+  });
+
+  it("opens an empty PRD in review or approved in the editor instead", () => {
+    expect(startsInInterview({ status: "in_review", myRole: "owner" })).toBe(false);
+    expect(startsInInterview({ status: "final", myRole: "owner" })).toBe(false);
+    expect(startsInInterview({ status: "assigned", myRole: "owner" })).toBe(false);
+  });
+
+  it("never asks someone who can't write the PRD to answer questions", () => {
+    expect(startsInInterview({ status: "draft", myRole: "viewer" })).toBe(false);
+    expect(startsInInterview({ status: "draft", myRole: null })).toBe(false);
   });
 });

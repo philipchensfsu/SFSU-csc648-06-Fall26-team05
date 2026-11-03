@@ -138,6 +138,17 @@ export function isSharedWithMe(prd) {
   return prd.myRole === "editor" || prd.myRole === "viewer";
 }
 
+// The roles that may write a PRD, matching can_edit from the API.
+const WRITING_ROLES = new Set(["owner", "editor", "org_admin"]);
+
+// Whether opening a PRD with nothing saved should start the guided interview.
+// Only a draft its opener can write belongs there: a PRD in review or approved
+// opens in the editor even when empty, and so does one a viewer opened, since
+// neither has answers to give. An unknown role opens the editor too.
+export function startsInInterview(prd) {
+  return prd.status === "draft" && WRITING_ROLES.has(prd.myRole);
+}
+
 // --- words --------------------------------------------------------------
 
 // plural(1, "PRD") -> "1 PRD", plural(3, "PRD") -> "3 PRDs"
