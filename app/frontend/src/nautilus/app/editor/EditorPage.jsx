@@ -1020,7 +1020,7 @@ function EditorPage({
               key={prd.id}
               prd={prd}
               currentVersionId={detail?.currentVersion?.id ?? null}
-              onReload={onReload}
+              onRefresh={onRetryDetail}
               id={`${ids}-panel-comments`}
               labelledBy={`${ids}-tab-comments`}
               hidden={railTab !== "comments"}

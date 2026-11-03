@@ -27,10 +27,10 @@ const comment = (id, extra = {}) => ({
 
 let root;
 let host;
-let onReload;
+let onRefresh;
 
 async function show({ currentVersionId = VERSION } = {}) {
-  onReload = vi.fn();
+  onRefresh = vi.fn();
   host = document.createElement("div");
   document.body.append(host);
   root = createRoot(host);
@@ -39,7 +39,7 @@ async function show({ currentVersionId = VERSION } = {}) {
       <CommentsPanel
         prd={{ id: "prd-1" }}
         currentVersionId={currentVersionId}
-        onReload={onReload}
+        onRefresh={onRefresh}
         id="panel"
         labelledBy="tab"
         hidden={false}
@@ -97,15 +97,15 @@ describe("CommentsPanel", () => {
     expect(box().placeholder).toContain("Save the PRD");
   });
 
-  it("keeps the draft and reloads when the version moved on", async () => {
+  it("keeps the draft and refreshes the PRD when the version moved on", async () => {
     await show();
     const stale = Object.assign(new Error("The PRD has a newer version."), { status: 409, code: "stale_version" });
     api.addPrdComment.mockRejectedValue(stale);
     await type("Posted against an old version");
     await act(async () => submit().click());
-    expect(host.textContent).toContain("Reload it, then post again");
+    expect(host.textContent).toContain("Post again to comment on the latest version");
     expect(box().value).toBe("Posted against an old version");
-    expect(onReload).toHaveBeenCalled();
+    expect(onRefresh).toHaveBeenCalled();
   });
 
   it("shows the body as text, never as markup", async () => {

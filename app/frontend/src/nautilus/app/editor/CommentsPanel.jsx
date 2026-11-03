@@ -10,7 +10,7 @@ const MAX_BODY = 5000;
 // panel can act on are reworded here.
 function describeError(error) {
   if (error?.code === "no_saved_version") return "Save the PRD before commenting on it.";
-  if (error?.code === "stale_version") return "Someone saved this PRD. Reload it, then post again.";
+  if (error?.code === "stale_version") return "Someone saved this PRD since you opened it. Post again to comment on the latest version.";
   return error?.message || "Couldn’t post your comment. Try again.";
 }
 
@@ -51,9 +51,11 @@ function Comment({ comment, currentVersionId }) {
 //   currentVersionId  the PRD's current version, or null before the first
 //                     save: the composer is disabled then, because the API
 //                     answers 409 no_saved_version
-//   onReload          reloads the PRD after a stale_version refusal
+//   onRefresh         reads the PRD's detail again after a stale_version
+//                     refusal, for its new current version. Not the editor's
+//                     full reload: that remounts the editor and loses the draft
 //   id, labelledBy, hidden   tab panel wiring from EditorPage
-export default function CommentsPanel({ prd, currentVersionId, onReload, id, labelledBy, hidden }) {
+export default function CommentsPanel({ prd, currentVersionId, onRefresh, id, labelledBy, hidden }) {
   const [comments, setComments] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [draft, setDraft] = useState("");
@@ -101,9 +103,9 @@ export default function CommentsPanel({ prd, currentVersionId, onReload, id, lab
       setDraft("");
     } catch (error) {
       if (!mounted.current) return;
-      // What they typed is kept either way, so a reload doesn't lose it.
+      // What they typed is kept; after the refresh, posting again uses the new version.
       setPostError(describeError(error));
-      if (error?.code === "stale_version") onReload?.();
+      if (error?.code === "stale_version") onRefresh?.();
     } finally {
       if (mounted.current) setPosting(false);
     }
