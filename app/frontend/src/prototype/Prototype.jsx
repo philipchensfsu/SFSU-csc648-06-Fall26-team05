@@ -586,6 +586,9 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
           // reviewer list. A preview keeps detail null so its capabilities
           // don't turn the editing tools on.
           owners={prdDetail?.id === activePrd.id ? prdDetail.owners : []}
+          // The dialog reads the org's directory for the reviewer list.
+          organizationId={organization?.organization_id}
+          userId={userId}
           aiDraft={{
             onAccept: (confirmedReviewerIds) => acceptDraft(activePrd.id, confirmedReviewerIds),
             onDiscard: discardDraft,

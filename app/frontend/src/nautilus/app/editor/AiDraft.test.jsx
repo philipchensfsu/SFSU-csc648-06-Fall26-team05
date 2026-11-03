@@ -49,6 +49,8 @@ async function show(aiDraft) {
       <EditorPage
         prd={prd}
         detail={null}
+        organizationId="org"
+        userId="alice"
         aiDraft={{ onAccept: vi.fn().mockResolvedValue(), onDiscard: vi.fn(), onRegenerate: vi.fn(), ...aiDraft }}
         onSave={vi.fn()}
         onReload={vi.fn()}
@@ -173,6 +175,7 @@ describe("accepting into an approved PRD", () => {
     await show({ onAccept });
     await click(buttonNamed("Accept draft"));
     expect(host.textContent).toContain("Your edits need new approval");
+    expect(api.getDirectory).toHaveBeenCalledWith("org");
     expect(host.textContent).not.toContain("Couldn’t accept this draft.");
   });
 
