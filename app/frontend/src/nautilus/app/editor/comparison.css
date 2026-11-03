@@ -1,0 +1,237 @@
+/* The proposal comparison (PrdProposalComparison.jsx): the saved PRD and an
+   AI proposal side by side, one row per section. Kept out of editor.css so
+   it can sit beside the editor's own styles. */
+
+.nc {
+  max-width: 1240px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  color: #102C33;
+}
+.nc-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid #DCEBEE;
+  border-radius: 16px;
+  background: #F7FBFC;
+}
+.nc-head-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nc-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+.nc-summary {
+  margin: 0;
+  color: #557479;
+  font-size: 14px;
+}
+.nc-explanation {
+  margin: 4px 0 0;
+  font-size: 14.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nc-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+}
+
+.nc-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  padding: 0 20px;
+  color: #557479;
+  font-size: 12.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.nc-sections {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nc-section {
+  padding: 16px 20px;
+  border: 1px solid #DCEBEE;
+  border-radius: 12px;
+  background: #FFFFFF;
+}
+.nc-section.is-changed,
+.nc-section.is-added,
+.nc-section.is-removed {
+  border-color: #9FD3DB;
+}
+.nc-section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.nc-section-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.nc-status {
+  flex: none;
+  color: #557479;
+  font-size: 12.5px;
+}
+.nc-section.is-unchanged .nc-text {
+  color: #557479;
+}
+
+.nc-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+.nc-side {
+  min-width: 0;
+}
+.nc-side-proposed {
+  padding-left: 16px;
+  border-left: 1px solid #DCEBEE;
+}
+.nc-side-label {
+  display: none;
+  margin-bottom: 4px;
+  color: #557479;
+  font-size: 12px;
+  font-weight: 600;
+}
+.nc-text,
+.nc-empty {
+  margin: 0;
+  font-size: 14.5px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.nc-empty {
+  color: #557479;
+  font-style: italic;
+}
+.nc-del {
+  background: #FDE8E8;
+  color: #8A1C1C;
+  text-decoration: line-through;
+  border-radius: 3px;
+}
+.nc-ins {
+  background: #DDF4E4;
+  color: #145A2E;
+  text-decoration: none;
+  border-radius: 3px;
+}
+
+.nc-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 0;
+}
+.nc-filter {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: #557479;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+/* Wide screens show both sides, so the toggle only appears when narrow. */
+.nc-toggle {
+  display: none;
+  padding: 3px;
+  border: 1px solid #DCEBEE;
+  border-radius: 10px;
+  background: #F7FBFC;
+}
+.nc-toggle-btn {
+  padding: 6px 14px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #557479;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+.nc-toggle-btn.is-active {
+  background: #FFFFFF;
+  color: #102C33;
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(16, 44, 51, 0.12);
+}
+
+@media (max-width: 860px) {
+  .nc-head {
+    flex-direction: column;
+  }
+  /* Stays in reach while scrolling a long PRD on a phone. */
+  .nc-toolbar {
+    position: sticky;
+    top: 8px;
+    z-index: 2;
+    padding: 6px;
+    border: 1px solid #DCEBEE;
+    border-radius: 12px;
+    background: #FFFFFF;
+    box-shadow: 0 8px 20px -14px rgba(16, 44, 51, 0.35);
+  }
+  .nc-toggle {
+    border: 0;
+  }
+  .nc-toggle-btn {
+    padding: 6px 12px;
+  }
+  .nc-filter {
+    gap: 6px;
+    padding-right: 6px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+  .nc-toggle {
+    display: inline-flex;
+  }
+  .nc-columns {
+    display: none;
+  }
+  .nc-pair {
+    grid-template-columns: 1fr;
+  }
+  .nc-side-proposed {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .nc-side-label {
+    display: block;
+  }
+  .nc[data-shown="proposed"] .nc-side-current,
+  .nc[data-shown="current"] .nc-side-proposed {
+    display: none;
+  }
+}

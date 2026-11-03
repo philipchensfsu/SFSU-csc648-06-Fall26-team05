@@ -1,0 +1,44 @@
+/* The People page. Shared table, button and form styles are in workspace.css. */
+
+.nw-people-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.nw-people-filters .nw-input {
+  flex: 1 1 220px;
+  height: 36px;
+  font-size: 13px;
+}
+
+/* workspace.css gives this table a min-width, which would keep the narrow
+   layout's rows wider than the card and clip their action buttons. */
+@container (max-width: 700px) {
+  .nw-people-table {
+    min-width: 0;
+  }
+}
+
+.nw-person-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.nw-person-sub {
+  color: #557479;
+  font-size: 12px;
+  font-weight: 400;
+}
+.nw-people-archived {
+  color: #7D979C;
+}
+.nw-people-pick {
+  width: 100%;
+}
+.nw-people-list {
+  margin: 0 0 12px;
+  padding-left: 18px;
+  color: #3E5A60;
+  font-size: 14px;
+}

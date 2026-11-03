@@ -8,6 +8,7 @@ import {
   sameJson,
 } from "./data";
 import { api } from "../../lib/api";
+import { startsInInterview } from "../nautilus/app/format";
 import { describeGenerationError, isAiUnavailable } from "../nautilus/app/editor/aiDraft";
 import Workspace from "../nautilus/app/Workspace";
 import CreatePrdPage from "../nautilus/app/flow/CreatePrdPage";
@@ -24,7 +25,15 @@ const EditorPage = lazy(() => import("../nautilus/app/editor/EditorPage"));
 // App renders this workspace only after Supabase confirms a signed-in user
 // who is in an organization (OrgGate). `userName` and `userId` come from that
 // session; `organization` is { organization_id, name, access_role }.
-function Prototype({ initialUser = null, userName = "", userId = null, organization = null, onNoOrganization, onLogOut }) {
+function Prototype({
+  initialUser = null,
+  userName = "",
+  userId = null,
+  organization = null,
+  onNoOrganization,
+  recheckOrganization,
+  onLogOut,
+}) {
   const user = initialUser;
   const [screen, setScreen] = useState("dashboard");
   // Which workspace page the "dashboard" screen shows: { page: "dashboard" },
@@ -229,7 +238,11 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       go("generating", prd.id);
       return;
     }
-    if (prd.sections) {
+    // Anything with content opens in the editor. So does a PRD with nothing
+    // saved that doesn't belong in the interview -- one in review, approved,
+    // or opened by someone who can't write it -- which lands on the editor's
+    // empty state rather than being asked interview questions.
+    if (prd.sections || !startsInInterview(prd)) {
       go("editor", prd.id);
       return;
     }
@@ -467,7 +480,9 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
 
   // The normal save, marked as this draft: the revision it was made from, and
   // the record id that tells the server the content came from the AI.
-  function acceptDraft(id) {
+  // `confirmedReviewerIds` is sent only after the server refused the save
+  // with reapproval_required and the owner confirmed who reviews it again.
+  function acceptDraft(id, confirmedReviewerIds) {
     const { draft } = generation;
     return api
       .updatePrd(id, {
@@ -476,6 +491,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
         description: draft.description,
         content_json: draft.contentJson,
         generation_record_id: draft.generationRecordId,
+        ...(confirmedReviewerIds ? { confirmed_reviewer_ids: confirmedReviewerIds } : {}),
       })
       .then((saved) => {
         applyRow(saved);
@@ -579,8 +595,15 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
           key={`${activePrd.id}:draft:${generationHere.startedAt}`}
           prd={draftPrd}
           detail={null}
+          // Owners only, so the reapproval dialog can leave them out of the
+          // reviewer list. A preview keeps detail null so its capabilities
+          // don't turn the editing tools on.
+          owners={prdDetail?.id === activePrd.id ? prdDetail.owners : []}
+          // The dialog reads the org's directory for the reviewer list.
+          organizationId={organization?.organization_id}
+          userId={userId}
           aiDraft={{
-            onAccept: () => acceptDraft(activePrd.id),
+            onAccept: (confirmedReviewerIds) => acceptDraft(activePrd.id, confirmedReviewerIds),
             onDiscard: discardDraft,
             onRegenerate: startGeneration,
           }}
@@ -593,7 +616,9 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       </Suspense>
     );
   }
-  if (screen === "editor" && activePrd?.sections) {
+  // `sections` is null until a PRD has saved content; the editor shows its
+  // empty state for those, so only the PRD itself has to be loaded.
+  if (screen === "editor" && activePrd) {
     return (
       <Suspense fallback={null}>
         <EditorPage
@@ -629,6 +654,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       view={home}
       account={{ email: user, name: userName }}
       organization={organization}
+      recheckOrganization={recheckOrganization}
       userId={userId}
       prds={prds}
       prdsLoaded={prdsLoaded}

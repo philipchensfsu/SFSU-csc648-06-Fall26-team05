@@ -4,6 +4,7 @@ import "../flow/flow.css";
 import "./editor.css";
 import { FlowBar } from "../flow/FlowBar";
 import AskAiPanel from "./AskAiPanel";
+import CommentsPanel from "./CommentsPanel";
 import { isDraftOutOfDate } from "./aiDraft";
 import { ReapprovalDialog } from "./ReapprovalDialog";
 import { ApprovalsCard, YourReviewCard } from "./ReviewPanel";
@@ -30,6 +31,11 @@ const CONFLICT = {
   message: "Load the latest version to keep working. Unsaved edits here will be replaced.",
   conflict: true,
 };
+
+// `reapproving` normally holds the document the server refused, to send
+// again. Accepting an AI draft has no such document, so it holds this
+// instead and the draft is accepted again with the reviewers confirmed.
+const DRAFT_REAPPROVAL = "ai-draft";
 
 // A review is tied to one saved version, so these mean the page is out of date.
 const STALE_REVIEW_CODES = new Set(["stale_revision", "stale_version", "round_not_current"]);
@@ -181,6 +187,8 @@ function EditorPage({
   prd,
   detail,
   onRetryDetail,
+  // The PRD's owners, when `detail` isn't loaded (the AI preview).
+  owners = [],
   organizationId,
   userId,
   exitLabel = "Back to dashboard",
@@ -436,6 +444,23 @@ function EditorPage({
 
   // Sends the refused save again with the confirmed reviewers.
   async function applyReapproval(reviewerIds) {
+    // The AI draft is accepted again with the reviewers confirmed; Prototype
+    // sends them with the save that the server refused.
+    if (reapproving === DRAFT_REAPPROVAL) {
+      try {
+        await aiDraft.onAccept(reviewerIds);
+        setReapproving(null);
+      } catch (error) {
+        setReapproving(null);
+        setAccepting(false);
+        setProblem({
+          title: "Couldn’t accept this draft.",
+          message: error?.message || "Try again.",
+          conflict: error?.status === 409,
+        });
+      }
+      return;
+    }
     try {
       await onSave({
         ...reapproving,
@@ -452,6 +477,14 @@ function EditorPage({
   }
 
   function discardReapproval() {
+    // Discarding an AI draft is the preview's own Discard, not a revert of
+    // edits made here: there are none.
+    if (reapproving === DRAFT_REAPPROVAL) {
+      setReapproving(null);
+      setAccepting(false);
+      aiDraft.onDiscard();
+      return;
+    }
     setDoc(saved);
     cancelEditing();
     setReapproving(null);
@@ -528,6 +561,13 @@ function EditorPage({
       await aiDraft.onAccept();
     } catch (error) {
       setAccepting(false);
+      // Accepting into an approved PRD needs the same confirmation as a hand
+      // edit. There's no document to resend here, only the draft, so the
+      // dialog is opened against DRAFT_REAPPROVAL instead of a document.
+      if (error?.code === "reapproval_required") {
+        setReapproving(DRAFT_REAPPROVAL);
+        return;
+      }
       setProblem(
         isDraftOutOfDate(error)
           ? {
@@ -918,6 +958,20 @@ function EditorPage({
               ) : null}
             </header>
 
+            {doc.sections.length ? null : (
+              // Nothing saved yet: a PRD in review or approved, or one a
+              // viewer opened. The interview is only offered to a draft its
+              // opener can write, so there is nothing to send them to here.
+              <div className="ne-empty ne-empty-doc">
+                <span>This PRD has no content yet.</span>
+                {canEdit ? (
+                  <button type="button" className="ne-link-btn" onClick={openAnswers}>
+                    Answer the interview questions
+                  </button>
+                ) : null}
+              </div>
+            )}
+
             {doc.sections.map((section, index) => {
               const headingId = `${ids}-h-${section.id}`;
               const isEditing = editing === section.id;
@@ -982,7 +1036,7 @@ function EditorPage({
           </article>
         </main>
 
-        <aside className="ne-rail" aria-label="Review and AI">
+        <aside className="ne-rail" aria-label="Review, AI and comments">
           <div className="ne-rail-tabs" role="tablist" aria-label="Side panel">
             <button
               type="button"
@@ -1012,6 +1066,21 @@ function EditorPage({
                 Ask AI
               </button>
             )}
+            {/* Anyone who can view the PRD can read and post comments. Not on
+                an unsaved draft: comments belong to a saved version. */}
+            {aiDraft ? null : (
+              <button
+                type="button"
+                role="tab"
+                id={`${ids}-tab-comments`}
+                aria-selected={railTab === "comments"}
+                aria-controls={`${ids}-panel-comments`}
+                className={`ne-rail-tab${railTab === "comments" ? " is-active" : ""}`}
+                onClick={() => setRailTab("comments")}
+              >
+                Comments
+              </button>
+            )}
           </div>
 
           {aiDraft || split ? null : (
@@ -1023,7 +1092,18 @@ function EditorPage({
               hidden={railTab !== "ai"}
             />
           )}
-          {railTab === "ai" ? null : (
+          {aiDraft ? null : (
+            <CommentsPanel
+              key={prd.id}
+              prd={prd}
+              currentVersionId={detail?.currentVersion?.id ?? null}
+              onRefresh={onRetryDetail}
+              id={`${ids}-panel-comments`}
+              labelledBy={`${ids}-tab-comments`}
+              hidden={railTab !== "comments"}
+            />
+          )}
+          {railTab === "ai" || railTab === "comments" ? null : (
           <div role="tabpanel" id={`${ids}-panel-review`} aria-labelledby={`${ids}-tab-review`}>
           {canApprove ? (
             <YourReviewCard
@@ -1142,7 +1222,7 @@ function EditorPage({
         open={reapproving !== null}
         prdId={prd.id}
         organizationId={organizationId}
-        owners={detail?.owners ?? []}
+        owners={detail?.owners ?? owners}
         userId={userId}
         onApply={applyReapproval}
         onDiscard={discardReapproval}
