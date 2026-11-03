@@ -1475,6 +1475,52 @@
   }
 }
 
+/* --- split view: the chat beside the document ---------------------- */
+/* Opt in from the header. The contents list and the review panel step
+   aside so the two panes get real room, as the split-view design has
+   it; everything they hold is one toggle away. */
+.ne-body.is-split > .ne-outline,
+.ne-body.is-split > .ne-rail {
+  display: none;
+}
+.ne-body.is-split {
+  flex-wrap: nowrap;
+  align-items: stretch;
+}
+.ne-pane-chat {
+  flex: 0 0 42%;
+  min-width: 0;
+  position: sticky;
+  top: 0;
+  max-height: 100vh;
+  padding: 24px 8px 24px 24px;
+  display: flex;
+}
+.ne-body.is-split > .ne-main {
+  flex: 1 1 58%;
+}
+/* The pane's card fills it, so the conversation scrolls, not the page. */
+.ne-chat-standalone {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.ne-chat-standalone .ne-chat-log {
+  max-height: none;
+  flex: 1 1 auto;
+}
+/* Too narrow to sit side by side: the chat goes above the document. */
+@media (max-width: 900px) {
+  .ne-body.is-split {
+    flex-wrap: wrap;
+  }
+  .ne-pane-chat {
+    flex: 1 1 100%;
+    position: static;
+    max-height: none;
+    padding: 24px 16px 0;
+  }
+}
+
 /* --- comments (side panel) --------------------------------------------- */
 .ne-comments {
   display: flex;

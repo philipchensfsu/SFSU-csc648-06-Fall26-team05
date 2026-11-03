@@ -233,6 +233,8 @@ function EditorPage({
   const [reviewChoice, setReviewChoice] = useState(null);
   // The edits an approved PRD refused, waiting on "Your edits need new approval".
   const [reapproving, setReapproving] = useState(null);
+  // Split view: the chat beside the document instead of in the side panel.
+  const [split, setSplit] = useState(false);
   // Goes up when the header's Approve or Request changes is pressed.
   const [reviewJump, setReviewJump] = useState(0);
   const reviewCard = useRef(null);
@@ -519,6 +521,9 @@ function EditorPage({
   }
 
   function jumpToReview(choice) {
+    // Split view hides the side panel, and the review card lives in it, so
+    // close the chat first or this scrolls to something nobody can see.
+    setSplit(false);
     setReviewChoice(choice);
     setRailTab("review");
     setReviewJump((value) => value + 1);
@@ -651,6 +656,25 @@ function EditorPage({
             ) : viewOnly ? (
               <span className="ne-viewonly">View only</span>
             ) : null}
+            {/* Side by side with the chat, as the split-view design. Off by
+                default, so the usual three columns are what you get. Not
+                during an AI preview, which has no chat to put beside it. Not
+                on phones either: the header has no room left for it there, and
+                the chat is a tab away in the side panel. */}
+            {aiDraft ? null : (
+              <button
+                type="button"
+                // Hidden on phones, where the header has no room for it --
+                // but never while the pane is open, or there would be no way
+                // to close it after the window narrows.
+                className={`nw-btn nw-btn-secondary ne-btn-38${split ? "" : " ne-hide-sm"}`}
+                aria-pressed={split}
+                onClick={() => setSplit((on) => !on)}
+              >
+                <IconChat />
+                {split ? "Close chat" : "Ask Nautilus"}
+              </button>
+            )}
             {canShare ? (
               <button type="button" className="nw-btn nw-btn-secondary ne-btn-38" onClick={() => setSharing(true)}>
                 <IconPeople size={16} />
@@ -767,7 +791,15 @@ function EditorPage({
         </div>
       ) : null}
 
-      <div className="ne-body">
+      <div className={`ne-body${split ? " is-split" : ""}`}>
+        {/* Split view drops the contents list and the review panel, as the
+            design does, so the chat and the document each get real room.
+            Everything they hold is a toggle away. */}
+        {split ? (
+          <section className="ne-pane-chat" aria-label="Ask Nautilus">
+            <AskAiPanel key={prd.id} prd={prd} standalone />
+          </section>
+        ) : null}
         <nav aria-label="PRD sections" className="ne-outline">
           <button type="button" className="ne-outline-link" onClick={() => guard(onExit)}>
             <IconBack />
@@ -1029,7 +1061,7 @@ function EditorPage({
             {/* Anyone who can view the PRD may ask (Decision 5). can_request_ai
                 is for the AI actions that change it. Not on an unsaved draft,
                 since the chat reads the saved PRD. */}
-            {aiDraft ? null : (
+            {aiDraft || split ? null : (
               <button
                 type="button"
                 role="tab"
@@ -1059,9 +1091,11 @@ function EditorPage({
             )}
           </div>
 
-          {aiDraft ? null : (
+          {/* Distinct keys: these panels are siblings, and a shared key keeps a
+              stale chat behind when split view takes it out of the rail. */}
+          {aiDraft || split ? null : (
             <AskAiPanel
-              key={prd.id}
+              key={`ai-${prd.id}`}
               prd={prd}
               id={`${ids}-panel-ai`}
               labelledBy={`${ids}-tab-ai`}
@@ -1070,7 +1104,7 @@ function EditorPage({
           )}
           {aiDraft ? null : (
             <CommentsPanel
-              key={prd.id}
+              key={`comments-${prd.id}`}
               prd={prd}
               currentVersionId={detail?.currentVersion?.id ?? null}
               onRefresh={onRetryDetail}
