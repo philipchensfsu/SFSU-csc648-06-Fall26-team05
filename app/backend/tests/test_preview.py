@@ -58,6 +58,9 @@ class FakeUserClient:
             "prd_context": [],
         }
         self.editable = editable
+        # An approved PRD and a caller who isn't an owner: edit access, but
+        # the save (and so generation) is refused.
+        self.approved_not_owner = False
         self.admit = admit or {"lease_id": LEASE, "refused": None, "retry_after": None}
         self.calls = []
 
@@ -66,7 +69,8 @@ class FakeUserClient:
 
     def rpc(self, name, params):
         self.calls.append(name)
-        data = {"can_edit_prd": self.editable, "ai_admit": [self.admit], "ai_release": True}[name]
+        data = {"can_edit_prd": self.editable, "ai_admit": [self.admit], "ai_release": True,
+                "prd_capabilities": {"can_edit": self.editable and not self.approved_not_owner}}[name]
         return SimpleNamespace(execute=lambda: SimpleNamespace(data=data))
 
 
@@ -169,6 +173,7 @@ def test_preview_changes_nothing_in_the_prd():
 @pytest.mark.parametrize("setup, status, code", [
     (lambda u: u.tables.__setitem__("prd", []), 404, "not_found"),
     (lambda u: setattr(u, "editable", False), 403, "forbidden"),
+    (lambda u: setattr(u, "approved_not_owner", True), 403, "owner_required"),
 ])
 def test_access_is_checked_before_anything_else(setup, status, code):
     user = FakeUserClient()

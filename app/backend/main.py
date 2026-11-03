@@ -18,7 +18,7 @@ from supabase_auth.errors import AuthError, AuthRetryableError
 
 import prd_save
 import prd_versions
-from ai import chat, classification, preview, review_suggestion, section_edit, usage_gate
+from ai import chat, chat_revision, classification, preview, review_suggestion, section_edit, usage_gate
 from errors import ApiError, logger, register_error_handlers
 from pagination import Page, PageParams, paginate
 from supabase_client import supabase, user_client
@@ -200,6 +200,13 @@ class AiEditRequest(RequestModel):
     section_type: str
     instruction: str = Field(..., min_length=1, max_length=section_edit.MAX_INSTRUCTION_CHARS)
     # The same recent turns as the chat (browser memory, this PRD only).
+    session_messages: list[ChatMessage] = Field(default_factory=list, max_length=chat.MAX_HISTORY_MESSAGES)
+
+
+class AiRevisionRequest(RequestModel):
+    revision: int = Field(..., ge=1)
+    # What to change, read together with the recent conversation.
+    instruction: str = Field(..., min_length=1, max_length=chat_revision.MAX_INSTRUCTION_CHARS)
     session_messages: list[ChatMessage] = Field(default_factory=list, max_length=chat.MAX_HISTORY_MESSAGES)
 
 
@@ -1536,6 +1543,20 @@ def request_ai_edit(prd_id: UUID, payload: AiEditRequest, auth=Depends(get_curre
         auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
         section_type=payload.section_type, instruction=payload.instruction,
         session_messages=[m.model_dump() for m in payload.session_messages], budget=usage_gate.RequestBudget(),
+    )
+
+
+# Conversational revision across sections: needs the right to save a
+# change (owners only once approved); returns a staged proposal to compare,
+# never saves. Accept the whole proposal through the normal save with its
+# generation_record_id, without title or description. Om's scope check runs
+# on the instruction with the conversation.
+@app.post("/api/prds/{prd_id}/ai-revisions")
+def request_ai_revision(prd_id: UUID, payload: AiRevisionRequest, auth=Depends(get_current_user)):
+    return chat_revision.propose_revision(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
+        instruction=payload.instruction, session_messages=[m.model_dump() for m in payload.session_messages],
+        budget=usage_gate.RequestBudget(),
     )
 
 
