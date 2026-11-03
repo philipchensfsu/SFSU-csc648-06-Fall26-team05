@@ -361,3 +361,18 @@ def test_without_oms_modules_an_instruction_is_unavailable_but_comments_alone_wo
         call("Keep it short.")
     assert (info.value.status_code, info.value.code) == (503, "ai_chat_unavailable")
     assert call(None)["proposal"]["section_types"] == ["goals", "risks"]
+
+
+def test_a_section_returned_exactly_as_saved_isnt_suggested_or_marked(cast, db, service):
+    saved_goals = copy.deepcopy(next(s for s in DOC["content"] if s["attrs"]["type"] == "goals"))
+    model = Model({"sections": [saved_goals, RISKS], "explanation": "Kept the goals; added the budget risk."})
+    body = suggest(cast["owner"], cast, service, model)
+    assert body["proposal"]["section_types"] == ["risks"]
+    assert [s["attrs"]["type"] for s in body["proposal"]["sections"]] == ["risks"]
+
+    saved = save_prd(service, verified(service, cast["owner"]), cast["prd"], 2,
+                     content_json=body["proposal"]["content_json"], origin="ai_generated",
+                     generation_record_id=body["generation_record_id"])
+    by_type = {s["attrs"]["type"]: s for s in saved["content_json"]["content"]}
+    assert by_type["goals"] == saved_goals  # the person's own text, unmarked
+    assert body["generation_record_id"] in json.dumps(by_type["risks"])

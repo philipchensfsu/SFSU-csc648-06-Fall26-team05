@@ -167,7 +167,12 @@ def propose_review_suggestion(user_client, service_client, *, actor_id, prd_id: 
         except AIError as exc:
             _record_failure(service_client, actor_id, prd_id, revision, calls, exc.code)
             raise
-        proposal = {"section_types": [s["attrs"]["type"] for s in sections], "sections": sections,
+        # Only sections that differ from the saved PRD are suggestions: one the
+        # model returned exactly as saved leaves the scope, so accepting it
+        # doesn't mark the person's own text as AI-written (as in /ai-revisions).
+        saved_by_type = {s["attrs"]["type"]: s for s in document.get("content", [])}
+        changed = [s for s in sections if saved_by_type.get(s["attrs"]["type"]) != s]
+        proposal = {"section_types": [s["attrs"]["type"] for s in changed], "sections": changed,
                     "content_json": merged}
         _require_owner(user_client, prd_id)  # still an owner after the model call
         # Rechecks edit access and the revision under the PRD lock.

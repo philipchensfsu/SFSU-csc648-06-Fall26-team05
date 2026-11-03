@@ -430,3 +430,27 @@ def test_route_passes_the_pending_proposal_on(api, monkeypatch):
     r = client.post(f"/api/prds/{PRD}/ai-revisions",
                     json={"revision": 4, "instruction": "x", "previous_generation_record_id": "not-an-id"})
     assert r.status_code == 422
+
+
+# --- only real changes stay in scope ------------------------------------------------
+
+def saved_section(section_type):
+    return copy.deepcopy(next(s for s in DOC["content"] if s["attrs"]["type"] == section_type))
+
+
+def test_a_section_returned_exactly_as_saved_isnt_a_change():
+    service = FakeService()
+    body = revise(FakeUserClient(), service, model(reply={
+        "sections": [saved_section("goals"), NEW_METRICS], "explanation": "Kept the goals, changed the metric."}))
+    assert body["proposal"]["section_types"] == ["success_metrics"]
+    assert [s["attrs"]["type"] for s in body["proposal"]["sections"]] == ["success_metrics"]
+
+
+def test_an_adjustment_that_puts_a_section_back_takes_it_out_of_scope():
+    # The pending proposal changed goals; this adjustment restores the saved
+    # goals and adds a risk. Accepting must not mark the restored goals as AI.
+    service = AdjustService(pending_row())
+    body = adjust(OwnerAwareUser(), service, model(reply={
+        "sections": [saved_section("goals"), NEW_RISKS], "explanation": "Restored the goals, added a risk."}))
+    assert body["proposal"]["section_types"] == ["risks"]
+    assert body["proposal"]["content_json"]["content"] == merge_section(DOC, NEW_RISKS)["content"]
