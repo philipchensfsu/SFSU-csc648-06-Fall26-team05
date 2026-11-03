@@ -167,7 +167,25 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
             raise  # the shared S01 handler turns it into a safe 4xx/500
         status, detail, code = known
         raise SaveError(status, detail, code) from None
-    return response.data
+    return _with_review_status(service_client, prd_id, response.data)
+
+
+def _with_review_status(service_client, prd_id, row):
+    """save_prd captures the row it returns before E09 changes the review
+    state, so its status can be out of date: an owner's confirmed edit to an
+    approved PRD opens a new round (final -> in_review), and an edit during
+    an open round can end it (in_review -> draft: the edit emptied the PRD,
+    or no reviewer can still take part). A draft's save changes no review,
+    so only other saves read the status again. It's used only while the
+    revision is still this save's: a later save by someone else must not come
+    back as this one's result, or the client would build on a revision it
+    never saw."""
+    if not isinstance(row, dict) or row.get("status") in (None, "draft"):
+        return row  # nothing to correct
+    fresh = (service_client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data or [None])[0]
+    if fresh and fresh["revision"] == row.get("revision"):
+        return {**row, "status": fresh["status"]}
+    return row
 
 
 def verified_actor_id(verified_user) -> str:
