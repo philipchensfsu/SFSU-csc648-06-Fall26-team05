@@ -8,7 +8,13 @@ import EditorPage from "./EditorPage";
 import { api } from "../../../../lib/api";
 
 vi.mock("../../../../lib/api", () => ({
-  api: { getDirectory: vi.fn(), listReviews: vi.fn(), chatAboutPrd: vi.fn() },
+  api: {
+    getDirectory: vi.fn(),
+    listReviews: vi.fn(),
+    chatAboutPrd: vi.fn(),
+    // The Comments tab (#133) loads its list when the editor opens.
+    listPrdComments: vi.fn().mockResolvedValue({ items: [] }),
+  },
 }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;

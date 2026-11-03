@@ -1083,9 +1083,11 @@ function EditorPage({
             )}
           </div>
 
+          {/* Distinct keys: these panels are siblings, and a shared key keeps a
+              stale chat behind when split view takes it out of the rail. */}
           {aiDraft || split ? null : (
             <AskAiPanel
-              key={prd.id}
+              key={`ai-${prd.id}`}
               prd={prd}
               id={`${ids}-panel-ai`}
               labelledBy={`${ids}-tab-ai`}
@@ -1094,7 +1096,7 @@ function EditorPage({
           )}
           {aiDraft ? null : (
             <CommentsPanel
-              key={prd.id}
+              key={`comments-${prd.id}`}
               prd={prd}
               currentVersionId={detail?.currentVersion?.id ?? null}
               onRefresh={onRetryDetail}
