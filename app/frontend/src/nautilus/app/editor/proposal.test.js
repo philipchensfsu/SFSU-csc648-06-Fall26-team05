@@ -5,6 +5,7 @@ import {
   describeProposalError,
   mustAskAgain,
   needsReapproval,
+  requestAdjustment,
   requestFeedbackRevision,
   requestRevision,
   sessionMessagesFrom,
@@ -114,6 +115,54 @@ describe("requestFeedbackRevision", () => {
       code: "stale_revision",
     });
     expect(api.requestReviewSuggestion).not.toHaveBeenCalled();
+  });
+});
+
+describe("requestAdjustment", () => {
+  const pending = {
+    baseRevision: 4,
+    generationRecordId: "rec-1",
+    originalDocument: saved,
+    proposedDocument: proposed,
+    sectionTypes: ["goals"],
+    explanation: "First try.",
+    feedbackIds: ["c1"],
+  };
+
+  it("revises the pending proposal against the same saved PRD", async () => {
+    const adjusted = { type: "doc", content: [] };
+    const api = fakeApi({
+      requestAiRevision: vi.fn().mockResolvedValue({
+        kind: "proposal",
+        message: "Kept the goals, added a risk.",
+        proposal: { section_types: ["goals", "risks"], sections: [], content_json: adjusted },
+        base_revision: 4,
+        generation_record_id: "rec-2",
+      }),
+    });
+    const result = await requestAdjustment(api, "p1", pending, { instruction: "Add a risk", sessionMessages: [] });
+    expect(api.requestAiRevision).toHaveBeenCalledWith("p1", {
+      revision: 4,
+      instruction: "Add a risk",
+      sessionMessages: [],
+      previousGenerationRecordId: "rec-1",
+    });
+    expect(api.getPrd).not.toHaveBeenCalled(); // the baseline stays the one the proposal was made from
+    expect(result.proposal).toEqual({
+      ...pending,
+      generationRecordId: "rec-2",
+      proposedDocument: adjusted,
+      sectionTypes: ["goals", "risks"],
+      explanation: "Kept the goals, added a risk.",
+    });
+  });
+
+  it("passes on a refusal, leaving the proposal as it was", async () => {
+    const api = fakeApi({ requestAiRevision: vi.fn().mockResolvedValue({ kind: "blocked", message: "Only this PRD." }) });
+    expect(await requestAdjustment(api, "p1", pending, { instruction: "x" })).toEqual({
+      kind: "blocked",
+      message: "Only this PRD.",
+    });
   });
 });
 

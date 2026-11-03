@@ -11,7 +11,12 @@ import { api } from "../../lib/api";
 import { startsInInterview } from "../nautilus/app/format";
 import { describeGenerationError, isAiUnavailable } from "../nautilus/app/editor/aiDraft";
 import { chatMessages, updateChatLog } from "../nautilus/app/editor/chatLog";
-import { acceptProposal, requestFeedbackRevision, requestRevision } from "../nautilus/app/editor/proposal";
+import {
+  acceptProposal,
+  requestAdjustment,
+  requestFeedbackRevision,
+  requestRevision,
+} from "../nautilus/app/editor/proposal";
 import Workspace from "../nautilus/app/Workspace";
 import CreatePrdPage from "../nautilus/app/flow/CreatePrdPage";
 import InterviewPage from "../nautilus/app/flow/InterviewPage";
@@ -568,6 +573,15 @@ function Prototype({
     return result;
   }
 
+  // Request adjustments to the open proposal: the adjusted one replaces it,
+  // compared with the same saved PRD.
+  async function adjustAiProposal(id, instruction, sessionMessages) {
+    if (aiProposal?.prdId !== id) throw new Error("This proposal is no longer open.");
+    const result = await requestAdjustment(api, id, aiProposal, { instruction, sessionMessages });
+    if (result.kind === "proposal") openProposal(id, result.proposal);
+    return result;
+  }
+
   // Saves the whole proposal: the server's document as sent, never title or
   // description (editor/proposal.js). The editor then remounts with the saved
   // PRD; the conversation stays.
@@ -721,6 +735,7 @@ function Prototype({
           }
           onAcceptProposal={(confirmedReviewerIds) => acceptAiProposal(activePrd.id, confirmedReviewerIds)}
           onDiscardProposal={() => setAiProposal(null)}
+          onAdjustProposal={(instruction, sessionMessages) => adjustAiProposal(activePrd.id, instruction, sessionMessages)}
           onReload={() => reloadPrd(activePrd.id)}
           onOpenAnswers={() => openAnswers(activePrd.id)}
           onExit={() => showHome({ page: "dashboard" })}

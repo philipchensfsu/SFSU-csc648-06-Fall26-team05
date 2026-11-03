@@ -281,3 +281,152 @@ def test_route_validates_the_body(api, body):
     client, user = api
     r = client.post(f"/api/prds/{PRD}/ai-revisions", json=body)
     assert r.status_code == 422 and user.calls == []
+
+
+# --- request adjustments (previous_generation_record_id) ------------------------
+
+PARENT = "44444444-4444-4444-8444-444444444444"
+NEW_RISKS = {"type": "section", "attrs": {"type": "risks"}, "content": [
+    {"type": "paragraph", "content": [{"type": "text", "text": "Low adoption in the first month."}]}]}
+
+
+def pending_row(**overrides):
+    proposed = merge_section(DOC, NEW_GOALS)
+    row = {"id": "pp-1", "prd_id": PRD, "requester_id": ACTOR, "kind": "ai_revision", "base_revision": 4,
+           "status": "pending", "expires_at": "2999-01-01T00:00:00+00:00",
+           "content": {"section_types": ["goals"], "sections": [NEW_GOALS], "content_json": proposed}}
+    row.update(overrides)
+    return row
+
+
+class AdjustService(FakeService):
+    """Serves the pending proposal and records retiring it."""
+
+    def __init__(self, row=None, outcome="staged"):
+        super().__init__(outcome)
+        self.row, self.retired = row, []
+
+    def table(self, name):
+        assert name == "ai_proposal"
+        rows = [self.row] if self.row else []
+        query = SimpleNamespace(execute=lambda: SimpleNamespace(data=copy.deepcopy(rows)))
+        query.select = lambda *_: query
+        query.eq = lambda *_: query
+        return query
+
+    def rpc(self, name, params):
+        if name == "ai_reject_proposal":
+            self.retired.append(params["p_proposal_id"])
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data="rejected"))
+        return super().rpc(name, params)
+
+
+class OwnerAwareUser(FakeUserClient):
+    def __init__(self, owner=True, **kwargs):
+        super().__init__(**kwargs)
+        self.owner = owner
+
+    def rpc(self, name, params):
+        if name == "is_prd_owner":
+            self.calls.append(name)
+            return SimpleNamespace(execute=lambda: SimpleNamespace(data=self.owner))
+        return super().rpc(name, params)
+
+
+def adjust(user, service, call_model, **kwargs):
+    return chat_revision.propose_revision(
+        user, service, actor_id=ACTOR, prd_id=PRD, revision=kwargs.pop("revision", 4),
+        instruction="Also add the adoption risk.", session_messages=[],
+        previous_generation_record_id=PARENT, modules=modules(), call_model=call_model, **kwargs)
+
+
+def test_an_adjustment_revises_the_pending_proposal_and_keeps_every_change():
+    service, call_model = AdjustService(pending_row()), model(reply={"sections": [NEW_RISKS], "explanation": "Added it."})
+    body = adjust(OwnerAwareUser(), service, call_model)
+    proposal = body["proposal"]
+    # Goals came from the pending proposal, risks from this request: both stay in scope.
+    assert proposal["section_types"] == ["goals", "risks"]
+    assert [s["attrs"]["type"] for s in proposal["sections"]] == ["goals", "risks"]
+    expected = {"goals": NEW_GOALS, "risks": NEW_RISKS}
+    for old, new in zip(DOC["content"], proposal["content_json"]["content"]):
+        assert new == expected.get(old["attrs"]["type"], old)
+    [rec] = service.records
+    assert (rec["p_proposal_kind"], rec["p_base_revision"]) == ("ai_revision", 4)
+    assert rec["p_prompt_version"] == chat_revision.ADJUST_PROMPT_VERSION
+    data = json.loads(call_model.calls[1]["prompt"])
+    assert data["proposed_document"] == merge_section(DOC, NEW_GOALS) and data["proposed_section_types"] == ["goals"]
+    assert call_model.calls[1]["system_instruction"] == chat_revision.ADJUST_SYSTEM_INSTRUCTION
+    assert service.retired == ["pp-1"]  # the old proposal can't be accepted any more
+
+
+def test_a_section_edit_can_be_adjusted_into_a_revision():
+    row = pending_row(kind="ai_edit", content={"section_type": "goals", "section": NEW_GOALS,
+                                               "content_json": merge_section(DOC, NEW_GOALS)})
+    service = AdjustService(row)
+    body = adjust(OwnerAwareUser(), service, model(reply={"sections": [NEW_RISKS], "explanation": "Added it."}))
+    assert body["proposal"]["section_types"] == ["goals", "risks"]
+    assert service.records[0]["p_proposal_kind"] == "ai_revision"
+
+
+def test_a_feedback_proposal_stays_one_and_stays_owner_only():
+    row = pending_row(kind="review_suggestion", content={**pending_row()["content"], "feedback_ids": ["c1"]})
+    service = AdjustService(row)
+    body = adjust(OwnerAwareUser(), service, model(reply={"sections": [NEW_RISKS], "explanation": "Added it."}))
+    rec = service.records[0]
+    assert rec["p_proposal_kind"] == "review_suggestion" and rec["p_proposal_content"]["feedback_ids"] == ["c1"]
+    assert body["proposal"]["section_types"] == ["goals", "risks"]
+
+    user, service, call_model = OwnerAwareUser(owner=False), AdjustService(row), model()
+    with pytest.raises(ApiError) as info:
+        adjust(user, service, call_model)
+    assert (info.value.status_code, info.value.code) == (403, "owner_required")
+    assert call_model.calls == [] and service.records == [] and "ai_admit" not in user.calls
+
+
+@pytest.mark.parametrize("row", [
+    None,  # no such proposal
+    pending_row(requester_id="55555555-5555-4555-8555-555555555555"),  # someone else's
+    pending_row(prd_id="66666666-6666-4666-8666-666666666666"),  # another PRD's
+    pending_row(status="accepted"),
+    pending_row(status="rejected"),
+    pending_row(expires_at="2000-01-01T00:00:00+00:00"),
+    pending_row(kind="generate"),  # a whole draft isn't adjusted this way
+])
+def test_only_your_own_pending_proposal_can_be_adjusted(row):
+    user, service, call_model = OwnerAwareUser(), AdjustService(row), model()
+    with pytest.raises(ApiError) as info:
+        adjust(user, service, call_model)
+    assert (info.value.status_code, info.value.code) == (409, "proposal_unavailable")
+    assert call_model.calls == [] and service.records == [] and "ai_admit" not in user.calls
+
+
+def test_the_original_revision_stays_the_base():
+    user, service, call_model = OwnerAwareUser(), AdjustService(pending_row(base_revision=3)), model()
+    with pytest.raises(ApiError) as info:
+        adjust(user, service, call_model)
+    assert info.value.code == "stale_revision"
+    assert call_model.calls == [] and service.records == []
+
+
+def test_accepting_an_adjustment_covers_every_section_it_changed():
+    service = AcceptService()
+    merged = proposed_document()
+    merged = merge_section(merged, NEW_RISKS)
+    service.proposal["content"] = {"section_types": ["goals", "success_metrics", "risks"],
+                                   "sections": [NEW_GOALS, NEW_METRICS, NEW_RISKS], "content_json": merged}
+    accept(service, copy.deepcopy(merged))
+    assert marked(service.calls[0]["p_content_json"]) == ["goals", "success_metrics", "risks"]
+
+
+def test_route_passes_the_pending_proposal_on(api, monkeypatch):
+    client, _ = api
+    seen = {}
+    monkeypatch.setattr(chat_revision, "propose_revision",
+                        lambda *a, **k: seen.update(k) or {"kind": "blocked", "message": "x", "proposal": None,
+                                                           "base_revision": 4, "generation_record_id": RECORD})
+    r = client.post(f"/api/prds/{PRD}/ai-revisions",
+                    json={"revision": 4, "instruction": "x", "previous_generation_record_id": PARENT})
+    assert r.status_code == 200 and seen["previous_generation_record_id"] == PARENT
+    r = client.post(f"/api/prds/{PRD}/ai-revisions",
+                    json={"revision": 4, "instruction": "x", "previous_generation_record_id": "not-an-id"})
+    assert r.status_code == 422

@@ -199,7 +199,8 @@ function LeaveDraftDialog({ open, onStay, onDiscard, proposal = false }) {
 // `onRequestFeedbackProposal(commentIds, instruction)` (review suggestions).
 // While `proposal` is set, the page shows the saved PRD
 // beside it instead of the editor; `onAcceptProposal(confirmedReviewerIds?)`
-// saves it and `onDiscardProposal()` drops it.
+// saves it and `onDiscardProposal()` drops it. `onAdjustProposal(instruction,
+// sessionMessages)` asks for changes to it first (Request adjustments).
 function EditorPage({
   prd,
   detail,
@@ -218,6 +219,7 @@ function EditorPage({
   onRequestFeedbackProposal,
   onAcceptProposal,
   onDiscardProposal,
+  onAdjustProposal,
   onSubmitReview,
   onDecideReview,
   onReload,
@@ -263,6 +265,7 @@ function EditorPage({
   const [proposing, setProposing] = useState(false);
   const [proposeError, setProposeError] = useState(null);
   const [proposalProblem, setProposalProblem] = useState(null); // { message, askAgain }
+  const [adjusting, setAdjusting] = useState(false);
   // Goes up when the header's Approve or Request changes is pressed.
   const [reviewJump, setReviewJump] = useState(0);
   const reviewCard = useRef(null);
@@ -701,6 +704,29 @@ function EditorPage({
     }
   }
 
+  // Request adjustments: the comparison keeps its "current" side and the
+  // proposal is replaced by the adjusted one. The request and the reply join
+  // the conversation. A refusal or clarification is shown in the form with
+  // the request kept (this rejects); a proposal that can't be used any more
+  // gets the same notice as on accept.
+  async function adjustProposal(instruction) {
+    setAdjusting(true);
+    setProposalProblem(null);
+    try {
+      const result = await onAdjustProposal(instruction, sessionMessagesFrom(chat));
+      setChat?.((log) => [...log, { from: "you", text: instruction }, { from: "ai", kind: result.kind, text: result.message }]);
+      if (result.kind !== "proposal") throw new Error(result.message);
+    } catch (error) {
+      if (mustAskAgain(error)) {
+        setProposalProblem({ message: describeProposalError(error), askAgain: true });
+        return;
+      }
+      throw error?.code ? new Error(describeProposalError(error), { cause: error }) : error;
+    } finally {
+      setAdjusting(false);
+    }
+  }
+
   // Back to the PRD without the proposal. After a conflict the latest
   // version is loaded too, so asking again starts from it. The conversation
   // stays either way.
@@ -931,6 +957,8 @@ function EditorPage({
             explanation={proposal.explanation}
             busy={accepting}
             onAccept={acceptProposal}
+            onAdjust={onAdjustProposal ? adjustProposal : undefined}
+            adjusting={adjusting}
             onDiscard={() => leaveProposal()}
             notice={
               proposalProblem ? (

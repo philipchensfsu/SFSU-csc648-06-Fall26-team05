@@ -208,6 +208,9 @@ class AiRevisionRequest(RequestModel):
     # What to change, read together with the recent conversation.
     instruction: str = Field(..., min_length=1, max_length=chat_revision.MAX_INSTRUCTION_CHARS)
     session_messages: list[ChatMessage] = Field(default_factory=list, max_length=chat.MAX_HISTORY_MESSAGES)
+    # Request adjustments: the pending proposal to revise (its
+    # generation_record_id). The server loads it; nothing comes from the browser.
+    previous_generation_record_id: Optional[UUID] = None
 
 
 class ReviewSuggestionRequest(RequestModel):
@@ -1556,6 +1559,8 @@ def request_ai_revision(prd_id: UUID, payload: AiRevisionRequest, auth=Depends(g
     return chat_revision.propose_revision(
         auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
         instruction=payload.instruction, session_messages=[m.model_dump() for m in payload.session_messages],
+        previous_generation_record_id=(None if payload.previous_generation_record_id is None
+                                       else str(payload.previous_generation_record_id)),
         budget=usage_gate.RequestBudget(),
     )
 

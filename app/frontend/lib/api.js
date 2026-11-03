@@ -96,10 +96,16 @@ export const api = {
 
   // One proposal across the PRD from the chat (Marco, #138). Nothing is
   // saved; accept it through updatePrd (see editor/proposal.js).
-  requestAiRevision: (prdId, { revision, instruction, sessionMessages = [] }) =>
+  // With previousGenerationRecordId, adjusts that pending proposal instead.
+  requestAiRevision: (prdId, { revision, instruction, sessionMessages = [], previousGenerationRecordId }) =>
     request(`/prds/${prdId}/ai-revisions`, {
       method: "POST",
-      body: JSON.stringify({ revision, instruction, session_messages: sessionMessages }),
+      body: JSON.stringify({
+        revision,
+        instruction,
+        session_messages: sessionMessages,
+        ...(previousGenerationRecordId ? { previous_generation_record_id: previousGenerationRecordId } : {}),
+      }),
     }),
 
   // One proposal addressing chosen comments on the current version (E12,

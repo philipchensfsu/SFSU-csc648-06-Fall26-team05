@@ -72,6 +72,7 @@ async function show(props = {}) {
     onRequestFeedbackProposal: vi.fn().mockResolvedValue(),
     onAcceptProposal: vi.fn().mockResolvedValue(),
     onDiscardProposal: vi.fn(),
+    onAdjustProposal: vi.fn(),
     onReload: vi.fn().mockResolvedValue(),
   };
   host = document.createElement("div");
@@ -329,5 +330,49 @@ describe("addressing review comments", () => {
     await click(buttonNamed("Propose changes (1)"));
     expect(handlers.onRequestFeedbackProposal).not.toHaveBeenCalled();
     expect(host.querySelector(".ne-comments").textContent).toContain("Save your edits first");
+  });
+});
+
+describe("requesting adjustments", () => {
+  async function requestAdjustment(text) {
+    await click(buttonNamed("Request adjustments"));
+    await typeInto(host.querySelector(".nc-adjust textarea"), text);
+    await click(buttonNamed("Adjust proposal"));
+  }
+
+  it("asks for changes to the proposal and adds them to the conversation", async () => {
+    await show({ proposal });
+    handlers.onAdjustProposal.mockResolvedValue({ kind: "proposal", message: "Kept the goals, added a risk." });
+    await requestAdjustment("Keep the goals as they were");
+    expect(handlers.onAdjustProposal).toHaveBeenCalledWith("Keep the goals as they were", []);
+    expect(host.querySelector(".nc-adjust")).toBeNull(); // done: the form closes
+    expect(handlers.onAcceptProposal).not.toHaveBeenCalled();
+  });
+
+  it("shows a refusal in the form and keeps what was typed", async () => {
+    await show({ proposal });
+    handlers.onAdjustProposal.mockResolvedValue({ kind: "blocked", message: "I can only help with this PRD." });
+    await requestAdjustment("Write me a poem");
+    expect(host.querySelector(".nc-adjust").textContent).toContain("I can only help with this PRD.");
+    expect(host.querySelector(".nc-adjust textarea").value).toBe("Write me a poem");
+  });
+
+  it("explains a proposal that can't be adjusted any more", async () => {
+    await show({ proposal });
+    handlers.onAdjustProposal.mockRejectedValue(apiError(409, "proposal_unavailable"));
+    await requestAdjustment("Keep the goals");
+    expect(host.textContent).toContain("This proposal expired or was already used");
+    expect(buttonNamed("Back to the PRD")).toBeDefined();
+  });
+
+  it("holds Accept and Discard while adjusting", async () => {
+    await show({ proposal });
+    let finish;
+    handlers.onAdjustProposal.mockReturnValue(new Promise((resolve) => (finish = resolve)));
+    await requestAdjustment("Keep the goals");
+    expect(buttonNamed("Accept changes").disabled).toBe(true);
+    expect(buttonNamed("Discard").disabled).toBe(true);
+    await act(async () => finish({ kind: "proposal", message: "Done." }));
+    expect(buttonNamed("Accept changes").disabled).toBe(false);
   });
 });
