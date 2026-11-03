@@ -2,9 +2,15 @@
 // The read-only preview of an unsaved AI draft, and what its errors say.
 import { act } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { describeGenerationError, isAiUnavailable, isDraftOutOfDate } from "./aiDraft";
 import EditorPage from "./EditorPage";
+import { api } from "../../../../lib/api";
+
+// Opening the reapproval dialog loads the org directory and last round.
+vi.mock("../../../../lib/api", () => ({
+  api: { getDirectory: vi.fn(), listReviews: vi.fn() },
+}));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom doesn't implement the native dialog.
@@ -43,6 +49,8 @@ async function show(aiDraft) {
       <EditorPage
         prd={prd}
         detail={null}
+        organizationId="org"
+        userId="alice"
         aiDraft={{ onAccept: vi.fn().mockResolvedValue(), onDiscard: vi.fn(), onRegenerate: vi.fn(), ...aiDraft }}
         onSave={vi.fn()}
         onReload={vi.fn()}
@@ -145,5 +153,47 @@ describe("generation errors", () => {
     expect(isDraftOutOfDate({ code: "proposal_unavailable" })).toBe(true);
     expect(isDraftOutOfDate({ code: "stale_revision" })).toBe(true);
     expect(isDraftOutOfDate({ code: "invalid_document" })).toBe(false);
+  });
+});
+
+describe("accepting into an approved PRD", () => {
+  const refused = () => Object.assign(new Error("This PRD is approved."), {
+    status: 409,
+    code: "reapproval_required",
+  });
+
+  beforeEach(() => {
+    api.getDirectory.mockResolvedValue({
+      organization: { id: "org", name: "Campus Apps" },
+      members: [{ user_id: "ben", name: "Ben PM" }],
+    });
+    api.listReviews.mockResolvedValue({ items: [{ reviewers: [{ user_id: "ben" }] }] });
+  });
+
+  it("asks who reviews it again instead of leaving a dead end", async () => {
+    const onAccept = vi.fn().mockRejectedValueOnce(refused());
+    await show({ onAccept });
+    await click(buttonNamed("Accept draft"));
+    expect(host.textContent).toContain("Your edits need new approval");
+    expect(api.getDirectory).toHaveBeenCalledWith("org");
+    expect(host.textContent).not.toContain("Couldn’t accept this draft.");
+  });
+
+  it("accepts again with the confirmed reviewers", async () => {
+    const onAccept = vi.fn().mockRejectedValueOnce(refused()).mockResolvedValueOnce();
+    await show({ onAccept });
+    await click(buttonNamed("Accept draft"));
+    await click(buttonNamed("Apply edits"));
+    expect(onAccept).toHaveBeenCalledTimes(2);
+    expect(onAccept.mock.calls[1][0]).toEqual(["ben"]);
+  });
+
+  it("discarding from the dialog discards the draft", async () => {
+    const onAccept = vi.fn().mockRejectedValueOnce(refused());
+    const onDiscard = vi.fn();
+    await show({ onAccept, onDiscard });
+    await click(buttonNamed("Accept draft"));
+    await click(buttonNamed("Discard edits"));
+    expect(onDiscard).toHaveBeenCalled();
   });
 });
