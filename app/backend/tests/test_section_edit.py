@@ -55,6 +55,9 @@ class FakeUserClient:
             "intake_answer": [], "prd_context": [],
         }
         self.editable, self.calls = editable, []
+        # Approved, and the caller isn't an owner: edit access, but the save
+        # would refuse, so no proposal either.
+        self.approved_not_owner = False
 
     def table(self, name):
         return Query(self, name)
@@ -62,6 +65,7 @@ class FakeUserClient:
     def rpc(self, name, params):
         self.calls.append(name)
         data = {"can_edit_prd": self.editable, "ai_release": True,
+                "prd_capabilities": {"can_edit": self.editable and not self.approved_not_owner},
                 "ai_admit": [{"lease_id": "l", "refused": None, "retry_after": None}]}[name]
         return SimpleNamespace(execute=lambda: SimpleNamespace(data=data))
 
@@ -162,6 +166,7 @@ def test_out_of_scope_requests_get_no_proposal(verdict, kind):
 
 @pytest.mark.parametrize("setup, kwargs, status, code", [
     (lambda u: setattr(u, "editable", False), {}, 403, "forbidden"),
+    (lambda u: setattr(u, "approved_not_owner", True), {}, 403, "owner_required"),
     (lambda u: None, {"revision": 3}, 409, "stale_revision"),
     (lambda u: None, {"section": "appendix"}, 422, "validation_error"),
     (lambda u: u.tables["prd"][0].update(content_json={"sections": []}, doc_schema_version=1), {}, 409,
