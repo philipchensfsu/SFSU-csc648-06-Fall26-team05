@@ -25,7 +25,15 @@ const EditorPage = lazy(() => import("../nautilus/app/editor/EditorPage"));
 // App renders this workspace only after Supabase confirms a signed-in user
 // who is in an organization (OrgGate). `userName` and `userId` come from that
 // session; `organization` is { organization_id, name, access_role }.
-function Prototype({ initialUser = null, userName = "", userId = null, organization = null, onNoOrganization, onLogOut }) {
+function Prototype({
+  initialUser = null,
+  userName = "",
+  userId = null,
+  organization = null,
+  onNoOrganization,
+  recheckOrganization,
+  onLogOut,
+}) {
   const user = initialUser;
   const [screen, setScreen] = useState("dashboard");
   // Which workspace page the "dashboard" screen shows: { page: "dashboard" },
@@ -646,6 +654,7 @@ function Prototype({ initialUser = null, userName = "", userId = null, organizat
       view={home}
       account={{ email: user, name: userName }}
       organization={organization}
+      recheckOrganization={recheckOrganization}
       userId={userId}
       prds={prds}
       prdsLoaded={prdsLoaded}

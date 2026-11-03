@@ -152,6 +152,7 @@ function App() {
               userName={profile.full_name || profile.name || ""}
               organization={organization}
               onNoOrganization={recheckOrganization}
+              recheckOrganization={recheckOrganization}
               onLogOut={logOut}
             />
           </Suspense>

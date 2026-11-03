@@ -31,7 +31,9 @@ async function request(path, options = {}) {
     error.retryAfter = body.retry_after;
     // 422 invalid_document lists each problem with its path in the document.
     error.errors = body.errors;
-
+    // 409s from deactivating someone list who or what needs a decision first.
+    error.reports = body.reports;
+    error.prds = body.prds;
     throw error;
   }
 
@@ -110,14 +112,36 @@ export const api = {
   // needs_my_approval or waiting_for_approval.
   listPrdsInView: (view) => request(`/prds?view=${encodeURIComponent(view)}`),
 
+  // Org admins only. Send just the fields that change; null clears one.
+  updateMember: (orgId, userId, changes) =>
+    request(`/organizations/${orgId}/members/${userId}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  createDepartment: (orgId, name) =>
+    request(`/organizations/${orgId}/departments`, { method: "POST", body: JSON.stringify({ name }) }),
+  updateDepartment: (orgId, departmentId, changes) =>
+    request(`/organizations/${orgId}/departments/${departmentId}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  createTeam: (orgId, name, departmentId) =>
+    request(`/organizations/${orgId}/teams`, {
+      method: "POST",
+      body: JSON.stringify({ name, department_id: departmentId ?? null }),
+    }),
+  updateTeam: (orgId, teamId, changes) =>
+    request(`/organizations/${orgId}/teams/${teamId}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  addTeamMember: (orgId, teamId, userId) =>
+    request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, { method: "PUT" }),
+    removeTeamMember: (orgId, teamId, userId) =>
+    request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
+
   // Reviews: a round is tied to one saved version of the PRD.
   submitReview: (prdId, { revision, versionId, reviewerIds }) =>
     request(`/prds/${prdId}/reviews`, {
       method: "POST",
       body: JSON.stringify({ revision, version_id: versionId, reviewer_ids: reviewerIds }),
     }),
+
   // Newest round first, superseded rounds included.
-  listReviews: (prdId, { limit = 25 } = {}) => request(`/prds/${prdId}/reviews?limit=${limit}`),
+  listReviews: (prdId, { limit = 25 } = {}) =>
+    request(`/prds/${prdId}/reviews?limit=${limit}`),
+
   // decision: approved or changes_requested, which needs an explanation.
   decideReview: (prdId, roundId, { versionId, decision, explanation }) =>
     request(`/prds/${prdId}/reviews/${roundId}/decision`, {
@@ -141,3 +165,4 @@ export const api = {
       body: JSON.stringify({ version_id: versionId, section_type: sectionType, body }),
     }),
 };
+
