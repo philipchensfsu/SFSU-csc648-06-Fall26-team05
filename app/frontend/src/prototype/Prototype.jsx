@@ -564,7 +564,7 @@ function Prototype({
     const prd = prds.find((p) => p.id === id);
     if (!prd) throw new Error("This PRD is no longer in your list.");
     const result = await requestFeedbackRevision(api, id, { revision: prd.revision, feedbackIds: commentIds, instruction });
-    setAiProposal({ prdId: id, ...result.proposal });
+    openProposal(id, result.proposal);
     return result;
   }
 
