@@ -202,10 +202,12 @@ export function compareDocuments(currentDocument, proposedDocument) {
     const after = proposed.get(type);
     const label = LABELS[type] ?? type;
     if (!after) {
-      return { type, label, status: "removed", current: [{ text: sectionText(before), changed: true }], proposed: null };
+      const text = sectionText(before);
+      return { type, label, status: "removed", current: text ? [{ text, changed: true }] : [], proposed: null };
     }
     if (!before) {
-      return { type, label, status: "added", current: null, proposed: [{ text: sectionText(after), changed: true }] };
+      const text = sectionText(after);
+      return { type, label, status: "added", current: null, proposed: text ? [{ text, changed: true }] : [] };
     }
     const beforeText = sectionText(before);
     const afterText = sectionText(after);

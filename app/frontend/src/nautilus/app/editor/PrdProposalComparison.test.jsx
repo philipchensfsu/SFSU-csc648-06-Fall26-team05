@@ -121,6 +121,21 @@ describe("PrdProposalComparison", () => {
     expect(titles).toEqual(["Success Metrics", "Risks"]);
   });
 
+  it("says Empty for a new section with no text, and names each side for screen readers", async () => {
+    await show({
+      proposedDocument: {
+        type: "doc",
+        content: [...current.content, { type: "section", attrs: { type: "risks" }, content: [{ type: "paragraph" }] }],
+      },
+    });
+    const risks = sectionNamed("Risks");
+    expect(risks.querySelector(".nc-side-proposed").textContent).toContain("Empty");
+    expect(risks.querySelector("ins")).toBeNull();
+    const labels = [...host.querySelectorAll(".nc-side-label")];
+    expect(labels.map((label) => label.textContent).slice(0, 2)).toEqual(["Current", "Proposed"]);
+    expect(labels.every((label) => !label.hasAttribute("aria-hidden"))).toBe(true);
+  });
+
   it("says so when the proposal changes nothing", async () => {
     await show({ proposedDocument: current });
     expect(host.textContent).toContain("The proposal matches the current PRD.");

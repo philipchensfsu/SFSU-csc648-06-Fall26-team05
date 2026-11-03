@@ -86,6 +86,14 @@ describe("compareDocuments", () => {
     ]);
   });
 
+  it("gives an empty added or removed section no text to highlight", () => {
+    const rows = compareDocuments(doc(section("risks", p())), doc(section("goals", p())));
+    expect(rows).toEqual([
+      { type: "goals", label: "Goals", status: "added", current: null, proposed: [] },
+      { type: "risks", label: "Risks", status: "removed", current: [], proposed: null },
+    ]);
+  });
+
   it("calls same words with other formatting a format change", () => {
     const rows = compareDocuments(
       doc(section("goals", p("Find a group."))),

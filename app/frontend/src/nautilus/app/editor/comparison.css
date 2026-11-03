@@ -2,6 +2,11 @@
    AI proposal side by side, one row per section. Kept out of editor.css so
    it can sit beside the editor's own styles. */
 
+/* In the editor, the comparison takes the place of the document and panels. */
+.ne-compare {
+  padding: 24px 24px 56px;
+}
+
 .nc {
   max-width: 1240px;
   margin: 0 auto;
@@ -113,8 +118,14 @@
   padding-left: 16px;
   border-left: 1px solid #DCEBEE;
 }
+/* Spoken on wide screens (the columns say it visually), shown on narrow ones. */
 .nc-side-label {
-  display: none;
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
   margin-bottom: 4px;
   color: #557479;
   font-size: 12px;
@@ -228,7 +239,15 @@
     border-left: 0;
   }
   .nc-side-label {
+    position: static;
+    width: auto;
+    height: auto;
+    overflow: visible;
+    clip: auto;
     display: block;
+  }
+  .ne-compare {
+    padding: 16px 16px 48px;
   }
   .nc[data-shown="proposed"] .nc-side-current,
   .nc[data-shown="current"] .nc-side-proposed {

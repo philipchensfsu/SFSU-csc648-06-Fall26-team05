@@ -10,6 +10,8 @@ import {
 import { api } from "../../lib/api";
 import { startsInInterview } from "../nautilus/app/format";
 import { describeGenerationError, isAiUnavailable } from "../nautilus/app/editor/aiDraft";
+import { chatMessages, updateChatLog } from "../nautilus/app/editor/chatLog";
+import { acceptProposal, requestRevision } from "../nautilus/app/editor/proposal";
 import Workspace from "../nautilus/app/Workspace";
 import CreatePrdPage from "../nautilus/app/flow/CreatePrdPage";
 import InterviewPage from "../nautilus/app/flow/InterviewPage";
@@ -66,8 +68,23 @@ function Prototype({
   // approval, ... }, { id, error } if it couldn't be read, null until it arrives.
   const [prdDetail, setPrdDetail] = useState(null);
   const latestDetail = useRef(0);
+  // Conversational editing for the open PRD: the Ask AI conversation
+  // ({ prdId, messages }) and a proposal waiting to be compared and accepted
+  // ({ prdId, ...proposal from editor/proposal.js }). Kept here, not in the
+  // editor, so they outlive its remounts (a reload, an accepted proposal)
+  // and the chat moving between the side panel and split view.
+  const [chatLog, setChatLog] = useState(null);
+  // The PRD open now. AI replies come back after an await, through callbacks
+  // bound to the PRD that was open when they started; a reply for one that's
+  // no longer open is dropped (editor/chatLog.js).
+  const openPrdIdRef = useRef(null);
+  const [aiProposal, setAiProposal] = useState(null);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
+
+  useEffect(() => {
+    openPrdIdRef.current = activePrdId;
+  }, [activePrdId]);
 
   // Takes only the detail fields, status and the caller's role from the row. The
   // revision stays the one the editor's content came from, so a newer save
@@ -181,6 +198,11 @@ function Prototype({
 
   function go(nextScreen, prdId = activePrdId) {
     if (nextScreen !== "dashboard") latestLoad.current += 1;
+    // The chat and any proposal belong to the open PRD only.
+    if (prdId !== activePrdId) {
+      setChatLog(null);
+      setAiProposal(null);
+    }
     setActivePrdId(prdId);
     setScreen(nextScreen);
     window.scrollTo(0, 0);
@@ -191,6 +213,8 @@ function Prototype({
     visits.current += 1;
     setHome({ ...next, visit: visits.current });
     setActivePrdId(null);
+    setChatLog(null);
+    setAiProposal(null);
     setScreen("dashboard");
   }, []);
 
@@ -508,6 +532,45 @@ function Prototype({
     go(hasContent ? "editor" : "review");
   }
 
+  // --- conversational editing ------------------------------------------------
+
+  function chatFor(id) {
+    return chatMessages(chatLog, id);
+  }
+
+  function setChatFor(id, update) {
+    setChatLog((current) => updateChatLog(current, id, openPrdIdRef.current, update));
+  }
+
+  // A proposal only opens on the PRD it was made for, and only while that
+  // PRD is still the one open.
+  function openProposal(id, proposal) {
+    if (openPrdIdRef.current === id) setAiProposal({ ...proposal, prdId: id });
+  }
+
+  // Asks for one proposal from the conversation, against the revision this
+  // page has. A proposal opens the comparison; refusals and clarifications
+  // come back for the chat to show.
+  async function requestProposal(id, instruction, sessionMessages) {
+    const prd = prds.find((p) => p.id === id);
+    if (!prd) throw new Error("This PRD is no longer in your list.");
+    const result = await requestRevision(api, id, { revision: prd.revision, instruction, sessionMessages });
+    if (result.kind === "proposal") openProposal(id, result.proposal);
+    return result;
+  }
+
+  // Saves the whole proposal: the server's document as sent, never title or
+  // description (editor/proposal.js). The editor then remounts with the saved
+  // PRD; the conversation stays.
+  async function acceptAiProposal(id, confirmedReviewerIds) {
+    if (aiProposal?.prdId !== id) throw new Error("This proposal is no longer open.");
+    const saved = await acceptProposal(api, id, aiProposal, { confirmedReviewerIds });
+    applyRow(saved);
+    setAiProposal(null);
+    loadDetail(id);
+    setEditorVersion((version) => version + 1);
+  }
+
   // "Start from my answers": each answer goes into its section and nothing
   // is made up (draftFromAnswers.js).
   async function startFromAnswers(id) {
@@ -638,6 +701,14 @@ function Prototype({
           }
           onSubmitReview={(reviewerIds) => submitReview(activePrd.id, reviewerIds)}
           onDecideReview={(decision) => decideReview(activePrd.id, decision)}
+          chat={chatFor(activePrd.id)}
+          setChat={(update) => setChatFor(activePrd.id, update)}
+          proposal={aiProposal?.prdId === activePrd.id ? aiProposal : null}
+          onRequestProposal={(instruction, sessionMessages) =>
+            requestProposal(activePrd.id, instruction, sessionMessages)
+          }
+          onAcceptProposal={(confirmedReviewerIds) => acceptAiProposal(activePrd.id, confirmedReviewerIds)}
+          onDiscardProposal={() => setAiProposal(null)}
           onReload={() => reloadPrd(activePrd.id)}
           onOpenAnswers={() => openAnswers(activePrd.id)}
           onExit={() => showHome({ page: "dashboard" })}
