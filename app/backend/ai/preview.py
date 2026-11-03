@@ -5,8 +5,9 @@ anything to the PRD:
 
 1. Load the PRD, its answers and its context with the user's own client, so
    RLS decides what they can see (404 otherwise).
-2. Require edit access through the database's can_edit_prd, the same check
-   the save uses (403 otherwise).
+2. Require the right to change the document (ai/edit_access.py): edit
+   access, and owners only once the PRD is approved, as the save requires
+   (403 otherwise).
 3. Check the expected revision (409) and the required answers (422) before
    any limit or Gemini call.
 4. Inside one A07 admission (ai/usage_gate.py): generate (ai/generation.py),
@@ -34,7 +35,7 @@ import logging
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from ai import records, usage_gate
+from ai import edit_access, records, usage_gate
 from ai.gemini_client import AIError, GeminiResult, generate_json, model_name
 from ai.generation import (INTAKE_KEYS, PROMPT_VERSION, GenerationInput, SavedContext, check_inputs,
                            generate_proposal)
@@ -124,13 +125,12 @@ def load_state(user_client, prd_id: str) -> PreviewState:
 
 
 def can_edit(user_client, prd_id: str) -> bool:
-    """The shared rule (can_edit_prd), asked as the user."""
-    return user_client.rpc("can_edit_prd", {"target_prd_id": prd_id}).execute().data is True
+    """The save's rule (ai/edit_access.py), asked as the user."""
+    return edit_access.can_request_edit(user_client, prd_id)
 
 
 def require_edit(user_client, prd_id: str) -> None:
-    if not can_edit(user_client, prd_id):
-        raise ApiError(*CANNOT_EDIT)
+    edit_access.require_edit_request(user_client, prd_id, CANNOT_EDIT)
 
 
 def _fingerprint(inputs: GenerationInput, context: dict | None) -> str:
