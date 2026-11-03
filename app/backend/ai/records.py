@@ -40,7 +40,7 @@ from errors import ApiError
 PROPOSAL_TTL_SECONDS = 30 * 60
 
 TRIGGERS = ("initial_generation", "chat_request")
-PROPOSAL_KINDS = ("generate", "ai_edit", "review_suggestion")
+PROPOSAL_KINDS = ("generate", "ai_edit", "review_suggestion", "ai_revision")
 OUTCOMES = ("staged", "stale", "recorded")
 MAX_USER_REQUEST_CHARS = 2000
 

@@ -564,6 +564,9 @@ function EditorPage({
   }
 
   function jumpToReview(choice) {
+    // Split view hides the side panel, and the review card lives in it, so
+    // close the chat first or this scrolls to something nobody can see.
+    setSplit(false);
     setReviewChoice(choice);
     setRailTab("review");
     setReviewJump((value) => value + 1);
@@ -766,7 +769,10 @@ function EditorPage({
             {aiDraft ? null : (
               <button
                 type="button"
-                className="nw-btn nw-btn-secondary ne-btn-38 ne-hide-sm"
+                // Hidden on phones, where the header has no room for it --
+                // but never while the pane is open, or there would be no way
+                // to close it after the window narrows.
+                className={`nw-btn nw-btn-secondary ne-btn-38${split ? "" : " ne-hide-sm"}`}
                 aria-pressed={split}
                 onClick={() => setSplit((on) => !on)}
               >

@@ -6,8 +6,10 @@ proposal to preview. Nothing is saved: the person accepts it through the
 normal save (PUT / prd_save.save_prd with generation_record_id, A05), or
 discards it.
 
-- Edit access is required (can_edit_prd, asked as the user). Answer-only chat
-  (POST /ai/chat) stays open to viewers and is unchanged.
+- The caller must be allowed to save a change (ai/edit_access.py): edit
+  access, and owners only once the PRD is approved. Checked before the usage
+  gate and again before staging. Answer-only chat (POST /ai/chat) stays open
+  to viewers and is unchanged.
 - The scope check is Om's (ai/guardrails.check_scope); a "block" or "unclear"
   verdict returns his fixed refusal or clarification instead of a proposal.
   Until his modules exist the route answers 503, like the chat.
@@ -36,7 +38,7 @@ import json
 import logging
 from collections.abc import Callable
 
-from ai import chat, records, usage_gate
+from ai import chat, edit_access, records, usage_gate
 from ai.gemini_client import AIError, GeminiResult, generate_json, model_name
 from ai.generation import _heading, _list, _paragraph
 from ai.generation_output import FORBIDDEN_MARK_CODES
@@ -78,6 +80,7 @@ supports: don't invent names, numbers, dates, targets or commitments. Write
 in the language of the document.
 """
 
+NOT_EDITOR = (403, "You can ask the AI about this PRD, but only editors can request changes.", "forbidden")
 NOT_V2 = (409, "This PRD isn't in the new document format yet, so AI edits aren't available for it.",
           "document_not_v2")
 
@@ -119,8 +122,7 @@ def propose_section_edit(user_client, service_client, *, actor_id, prd_id: str, 
     budget = budget or usage_gate.RequestBudget()
 
     current_revision, prd = chat.load_chat_prd(user_client, prd_id)  # 404 if not visible
-    if user_client.rpc("can_edit_prd", {"target_prd_id": prd_id}).execute().data is not True:
-        raise ApiError(403, "You can ask the AI about this PRD, but only editors can request changes.", "forbidden")
+    edit_access.require_edit_request(user_client, prd_id, NOT_EDITOR)
     if current_revision != revision:
         raise ApiError(*chat.STALE_REVISION)
     document = _saved_document(user_client, prd_id)
@@ -154,6 +156,10 @@ def propose_section_edit(user_client, service_client, *, actor_id, prd_id: str, 
         except AIError as exc:
             _record_failure(service_client, actor_id, prd_id, revision, calls, exc.code)
             raise
+        if not edit_access.can_request_edit(user_client, prd_id):
+            # Approved or access lost while the model ran: counted, not staged.
+            _record_failure(service_client, actor_id, prd_id, revision, calls, "forbidden")
+            edit_access.require_edit_request(user_client, prd_id, NOT_EDITOR)
         record = records.record_ai_request(
             service_client, actor_id=actor_id, prd_id=prd_id, base_revision=revision, trigger="chat_request",
             model=calls.model, prompt_version=PROMPT_VERSION, prompt_tokens=calls.prompt_tokens or None,

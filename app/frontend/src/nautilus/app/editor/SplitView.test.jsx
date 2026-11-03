@@ -115,4 +115,36 @@ describe("split view", () => {
     });
     expect(buttonNamed("Ask Nautilus")).toBeFalsy();
   });
+
+  it("closes itself when a reviewer heads for the review card", async () => {
+    // The card lives in the side panel, which split view hides.
+    await show({
+      detail: {
+        capabilities: { can_edit: true, can_approve: true },
+        owners: [],
+        approval: {
+          round_id: "r1",
+          version_id: "v1",
+          state: "in_review",
+          required_count: 1,
+          approved_count: 0,
+          reviewers: [{ user_id: "alice", name: "Alice PM", department: null, state: "pending", decided_at: null, explanation: null }],
+        },
+      },
+    });
+    await click(buttonNamed("Ask Nautilus"));
+    expect(body().classList.contains("is-split")).toBe(true);
+    await click(buttonNamed("Approve"));
+    expect(body().classList.contains("is-split")).toBe(false);
+    expect(host.querySelector(".ne-rail")).toBeTruthy();
+  });
+
+  it("keeps the toggle reachable on a phone while the pane is open", async () => {
+    await show();
+    const closed = buttonNamed("Ask Nautilus");
+    expect(closed.className).toContain("ne-hide-sm");
+    await click(closed);
+    // Hiding it once open would leave no way to close the pane.
+    expect(buttonNamed("Close chat").className).not.toContain("ne-hide-sm");
+  });
 });
