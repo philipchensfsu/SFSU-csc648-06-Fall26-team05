@@ -578,7 +578,7 @@ function Prototype({
   async function adjustAiProposal(id, instruction, sessionMessages) {
     if (aiProposal?.prdId !== id) throw new Error("This proposal is no longer open.");
     const result = await requestAdjustment(api, id, aiProposal, { instruction, sessionMessages });
-    if (result.kind === "proposal") setAiProposal({ ...result.proposal, prdId: id });
+    if (result.kind === "proposal") openProposal(id, result.proposal);
     return result;
   }
 
