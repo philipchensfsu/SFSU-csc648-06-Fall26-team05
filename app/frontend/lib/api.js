@@ -94,6 +94,14 @@ export const api = {
       body: JSON.stringify({ revision, message, history }),
     }),
 
+  // One proposal across the PRD from the chat (Marco, #138). Nothing is
+  // saved; accept it through updatePrd (see editor/proposal.js).
+  requestAiRevision: (prdId, { revision, instruction, sessionMessages = [] }) =>
+    request(`/prds/${prdId}/ai-revisions`, {
+      method: "POST",
+      body: JSON.stringify({ revision, instruction, session_messages: sessionMessages }),
+    }),
+
   listIntakeAnswers: (prdId) => request(`/prds/${prdId}/intake`),
   saveIntakeAnswer: (prdId, questionKey, answerText, skipped) =>
     request(`/prds/${prdId}/intake/${questionKey}`, {
