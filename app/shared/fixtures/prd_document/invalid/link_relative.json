@@ -1,0 +1,41 @@
+{
+  "description": "Links must be absolute.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "/prds/1"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "invalid_attr",
+        "path": "/content/0/content/0/content/0/marks/0/attrs/href"
+      }
+    ]
+  }
+}

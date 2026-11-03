@@ -1,0 +1,33 @@
+{
+  "description": "Headings need a level.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "heading",
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "missing_attr",
+        "path": "/content/0/content/0/attrs/level"
+      }
+    ]
+  }
+}

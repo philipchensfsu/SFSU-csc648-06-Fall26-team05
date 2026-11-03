@@ -1,5 +1,6 @@
 import { IconPlus } from "./icons";
 import { firstNameOf } from "./format";
+import InviteCard from "./InviteCard";
 
 // The shell drawn in the corner of the illustration (from the landing page).
 const SHELL_BODY =
@@ -61,11 +62,18 @@ function Illustration() {
   );
 }
 
-// The dashboard for someone with no PRDs yet.
-function EmptyDashboard({ account, onCreatePrd }) {
+// The dashboard for someone with no PRDs yet. A new admin also gets the join
+// code to invite their team; a new member is told which organization they're in.
+function EmptyDashboard({ account, organization, onCreatePrd, onOpenPeople }) {
   const first = firstNameOf(account.name);
+  const isAdmin = organization?.access_role === "admin";
   return (
     <div className="nw-page nw-page-empty">
+      {organization && !isAdmin ? (
+        <p className="nw-joined" role="status">
+          You’re in <strong>{organization.name}</strong> as a member. When someone shares a PRD with you, it shows up here.
+        </p>
+      ) : null}
       <div>
         <h1 className="nw-h1">
           Welcome to <span className="nw-serif">Nautilus</span>
@@ -117,6 +125,8 @@ function EmptyDashboard({ account, onCreatePrd }) {
           </div>
         </div>
       </section>
+
+      {isAdmin ? <InviteCard organization={organization} onOpenPeople={onOpenPeople} /> : null}
 
       <p className="nw-empty-foot">You can stop at any step and come back later.</p>
     </div>

@@ -1,0 +1,163 @@
+/* The Inbox page, following the team's design canvas. */
+.nw-nav-badge {
+  margin-left: auto;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  box-sizing: border-box;
+  border-radius: 999px;
+  background: #D2553D;
+  color: #FFFFFF;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nw-inbox-list {
+  background: #FFFFFF;
+  border: 1px solid #DCEBEE;
+  border-radius: 14px;
+  overflow: hidden;
+}
+.nw-inbox-group {
+  padding: 14px 18px 8px;
+  background: #F1F7F8;
+  color: #557479;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.nw-inbox-rows {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nw-inbox-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  width: 100%;
+  padding: 16px 18px;
+  border: 0;
+  border-top: 1px solid #EAF3F5;
+  background: #FFFFFF;
+  color: #102C33;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.nw-inbox-row:hover {
+  background: #F7FBFC;
+}
+.nw-inbox-row:disabled {
+  cursor: default;
+}
+.nw-inbox-row.is-read {
+  background: #FBFDFD;
+}
+.nw-inbox-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  margin-top: 14px;
+  border-radius: 50%;
+  background: #1D6F7A;
+}
+.nw-inbox-row.is-read .nw-inbox-dot {
+  background: transparent;
+}
+.nw-inbox-icon {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.nw-inbox-icon-changes { background: #FCE6E1; color: #D2553D; }
+.nw-inbox-icon-attention { background: #FFF1D6; color: #B86E00; }
+.nw-inbox-icon-comment { background: #E3F6F8; color: #1D6F7A; }
+.nw-inbox-icon-approved { background: #E3F5EC; color: #1C9A62; }
+.nw-inbox-icon-people { background: #E3ECF8; color: #3E73C2; }
+.nw-inbox-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.nw-inbox-text {
+  font-size: 14px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.nw-inbox-text strong {
+  font-weight: 600;
+}
+.nw-inbox-title {
+  color: #1D6F7A;
+}
+.nw-inbox-meta {
+  font-size: 13px;
+  color: #557479;
+}
+.nw-inbox-empty {
+  padding: 32px 24px;
+  border: 1px dashed #C3DADE;
+  border-radius: 14px;
+  color: #557479;
+  font-size: 14px;
+  text-align: center;
+}
+
+.nw-inbox-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(380px, 100%), 1fr));
+  gap: 16px;
+}
+.nw-inbox-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 20px;
+  background: #FFFFFF;
+  border: 1px solid #DCEBEE;
+  border-radius: 14px;
+}
+.nw-inbox-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.nw-inbox-version {
+  padding: 1px 7px;
+  border: 1px solid #DCEBEE;
+  border-radius: 6px;
+  color: #3E5A60;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 12px;
+}
+.nw-inbox-card-text,
+.nw-inbox-card-owner {
+  font-size: 13px;
+  color: #3E5A60;
+}
+.nw-inbox-bars {
+  display: flex;
+  gap: 4px;
+}
+.nw-inbox-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: #DCEBEE;
+}
+.nw-inbox-bar-approved { background: #1C9A62; }
+.nw-inbox-bar-changes_requested { background: #D2553D; }
+.nw-inbox-bar-pending { background: #F2C46D; }

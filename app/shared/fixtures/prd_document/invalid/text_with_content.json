@@ -1,0 +1,34 @@
+{
+  "description": "Text nodes have no content field.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x",
+                "content": []
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "unknown_key",
+        "path": "/content/0/content/0/content/0/content"
+      }
+    ]
+  }
+}

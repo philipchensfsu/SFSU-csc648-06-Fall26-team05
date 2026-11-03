@@ -1,0 +1,11 @@
+# Local development only (docker compose). Vercel builds the frontend from
+# vercel.json and never uses this file.
+FROM node:22-slim
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+
+# The source is mounted over /app by compose.yaml; node_modules stays in
+# the container so host and container installs never mix.
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]

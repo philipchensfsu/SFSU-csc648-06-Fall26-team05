@@ -1,0 +1,25 @@
+{
+  "description": "Only sections may sit directly under doc.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "x"
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "node_not_allowed",
+        "path": "/content/0"
+      }
+    ]
+  }
+}

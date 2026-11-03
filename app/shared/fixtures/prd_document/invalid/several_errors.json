@@ -1,0 +1,66 @@
+{
+  "description": "All problems are reported, not just the first.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "summary"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": ""
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "section",
+        "attrs": {
+          "type": "goals"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x",
+                "marks": [
+                  {
+                    "type": "link",
+                    "attrs": {
+                      "href": "ftp://example.com"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "invalid_attr",
+        "path": "/content/0/attrs/type"
+      },
+      {
+        "code": "empty_text",
+        "path": "/content/0/content/0/content/0/text"
+      },
+      {
+        "code": "invalid_attr",
+        "path": "/content/1/content/0/content/0/marks/0/attrs/href"
+      }
+    ]
+  }
+}

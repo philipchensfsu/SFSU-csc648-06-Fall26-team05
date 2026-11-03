@@ -1,0 +1,36 @@
+{
+  "description": "Headings are levels 1 to 3 (proposed).",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "heading",
+            "attrs": {
+              "level": 4
+            },
+            "content": [
+              {
+                "type": "text",
+                "text": "x"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "invalid_attr",
+        "path": "/content/0/content/0/attrs/level"
+      }
+    ]
+  }
+}

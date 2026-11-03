@@ -4,18 +4,37 @@ async function request(path, options = {}) {
   const { data } = (await supabase?.auth.getSession()) ?? { data: {} };
   const token = data.session?.access_token;
 
-  const response = await fetch(`/api${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
-    },
-  });
+  let response;
+  try {
+    response = await fetch(`/api${path}`, {
+      ...options,
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...options.headers,
+      },
+    });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("Couldn’t reach the server. Check your connection and try again.");
+    }
+    throw error;
+  }
 
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
-    throw new Error(body.detail || `Request failed: ${response.status}`);
+    const error = new Error(body.detail || `Request failed: ${response.status}`);
+    error.status = response.status;
+    // The S01 contract carries a stable `code` so callers can branch on the
+    // reason rather than the message; the AI limits add `retry_after`.
+    error.code = body.code;
+    error.retryAfter = body.retry_after;
+    // 422 invalid_document lists each problem with its path in the document.
+    error.errors = body.errors;
+    // 409s from deactivating someone list who or what needs a decision first.
+    error.reports = body.reports;
+    error.prds = body.prds;
+    throw error;
   }
 
   if (response.status === 204) return null;
@@ -23,6 +42,18 @@ async function request(path, options = {}) {
 }
 
 export const api = {
+  // The signed-in account and its organization (null until it has one).
+  getMe: () => request("/me"),
+  createOrganization: (name) =>
+    request("/organizations", { method: "POST", body: JSON.stringify({ name }) }),
+  joinOrganization: (code) =>
+    request("/organizations/join", { method: "POST", body: JSON.stringify({ code }) }),
+  // Admins only; a new code stops the old one working.
+  getJoinCode: (orgId) => request(`/organizations/${orgId}/join-code`),
+  regenerateJoinCode: (orgId) => request(`/organizations/${orgId}/join-code`, { method: "POST" }),
+  // Active members (emails only for admins), departments and teams.
+  getDirectory: (orgId) => request(`/organizations/${orgId}/directory`),
+
   listProjects: () => request("/projects"),
   createProject: (name) =>
     request("/projects", { method: "POST", body: JSON.stringify({ name }) }),
@@ -41,11 +72,119 @@ export const api = {
   updatePrd: (id, payload) =>
     request(`/prds/${id}`, { method: "PUT", body: JSON.stringify(payload) }),
   deletePrd: (id) => request(`/prds/${id}`, { method: "DELETE" }),
+  // A preview of a whole PRD: nothing is saved until it's accepted with a save
+  // that carries the response's generation_record_id.
+  generatePrd: (id, revision) =>
+    request(`/prds/${id}/generate`, { method: "POST", body: JSON.stringify({ revision }) }),
+
+  // The people on a PRD. PUT adds someone or changes their role, and returns
+  // the updated list.
+  listPrdMembers: (prdId) => request(`/prds/${prdId}/members`),
+  setPrdMember: (prdId, userId, role) =>
+    request(`/prds/${prdId}/members/${userId}`, { method: "PUT", body: JSON.stringify({ role }) }),
+  removePrdMember: (prdId, userId) =>
+    request(`/prds/${prdId}/members/${userId}`, { method: "DELETE" }),
+
+  // Answer-only PRD chat. `history` is the recent turns for this PRD only;
+  // the backend caps it and never treats it as instructions. Resolves to
+  // {kind: "answer" | "blocked" | "clarification", message, base_revision}.
+  chatAboutPrd: (prdId, { revision, message, history }) =>
+    request(`/prds/${prdId}/ai/chat`, {
+      method: "POST",
+      body: JSON.stringify({ revision, message, history }),
+    }),
+
+  // One proposal across the PRD from the chat (Marco, #138). Nothing is
+  // saved; accept it through updatePrd (see editor/proposal.js).
+  // With previousGenerationRecordId, adjusts that pending proposal instead.
+  requestAiRevision: (prdId, { revision, instruction, sessionMessages = [], previousGenerationRecordId }) =>
+    request(`/prds/${prdId}/ai-revisions`, {
+      method: "POST",
+      body: JSON.stringify({
+        revision,
+        instruction,
+        session_messages: sessionMessages,
+        ...(previousGenerationRecordId ? { previous_generation_record_id: previousGenerationRecordId } : {}),
+      }),
+    }),
+
+  // One proposal addressing chosen comments on the current version (E12,
+  // owners only). Nothing is saved; accept it like an AI revision.
+  requestReviewSuggestion: (prdId, { revision, feedbackIds, instruction }) =>
+    request(`/prds/${prdId}/review-suggestions`, {
+      method: "POST",
+      body: JSON.stringify({ revision, feedback_ids: feedbackIds, ...(instruction ? { instruction } : {}) }),
+    }),
 
   listIntakeAnswers: (prdId) => request(`/prds/${prdId}/intake`),
-  saveIntakeAnswer: (prdId, questionKey, answerText) =>
+  saveIntakeAnswer: (prdId, questionKey, answerText, skipped) =>
     request(`/prds/${prdId}/intake/${questionKey}`, {
       method: "PUT",
-      body: JSON.stringify({ answer_text: answerText, skipped: !answerText }),
+      body: JSON.stringify({ answer_text: answerText, skipped }),
+    }),
+
+  // The inbox. Every page carries the full `unread_count`, whatever the filter.
+  listNotifications: ({ unreadOnly = false, limit = 25, cursor } = {}) => {
+    const params = new URLSearchParams({ unread_only: String(unreadOnly), limit: String(limit) });
+    if (cursor) params.set("cursor", cursor);
+    return request(`/notifications?${params}`);
+  },
+  markNotificationRead: (id) =>
+    request(`/notifications/${id}`, { method: "PATCH", body: JSON.stringify({ read: true }) }),
+  // needs_my_approval or waiting_for_approval.
+  listPrdsInView: (view) => request(`/prds?view=${encodeURIComponent(view)}`),
+
+  // Org admins only. Send just the fields that change; null clears one.
+  updateMember: (orgId, userId, changes) =>
+    request(`/organizations/${orgId}/members/${userId}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  createDepartment: (orgId, name) =>
+    request(`/organizations/${orgId}/departments`, { method: "POST", body: JSON.stringify({ name }) }),
+  updateDepartment: (orgId, departmentId, changes) =>
+    request(`/organizations/${orgId}/departments/${departmentId}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  createTeam: (orgId, name, departmentId) =>
+    request(`/organizations/${orgId}/teams`, {
+      method: "POST",
+      body: JSON.stringify({ name, department_id: departmentId ?? null }),
+    }),
+  updateTeam: (orgId, teamId, changes) =>
+    request(`/organizations/${orgId}/teams/${teamId}`, { method: "PATCH", body: JSON.stringify(changes) }),
+  addTeamMember: (orgId, teamId, userId) =>
+    request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, { method: "PUT" }),
+    removeTeamMember: (orgId, teamId, userId) =>
+    request(`/organizations/${orgId}/teams/${teamId}/members/${userId}`, { method: "DELETE" }),
+
+  // Reviews: a round is tied to one saved version of the PRD.
+  submitReview: (prdId, { revision, versionId, reviewerIds }) =>
+    request(`/prds/${prdId}/reviews`, {
+      method: "POST",
+      body: JSON.stringify({ revision, version_id: versionId, reviewer_ids: reviewerIds }),
+    }),
+
+  // Newest round first, superseded rounds included.
+  listReviews: (prdId, { limit = 25 } = {}) =>
+    request(`/prds/${prdId}/reviews?limit=${limit}`),
+
+  // decision: approved or changes_requested, which needs an explanation.
+  decideReview: (prdId, roundId, { versionId, decision, explanation }) =>
+    request(`/prds/${prdId}/reviews/${roundId}/decision`, {
+      method: "PUT",
+      body: JSON.stringify({ version_id: versionId, decision, ...(explanation ? { explanation } : {}) }),
+    }),
+
+  // Flat comments on a PRD's saved versions, oldest first. Without versionId,
+  // every version's comments, each carrying its own version_no.
+  listPrdComments: (prdId, { versionId, limit = 50, cursor } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (versionId) params.set("version_id", versionId);
+    if (cursor) params.set("cursor", cursor);
+    return request(`/prds/${prdId}/comments?${params}`);
+  },
+  // versionId is the PRD's current version; sectionType is one of the nine
+  // section types, or null for the whole PRD. body is plain text.
+  addPrdComment: (prdId, { versionId, sectionType = null, body }) =>
+    request(`/prds/${prdId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ version_id: versionId, section_type: sectionType, body }),
     }),
 };
+

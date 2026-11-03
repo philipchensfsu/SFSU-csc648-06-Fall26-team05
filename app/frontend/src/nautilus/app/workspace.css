@@ -1,16 +1,15 @@
-/* Nautilus workspace: the signed-in sidebar, dashboard, projects and search.
-   Every rule is scoped to .nw-app, or to .nw-menu / .nw-modal (which can sit
-   outside it), so the older prototype screens are untouched. Base element
-   rules use :where() so any class rule below wins over them. */
+/* Nautilus app styles: the signed-in workspace (sidebar, dashboard, projects,
+   search) and the PRD flow screens. Every rule is scoped to .nw-root (the
+   root of each screen), or to .nw-menu (menus render into <body>), so the
+   older prototype screens are untouched. Base element rules use :where()
+   so any class rule below wins over them. */
 
-body:has(.nw-app) {
+body:has(.nw-root) {
   background: #F1F7F8;
 }
 
-.nw-app {
+.nw-root {
   min-height: 100vh;
-  display: flex;
-  align-items: flex-start;
   background: #F1F7F8;
   color: #102C33;
   font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -19,42 +18,53 @@ body:has(.nw-app) {
   -webkit-font-smoothing: antialiased;
 }
 
-.nw-app *,
-.nw-app *::before,
-.nw-app *::after,
+/* The workspace: sidebar beside the page. */
+.nw-app {
+  display: flex;
+  align-items: flex-start;
+}
+
+.nw-root *,
+.nw-root *::before,
+.nw-root *::after,
 .nw-menu,
 .nw-menu * {
   box-sizing: border-box;
 }
 
-:where(.nw-app) :where(h1, h2, h3, p, ol, ul, figure) {
+:where(.nw-root) :where(h1, h2, h3, p, ol, ul, figure, fieldset) {
   margin: 0;
 }
-:where(.nw-app) :where(ol, ul) {
+:where(.nw-root) :where(ol, ul) {
   padding: 0;
   list-style: none;
 }
-:where(.nw-app, .nw-menu) :where(button, input, select, textarea) {
+:where(.nw-root) fieldset {
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+:where(.nw-root, .nw-menu) :where(button, input, select, textarea) {
   font: inherit;
   color: inherit;
 }
-:where(.nw-app, .nw-menu) :where(button) {
+:where(.nw-root, .nw-menu) :where(button) {
   cursor: pointer;
 }
-:where(.nw-app, .nw-menu) :where(button:disabled) {
+:where(.nw-root, .nw-menu) :where(button:disabled) {
   cursor: default;
 }
-:where(.nw-app) a {
+:where(.nw-root) a {
   color: #1D6F7A;
 }
-:where(.nw-app) a:hover {
+:where(.nw-root) a:hover {
   color: #102C33;
 }
-:where(.nw-app, .nw-menu) :focus-visible {
+:where(.nw-root, .nw-menu) :focus-visible {
   outline: 2px solid #1D6F7A;
   outline-offset: 2px;
 }
-:where(.nw-app) mark {
+:where(.nw-root) mark {
   background: #B3EBF2;
   color: #102C33;
   border-radius: 2px;
@@ -249,6 +259,10 @@ body:has(.nw-app) {
 .nw-chip-final .nw-chip-dot, .nw-dot-final { background: #1C9A62; }
 .nw-chip-assigned { background: #E3ECF8; color: #24508F; }
 .nw-chip-assigned .nw-chip-dot, .nw-dot-assigned { background: #3E73C2; }
+.nw-chip-changes_requested { background: #FCE6E1; color: #8C2F1D; }
+.nw-chip-changes_requested .nw-chip-dot { background: #D2553D; }
+.nw-chip-approved { background: #E3F5EC; color: #0E6139; }
+.nw-chip-approved .nw-chip-dot { background: #1C9A62; }
 
 .nw-avatar {
   flex: none;
@@ -1589,6 +1603,101 @@ body:has(.nw-app) {
 .nw-error {
   font-size: 13px;
   color: #B42318;
+}
+
+/* ---- invite your team (admins) ----------------------------------------- */
+
+.nw-invite {
+  background: #FFFFFF;
+  border: 1px solid #DCEBEE;
+  border-radius: 14px;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.nw-invite-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+.nw-invite-text {
+  margin: 2px 0 0;
+  font-size: 14px;
+  color: #557479;
+}
+.nw-invite-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.nw-invite-code {
+  flex: 1 1 220px;
+  display: flex;
+  align-items: center;
+  height: 44px;
+  box-sizing: border-box;
+  padding: 0 14px;
+  border-radius: 9px;
+  background: #F1F7F8;
+  border: 1px dashed #8FA9AD;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 18px;
+  letter-spacing: 0.1em;
+  color: #102C33;
+}
+.nw-link-btn {
+  align-self: flex-start;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: #1D6F7A;
+  cursor: pointer;
+}
+.nw-link-btn:hover {
+  color: #102C33;
+  text-decoration: underline;
+}
+.nw-people-table {
+  min-width: 560px;
+}
+.nw-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-weight: 600;
+}
+.nw-person-you {
+  font-weight: 400;
+  color: #557479;
+}
+.nw-person-email {
+  color: #3E5A60;
+}
+.nw-role {
+  display: inline-flex;
+  padding: 2px 9px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  background: #E3F6F8;
+  color: #155E68;
+}
+.nw-role-admin {
+  background: #102C33;
+  color: #FFFFFF;
+}
+.nw-joined {
+  margin: 0;
+  padding: 12px 16px;
+  border-radius: 12px;
+  background: #E3F6F8;
+  color: #155E68;
+  font-size: 14px;
 }
 
 /* ---- narrow screens ---------------------------------------------------- */

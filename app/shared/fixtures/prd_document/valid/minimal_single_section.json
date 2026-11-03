@@ -1,0 +1,63 @@
+{
+  "description": "Smallest saved draft: one section with one paragraph.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "Writing PRDs takes hours."
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [],
+    "generation_errors": [
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      },
+      {
+        "code": "missing_section",
+        "path": "/content"
+      }
+    ],
+    "content_text": "Problem Statement\nWriting PRDs takes hours."
+  }
+}

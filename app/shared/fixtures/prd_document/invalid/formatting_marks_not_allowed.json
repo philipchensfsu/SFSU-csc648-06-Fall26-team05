@@ -1,0 +1,67 @@
+{
+  "description": "strike, code and textStyle are not part of the format.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "a",
+                "marks": [
+                  {
+                    "type": "strike"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "b",
+                "marks": [
+                  {
+                    "type": "code"
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "c",
+                "marks": [
+                  {
+                    "type": "textStyle",
+                    "attrs": {
+                      "color": "red"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "unknown_mark",
+        "path": "/content/0/content/0/content/0/marks/0/type"
+      },
+      {
+        "code": "unknown_mark",
+        "path": "/content/0/content/0/content/1/marks/0/type"
+      },
+      {
+        "code": "unknown_mark",
+        "path": "/content/0/content/0/content/2/marks/0/type"
+      }
+    ]
+  }
+}

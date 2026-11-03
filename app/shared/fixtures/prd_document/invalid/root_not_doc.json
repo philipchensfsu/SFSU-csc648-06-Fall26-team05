@@ -1,0 +1,28 @@
+{
+  "description": "The root must be a doc node.",
+  "document": {
+    "type": "section",
+    "attrs": {
+      "type": "problem"
+    },
+    "content": [
+      {
+        "type": "paragraph",
+        "content": [
+          {
+            "type": "text",
+            "text": "x"
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "invalid_root",
+        "path": "/type"
+      }
+    ]
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "description": "The same mark cannot appear twice on one text node.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x",
+                "marks": [
+                  {
+                    "type": "bold"
+                  },
+                  {
+                    "type": "bold"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "duplicate_mark",
+        "path": "/content/0/content/0/content/0/marks/1"
+      }
+    ]
+  }
+}

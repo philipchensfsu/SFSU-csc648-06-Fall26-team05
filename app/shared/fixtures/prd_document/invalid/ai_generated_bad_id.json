@@ -1,0 +1,57 @@
+{
+  "description": "generation_record_id must be a lowercase UUID.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "paragraph",
+            "content": [
+              {
+                "type": "text",
+                "text": "x",
+                "marks": [
+                  {
+                    "type": "ai_generated",
+                    "attrs": {
+                      "generation_record_id": "123"
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "text",
+                "text": "y",
+                "marks": [
+                  {
+                    "type": "ai_generated",
+                    "attrs": {
+                      "generation_record_id": "3F2C9A1E-8B4D-4C6A-9E2F-1A7B5C3D9E01"
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "invalid_attr",
+        "path": "/content/0/content/0/content/0/marks/0/attrs/generation_record_id"
+      },
+      {
+        "code": "invalid_attr",
+        "path": "/content/0/content/0/content/1/marks/0/attrs/generation_record_id"
+      }
+    ]
+  }
+}

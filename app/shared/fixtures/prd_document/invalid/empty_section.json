@@ -1,0 +1,23 @@
+{
+  "description": "A section needs at least one block.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": []
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "missing_content",
+        "path": "/content/0/content"
+      }
+    ]
+  }
+}

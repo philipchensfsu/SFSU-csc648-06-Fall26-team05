@@ -1,0 +1,33 @@
+{
+  "description": "Code blocks are not allowed.",
+  "document": {
+    "type": "doc",
+    "content": [
+      {
+        "type": "section",
+        "attrs": {
+          "type": "problem"
+        },
+        "content": [
+          {
+            "type": "codeBlock",
+            "content": [
+              {
+                "type": "text",
+                "text": "x = 1"
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "expect": {
+    "document_errors": [
+      {
+        "code": "unknown_node",
+        "path": "/content/0/content/0/type"
+      }
+    ]
+  }
+}

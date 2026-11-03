@@ -1,148 +1,111 @@
 // The interview questions and the helpers that map API rows onto the shape
 // the screens use.
 
-export const QUESTIONS = [
-  {
-    id: "problem",
-    label: "Problem",
-    prompt: "Hi! I'll ask a few questions to build your PRD. First: what problem are you solving?",
-    required: true,
-  },
-  {
-    id: "target_users",
-    label: "Target users",
-    prompt: "Who will use this product?",
-    required: true,
-  },
-  {
-    id: "goals",
-    label: "Goals",
-    prompt: "What do you want to accomplish?",
-    hint: "Example: help students join a group within one day of searching.",
-    required: true,
-  },
-  {
-    id: "scope",
-    label: "Scope",
-    prompt: "What is in scope, and what is out of scope?",
-    hint: "Example: In: group search, join requests. Out: video calls.",
-    required: false,
-  },
-  {
-    id: "constraints",
-    label: "Constraints",
-    prompt: "Are there any constraints, like platform, time, or team size?",
-    required: false,
-  },
-  {
-    id: "success_metrics",
-    label: "Success metrics",
-    prompt: "How will you know the product is successful?",
-    required: false,
-  },
-  {
-    id: "notes",
-    label: "Additional notes",
-    prompt: "Anything else? Links or research notes are welcome.",
-    required: false,
-  },
-];
+// The questions themselves (labels, parts, copy) live with the new screens.
+import { PRD_SECTIONS, QUESTIONS } from "../nautilus/app/questions.js";
+import { escapeHtml } from "../nautilus/app/editor/escape.js";
 
-// Section `id`s match the fixed section-type vocabulary from Section 1.5 of
-// the M2 report exactly, so these map directly onto content_json's
-// `sections[].type` with no translation needed.
-const CAMPUS_SECTIONS = [
-  {
-    id: "problem",
-    title: "Problem Statement",
-    html: "<p>Students at [University] struggle to find study groups for their courses. Many study alone, miss deadlines, and have no easy way to meet classmates in the same class. Existing group chats are hard to discover and quickly go stale.</p>",
-  },
-  {
-    id: "goals",
-    title: "Goals",
-    html: "<ul><li>Help students join a relevant study group within one day of searching.</li><li>Let students create and manage their own groups.</li><li>Keep group details current and easy to scan.</li></ul>",
-  },
-  {
-    id: "non_goals",
-    title: "Non-Goals",
-    html: "<ul><li>Video calls or built-in chat.</li><li>Tutoring marketplaces or paid features.</li><li>Support for universities beyond the pilot campus.</li></ul>",
-  },
-  {
-    id: "target_users",
-    title: "Target Users",
-    html: '<p>Undergraduate students at the pilot university, mostly first and second year. <mark class="nt-assumption" data-assumption="1">Most users are likely on mobile phones between classes.</mark></p><ul><li>Joiners who want an existing group for a course.</li><li>Organizers who want to start and fill a group.</li></ul>',
-    assumptions: 1,
-  },
-  {
-    id: "user_stories",
-    title: "User Stories",
-    html: "<ul><li>As a student, I filter groups by course so I can find one that fits.</li><li>As a student, I request to join a group so the organizer can approve me.</li><li>As an organizer, I edit meeting times so members stay informed.</li></ul>",
-  },
-  {
-    id: "requirements",
-    title: "Requirements",
-    html: "<ul><li>FR-01: Students search groups by course code and section.</li><li>FR-02: Students request to join a group.</li><li>FR-03: Organizers approve or decline join requests.</li></ul>",
-  },
-  {
-    id: "success_metrics",
-    title: "Success Metrics",
-    html: '<ul><li><mark class="nt-assumption" data-assumption="1">60% of searching students join a group within 24 hours.</mark></li><li>Weekly active groups grow through the semester.</li></ul>',
-    assumptions: 1,
-  },
-  {
-    id: "risks",
-    title: "Risks",
-    html: "<ul><li>Low adoption if too few groups exist at launch.</li><li>Stale groups that no longer meet.</li></ul>",
-  },
-  {
-    id: "open_questions",
-    title: "Open Questions",
-    html: "<ul><li>Should groups be tied to a specific section or the whole course?</li><li>Do organizers need moderation tools?</li></ul>",
-  },
-];
+export { QUESTIONS };
 
-// Status enum values, in the order they appear in Section 1.4, with the
-// label shown in the UI for each.
-export const STATUS_LABELS = {
-  draft: "Draft",
-  in_review: "In Review",
-  final: "Final",
-  assigned: "Assigned",
+// --- content_json -> sections ------------------------------------------
+// Saves store TipTap JSON (doc_schema_version 2, docs/prd-document-format.md):
+// `{ type: "doc", content: [{ type: "section", attrs: { type }, content }] }`.
+// Older PRDs still hold v1, `{ description, sections: [{ type, title, html }] }`,
+// and open the same way; the editor saves them back as v2.
+//
+// The screens work with `[{ id, title, html }]`. v2 is turned into HTML here
+// without TipTap, so the workspace doesn't load the editor; the editor
+// parses this HTML through its schema (cleanHtml) before showing it.
+
+const SECTION_LABELS = Object.fromEntries(PRD_SECTIONS.map((section) => [section.id, section.label]));
+
+const BLOCK_TAGS = {
+  paragraph: "p",
+  bulletList: "ul",
+  orderedList: "ol",
+  listItem: "li",
+  blockquote: "blockquote",
+  tableRow: "tr",
+  tableCell: "td",
+  tableHeader: "th",
 };
 
-// --- content_json <-> sections -----------------------------------------
-// content_json is stored as `{ sections: [{ type, title, html }] }`. This
-// isn't a full ProseMirror document yet -- that requires the real Tiptap
-// editor, which doesn't exist in this prototype -- but it's valid JSONB
-// using the spec's exact section-type vocabulary, so it's a direct,
-// low-cost upgrade path once Tiptap is actually wired up.
+function attribute(name, value) {
+  return value === null || value === undefined ? "" : ` ${name}="${escapeHtml(value)}"`;
+}
 
-export function sectionsToContentJson(sections) {
-  return {
-    sections: (sections ?? []).map(({ id, title, html }) => ({
-      type: id,
-      title,
-      html,
-    })),
-  };
+function renderMark(mark, inner) {
+  const attrs = mark.attrs ?? {};
+  switch (mark.type) {
+    case "bold":
+      return `<strong>${inner}</strong>`;
+    case "italic":
+      return `<em>${inner}</em>`;
+    case "underline":
+      return `<u>${inner}</u>`;
+    case "link":
+      return `<a${attribute("href", attrs.href)}${attribute("target", attrs.target)}${attribute("rel", attrs.rel)}>${inner}</a>`;
+    case "assumption":
+      return `<mark class="nt-assumption">${inner}</mark>`;
+    case "ai_generated":
+      return `<span class="nt-ai-generated"${attribute("data-generation-record-id", attrs.generation_record_id)}>${inner}</span>`;
+    default:
+      return inner;
+  }
+}
+
+function blockAttributes(node) {
+  const attrs = node.attrs ?? {};
+  if (node.type === "orderedList") return attrs.start && attrs.start !== 1 ? attribute("start", attrs.start) : "";
+  if (node.type === "tableCell" || node.type === "tableHeader") {
+    return (attrs.colspan > 1 ? attribute("colspan", attrs.colspan) : "")
+      + (attrs.rowspan > 1 ? attribute("rowspan", attrs.rowspan) : "")
+      + (Array.isArray(attrs.colwidth) ? attribute("colwidth", attrs.colwidth.join(",")) : "");
+  }
+  return "";
+}
+
+function renderNode(node) {
+  const children = (node.content ?? []).map(renderNode).join("");
+  if (node.type === "text") {
+    return (node.marks ?? []).reduce((inner, mark) => renderMark(mark, inner), escapeHtml(node.text));
+  }
+  if (node.type === "hardBreak") return "<br>";
+  if (node.type === "heading") {
+    const level = [1, 2, 3].includes(node.attrs?.level) ? node.attrs.level : 1;
+    return `<h${level}>${children}</h${level}>`;
+  }
+  if (node.type === "table") return `<table><tbody>${children}</tbody></table>`;
+  const tag = BLOCK_TAGS[node.type];
+  return tag ? `<${tag}${blockAttributes(node)}>${children}</${tag}>` : children;
+}
+
+export function documentToSections(document) {
+  const sections = (document?.content ?? []).filter((node) => node.type === "section");
+  if (!sections.length) return null;
+  return sections.map((section) => ({
+    id: section.attrs?.type,
+    title: SECTION_LABELS[section.attrs?.type] ?? section.attrs?.type,
+    html: (section.content ?? []).map(renderNode).join("") || "<p></p>",
+  }));
+}
+
+// True when two JSON values are the same, whatever their key order (the
+// database's jsonb doesn't keep it).
+export function sameJson(a, b) {
+  if (a === b) return true;
+  if (typeof a !== "object" || typeof b !== "object" || a === null || b === null) return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  if (keys.length !== Object.keys(b).length) return false;
+  return keys.every((key) => Object.hasOwn(b, key) && sameJson(a[key], b[key]));
 }
 
 export function contentJsonToSections(contentJson) {
+  if (contentJson?.type === "doc") return documentToSections(contentJson);
   const sections = contentJson?.sections;
-  if (!sections) return null;
+  if (!Array.isArray(sections) || !sections.length) return null;
   return sections.map(({ type, title, html }) => ({ id: type, title, html }));
-}
-
-// Plain-text derived from the section HTML, for content_text (search/AI
-// input). Strips tags with the browser's own parser rather than regex.
-export function sectionsToText(sections) {
-  return (sections ?? [])
-    .map((section) => {
-      const div = document.createElement("div");
-      div.innerHTML = section.html;
-      return `${section.title}\n${div.textContent.trim()}`;
-    })
-    .join("\n\n");
 }
 
 // Maps a real `prd` row (snake_case, from GET/POST/PUT /api/prds) onto the
@@ -155,19 +118,37 @@ export function fromApiPrd(row) {
     title: row.title,
     projectId: row.project_id,
     ownerId: row.owner_id,
+    // The caller's access: owner, editor, viewer or org_admin (#78). The
+    // editor shows its editing tools from this.
+    myRole: row.my_role ?? null,
     status: row.status,
+    // The current review round's state, or null when nothing is under review.
+    reviewState: row.review_state ?? null,
     modified: row.updated_at.slice(0, 10),
     // Full timestamps, for "Today, 9:12 AM" in the workspace.
     updatedAt: row.updated_at,
     createdAt: row.created_at,
     revision: row.revision,
-    // Not a column yet; shown wherever the API starts returning it.
-    description: row.description ?? "",
+    // Its own column since the v2 save; v1 rows kept it in content_json.
+    description: row.description ?? row.content_json?.description ?? "",
     contentText: row.content_text ?? "",
     answers: {},
     // False until this PRD's intake answers have been fetched.
     answersLoaded: false,
     sections: contentJsonToSections(row.content_json),
+  };
+}
+
+// The fields only GET /api/prds/{id} returns. List rows and save responses
+// don't have them, so they are kept apart from the row in `prds`.
+export function fromApiPrdDetail(row) {
+  return {
+    capabilities: row.capabilities ?? {},
+    approval: row.approval ?? null,
+    changedSinceApproval: row.changed_since_approval === true,
+    currentVersion: row.current_version ?? null,
+    owners: row.owners ?? [],
+    project: row.project ?? null,
   };
 }
 
@@ -177,44 +158,4 @@ export function fromApiIntakeAnswers(rows) {
   return Object.fromEntries(
     rows.map((row) => [row.question_key, row.skipped ? "" : (row.answer_text ?? "")]),
   );
-}
-
-function escapeHtml(text) {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
-
-// Fakes the AI draft: uses the interview answers where we have them and
-// sample text everywhere else.
-export function draftSectionsFromAnswers(answers) {
-  const fromAnswer = (key) =>
-    answers[key] ? `<p>${escapeHtml(answers[key])}</p>` : null;
-
-  return CAMPUS_SECTIONS.map((section) => {
-    const override =
-      (section.id === "problem" && fromAnswer("problem")) ||
-      (section.id === "goals" && fromAnswer("goals")) ||
-      (section.id === "success_metrics" && fromAnswer("success_metrics"));
-    if (section.id === "target_users" && answers.target_users) {
-      return {
-        ...section,
-        html: `<p>${escapeHtml(answers.target_users)} <mark class="nt-assumption" data-assumption="1">Most users are likely on mobile phones between classes.</mark></p>`,
-      };
-    }
-    return override ? { ...section, html: override, assumptions: 0 } : section;
-  });
-}
-
-export function formatDate(iso) {
-  return new Date(`${iso}T12:00:00`).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-}
-
-export function today() {
-  return new Date().toISOString().slice(0, 10);
 }
