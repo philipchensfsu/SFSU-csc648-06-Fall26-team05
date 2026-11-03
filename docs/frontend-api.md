@@ -537,7 +537,7 @@ accept or discard the whole proposal.
 
 | Body | Response | Who |
 |---|---|---|
-| `{ "revision": int, "instruction": "1–2000 chars", "session_messages": [ { "role": "user" \| "assistant", "content": "1–8000 chars" } ] }` (at most 20; the chat's recent turns) | 200 `{ kind: "proposal" \| "blocked" \| "clarification", message, proposal, base_revision, generation_record_id }`. `proposal` is `{ section_types, sections, content_json }` (null unless `kind` is `"proposal"`) | **Can edit** the PRD; **owners only once it's approved**. Same flag as section edits: `capabilities.can_request_ai` |
+| `{ "revision": int, "instruction": "1–2000 chars", "session_messages": [ { "role": "user" \| "assistant", "content": "1–8000 chars" } ], "previous_generation_record_id"?: uuid }` (at most 20 messages; the chat's recent turns) | 200 `{ kind: "proposal" \| "blocked" \| "clarification", message, proposal, base_revision, generation_record_id }`. `proposal` is `{ section_types, sections, content_json }` (null unless `kind` is `"proposal"`) | **Can edit** the PRD; **owners only once it's approved**. Same flag as section edits: `capabilities.can_request_ai` |
 
 - `instruction` says what to change ("Apply the improvements we discussed"); `session_messages` gives the conversation
   it refers to. Om's scope check runs on both: `blocked` / `clarification` carry a fixed message to show as-is, and
@@ -557,6 +557,16 @@ accept or discard the whole proposal.
   `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`, `ai_unavailable`, `ai_budget_exhausted`).
 - **Errors on accept:** 409 `stale_revision` (someone saved meanwhile: ask for a new proposal), 409
   `proposal_unavailable` (expired or already used: ask again), 409 `reapproval_required`, 422 `proposal_scope`.
+- **Request adjustments:** send `"previous_generation_record_id": "<the proposal's generation_record_id>"` with the
+  same `revision` (the proposal's `base_revision`) and an `instruction` saying what to change. The server loads that
+  proposal itself and revises **it**, not the saved PRD. It must be yours, for this PRD, still pending, unexpired
+  and made from the current revision; otherwise 409 `proposal_unavailable` (or `stale_revision`). The response is
+  a new proposal: `section_types` lists **every** section changed so far (earlier ones stay in scope for
+  acceptance), and `content_json` is again the complete document. Compare it with the **same saved PRD** as before
+  and accept the new `generation_record_id`; the old proposal is retired and can't be accepted. A proposal from
+  review comments stays one, so only owners can adjust it (403 `owner_required`), and its comment ids are kept. A
+  section edit (`/ai-edit`) can be adjusted too and comes back as a revision. A whole generated draft can't
+  (`proposal_unavailable`).
 - **Needs** the `20261102120000_ai_revision_proposals` migration (a new proposal kind, `ai_revision`).
 
 ## Revision suggestions from review feedback (E12)

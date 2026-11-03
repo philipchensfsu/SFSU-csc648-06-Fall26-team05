@@ -118,3 +118,53 @@ def test_the_database_accepts_only_known_proposal_kinds(db):
                        "where conname = 'ai_proposal_kind_check'").fetchone()[0]
     for kind in ("generate", "ai_edit", "review_suggestion", "ai_revision"):
         assert f"'{kind}'" in kinds
+
+
+# --- request adjustments ---------------------------------------------------------
+
+NEW_RISKS = {"type": "section", "attrs": {"type": "risks"}, "content": [
+    {"type": "paragraph", "content": [{"type": "text", "text": "Low adoption in the first month."}]}]}
+
+
+def adjust(user, prd, service, previous, revision=2):
+    def risks_model(prompt, **kwargs):
+        return GeminiResult(data={"sections": [NEW_RISKS], "explanation": "Added the risk."}, model="fake",
+                            prompt_tokens=5, output_tokens=7)
+    return chat_revision.propose_revision(
+        as_user(user), service, actor_id=user.id, prd_id=prd, revision=revision,
+        instruction="Also add the adoption risk.", session_messages=[], previous_generation_record_id=previous,
+        modules=doubles(), call_model=risks_model)
+
+
+def test_an_adjusted_proposal_replaces_the_first_and_accepts_every_change(cast, db, service):
+    first = request_revision(cast["editor"], cast["prd"], service)
+    second = adjust(cast["editor"], cast["prd"], service, first["generation_record_id"])
+    assert second["base_revision"] == 2  # the original saved revision stays the base
+    assert second["proposal"]["section_types"] == ["goals", "success_metrics", "risks"]
+    assert proposal_status(db, first["generation_record_id"]) == ("ai_revision", "rejected")
+    assert proposal_status(db, second["generation_record_id"]) == ("ai_revision", "pending")
+
+    with pytest.raises(AcceptanceError) as info:  # the replaced proposal can't be used
+        accept(cast["editor"], cast["prd"], service, first)
+    assert info.value.code == "proposal_unavailable"
+
+    saved = accept(cast["editor"], cast["prd"], service, second)
+    for old, new in zip(DOC["content"], saved["content_json"]["content"]):
+        if old["attrs"]["type"] in ("goals", "success_metrics", "risks"):
+            assert second["generation_record_id"] in json.dumps(new)
+        else:
+            assert new == old
+
+
+def test_someone_elses_or_an_expired_proposal_cant_be_adjusted(cast, db, service):
+    first = request_revision(cast["editor"], cast["prd"], service)
+    with pytest.raises(ApiError) as info:  # the owner can't adjust the editor's proposal
+        adjust(cast["owner"], cast["prd"], service, first["generation_record_id"])
+    assert info.value.code == "proposal_unavailable"
+    db.execute("update ai_proposal set expires_at = now() - interval '1 minute' where generation_record_id = %s",
+               (first["generation_record_id"],))
+    with pytest.raises(ApiError) as info:
+        adjust(cast["editor"], cast["prd"], service, first["generation_record_id"])
+    assert info.value.code == "proposal_unavailable"
+    assert db.execute("select count(*) from ai_proposal a join prd p on p.id = a.prd_id where p.id = %s",
+                      (cast["prd"],)).fetchone() == (1,)  # nothing new staged
