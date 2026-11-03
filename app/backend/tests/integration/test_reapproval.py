@@ -115,8 +115,10 @@ def test_an_edit_in_review_continues_the_round_with_one_superseded_event(team, d
 def test_an_edit_that_empties_the_prd_sends_it_back_to_draft(team, db, service):
     [(old_round, *_)] = rounds(db, team["prd"])
     decide(db, old_round, team["ann"], "approved")
-    save(service, db, team["olive"], team["prd"], content_json={"type": "doc", "content": []})
+    saved = save(service, db, team["olive"], team["prd"], content_json={"type": "doc", "content": []})
     assert state(db, team["prd"])[2] == "draft"
+    # The returned row says so too, not the `in_review` it had when it was saved.
+    assert (saved["status"], saved["revision"]) == ("draft", state(db, team["prd"])[0])
     assert [r[2] for r in rounds(db, team["prd"])] == ["superseded"]
     [(event_type, _, payload, _, _)] = events_after_submit(db, team["prd"])
     assert event_type == "superseded" and payload["continued"] is False
