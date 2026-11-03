@@ -11,7 +11,7 @@ import { api } from "../../lib/api";
 import { startsInInterview } from "../nautilus/app/format";
 import { describeGenerationError, isAiUnavailable } from "../nautilus/app/editor/aiDraft";
 import { chatMessages, updateChatLog } from "../nautilus/app/editor/chatLog";
-import { acceptProposal, requestRevision } from "../nautilus/app/editor/proposal";
+import { acceptProposal, requestFeedbackRevision, requestRevision } from "../nautilus/app/editor/proposal";
 import Workspace from "../nautilus/app/Workspace";
 import CreatePrdPage from "../nautilus/app/flow/CreatePrdPage";
 import InterviewPage from "../nautilus/app/flow/InterviewPage";
@@ -559,6 +559,15 @@ function Prototype({
     return result;
   }
 
+  // The same, addressing chosen review comments (owners only).
+  async function requestFeedbackProposal(id, commentIds, instruction) {
+    const prd = prds.find((p) => p.id === id);
+    if (!prd) throw new Error("This PRD is no longer in your list.");
+    const result = await requestFeedbackRevision(api, id, { revision: prd.revision, feedbackIds: commentIds, instruction });
+    openProposal(id, result.proposal);
+    return result;
+  }
+
   // Saves the whole proposal: the server's document as sent, never title or
   // description (editor/proposal.js). The editor then remounts with the saved
   // PRD; the conversation stays.
@@ -706,6 +715,9 @@ function Prototype({
           proposal={aiProposal?.prdId === activePrd.id ? aiProposal : null}
           onRequestProposal={(instruction, sessionMessages) =>
             requestProposal(activePrd.id, instruction, sessionMessages)
+          }
+          onRequestFeedbackProposal={(commentIds, instruction) =>
+            requestFeedbackProposal(activePrd.id, commentIds, instruction)
           }
           onAcceptProposal={(confirmedReviewerIds) => acceptAiProposal(activePrd.id, confirmedReviewerIds)}
           onDiscardProposal={() => setAiProposal(null)}

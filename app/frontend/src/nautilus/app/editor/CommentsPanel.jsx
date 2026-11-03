@@ -5,6 +5,10 @@ import { formatDay, initialsOf } from "../format";
 
 const SECTION_LABELS = Object.fromEntries(PRD_SECTIONS.map((section) => [section.id, section.label]));
 const MAX_BODY = 5000;
+// The backend takes 1 to 20 comments and an instruction of up to 2,000
+// characters (review_suggestion.MAX_FEEDBACK_ITEMS / MAX_INSTRUCTION_CHARS).
+const MAX_FEEDBACK = 20;
+const MAX_INSTRUCTION = 2000;
 
 // The backend's own sentences are written to be shown; only the two the
 // panel can act on are reworded here.
@@ -16,13 +20,25 @@ function describeError(error) {
 
 // One comment. `body` is plain text from the API, so React escapes it and the
 // CSS keeps its line breaks; it is never set as HTML.
-function Comment({ comment, currentVersionId }) {
+// With `onToggle`, it can be picked for the AI to address (only comments on
+// the current version can be).
+function Comment({ comment, currentVersionId, onToggle, picked = false, pickDisabled = false }) {
   const author = comment.author ?? {};
   const section = SECTION_LABELS[comment.section_type];
   // Older comments say which version they were left on, as the design's "v2".
   const olderVersion = currentVersionId && comment.version_id !== currentVersionId;
   return (
-    <article className="ne-comment">
+    <article className={`ne-comment${picked ? " is-picked" : ""}`}>
+      {onToggle ? (
+        olderVersion ? (
+          <p className="ne-comment-pick is-off">On an older version</p>
+        ) : (
+          <label className="ne-comment-pick">
+            <input type="checkbox" checked={picked} disabled={pickDisabled && !picked} onChange={onToggle} />
+            Address this
+          </label>
+        )
+      ) : null}
       <div className="ne-comment-head">
         <span className="ne-comment-avatar" aria-hidden="true">
           {initialsOf(author.name) || "?"}
@@ -51,12 +67,22 @@ function Comment({ comment, currentVersionId }) {
 //   currentVersionId  the PRD's current version, or null before the first
 //                     save: the composer is disabled then, because the API
 //                     answers 409 no_saved_version
+//   onSuggest(ids, instruction)  owners only: asks the AI for one proposal
+//                     addressing the picked comments; the editor then shows
+//                     it to compare. Rejects with an Error whose message says
+//                     why (shown here, with the picks and instruction kept)
 //   onRefresh         reads the PRD's detail again after a stale_version
 //                     refusal, for its new current version. Not the editor's
 //                     full reload: that remounts the editor and loses the draft
 //   id, labelledBy, hidden   tab panel wiring from EditorPage
-export default function CommentsPanel({ prd, currentVersionId, onRefresh, id, labelledBy, hidden }) {
+export default function CommentsPanel({ prd, currentVersionId, onSuggest, onRefresh, id, labelledBy, hidden }) {
   const [comments, setComments] = useState(null);
+  // Picking comments for the AI to address (owners, with onSuggest).
+  const [picking, setPicking] = useState(false);
+  const [picked, setPicked] = useState(() => new Set());
+  const [instruction, setInstruction] = useState("");
+  const [suggesting, setSuggesting] = useState(false);
+  const [suggestError, setSuggestError] = useState("");
   const [loadError, setLoadError] = useState("");
   const [draft, setDraft] = useState("");
   const [posting, setPosting] = useState(false);
@@ -111,13 +137,54 @@ export default function CommentsPanel({ prd, currentVersionId, onRefresh, id, la
     }
   }
 
+  function toggle(commentId) {
+    setPicked((current) => {
+      const next = new Set(current);
+      if (next.has(commentId)) next.delete(commentId);
+      else next.add(commentId);
+      return next;
+    });
+  }
+
+  async function suggest() {
+    if (!picked.size || suggesting) return;
+    setSuggesting(true);
+    setSuggestError("");
+    try {
+      // On success the editor swaps to the comparison, which unmounts this.
+      await onSuggest([...picked], instruction.trim() || null);
+    } catch (error) {
+      if (mounted.current) setSuggestError(error?.message || "Couldn’t ask for changes. Try again.");
+    } finally {
+      if (mounted.current) setSuggesting(false);
+    }
+  }
+
+  function stopPicking() {
+    setPicking(false);
+    setPicked(new Set());
+    setSuggestError("");
+  }
+
   const unsaved = !currentVersionId;
+  const pickable = (comments ?? []).some((comment) => comment.version_id === currentVersionId);
   return (
     <section className="ne-card ne-comments" role="tabpanel" id={id} aria-labelledby={labelledBy} hidden={hidden}>
       <div className="ne-card-head">
         <h2 className="ne-card-title">Comments</h2>
         {comments?.length ? <span className="ne-card-count">{comments.length}</span> : null}
+        {onSuggest && pickable && !picking ? (
+          <button type="button" className="ne-link-btn ne-comments-ai" onClick={() => setPicking(true)}>
+            Ask AI to address
+          </button>
+        ) : null}
       </div>
+      {picking ? (
+        <p className="ne-card-note">
+          Pick comments on the current version, up to {MAX_FEEDBACK}. Nautilus proposes changes you compare before
+          anything is saved.
+        </p>
+      ) : null}
 
       {loadError ? (
         <p className="nw-error" role="alert">
@@ -128,13 +195,55 @@ export default function CommentsPanel({ prd, currentVersionId, onRefresh, id, la
       ) : comments.length ? (
         <div className="ne-comment-list" ref={list}>
           {comments.map((comment) => (
-            <Comment key={comment.id} comment={comment} currentVersionId={currentVersionId} />
+            <Comment
+              key={comment.id}
+              comment={comment}
+              currentVersionId={currentVersionId}
+              onToggle={picking ? () => toggle(comment.id) : undefined}
+              picked={picked.has(comment.id)}
+              pickDisabled={picked.size >= MAX_FEEDBACK || suggesting}
+            />
           ))}
         </div>
       ) : (
         <p className="ne-card-note">No comments yet. Leave the first one for your team.</p>
       )}
 
+      {picking ? (
+        <div className="ne-comment-form">
+          <label className="nw-label" htmlFor={`${id}-ask`}>
+            Anything to add? (optional)
+          </label>
+          <textarea
+            id={`${id}-ask`}
+            className="ne-comment-box"
+            rows={2}
+            maxLength={MAX_INSTRUCTION}
+            disabled={suggesting}
+            placeholder="For example: keep the scope as it is."
+            value={instruction}
+            onChange={(event) => setInstruction(event.target.value)}
+          />
+          {suggestError ? (
+            <p className="nw-error" role="alert">
+              {suggestError}
+            </p>
+          ) : null}
+          <div className="ne-comment-actions">
+            <button type="button" className="nw-btn nw-btn-secondary ne-btn-34" onClick={stopPicking} disabled={suggesting}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="nw-btn nw-btn-primary ne-btn-34"
+              onClick={suggest}
+              disabled={!picked.size || suggesting}
+            >
+              {suggesting ? "Preparing…" : picked.size ? `Propose changes (${picked.size})` : "Propose changes"}
+            </button>
+          </div>
+        </div>
+      ) : (
       <form className="ne-comment-form" onSubmit={post}>
         <label className="nw-sr" htmlFor={`${id}-box`}>
           Write a comment
@@ -164,6 +273,7 @@ export default function CommentsPanel({ prd, currentVersionId, onRefresh, id, la
           </button>
         </div>
       </form>
+      )}
     </section>
   );
 }

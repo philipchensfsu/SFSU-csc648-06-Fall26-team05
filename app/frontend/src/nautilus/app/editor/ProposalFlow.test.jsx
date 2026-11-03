@@ -69,6 +69,7 @@ function Harness(props) {
 async function show(props = {}) {
   handlers = {
     onRequestProposal: vi.fn(),
+    onRequestFeedbackProposal: vi.fn().mockResolvedValue(),
     onAcceptProposal: vi.fn().mockResolvedValue(),
     onDiscardProposal: vi.fn(),
     onReload: vi.fn().mockResolvedValue(),
@@ -257,5 +258,76 @@ describe("comparing a proposal", () => {
     await show({ proposal });
     await click(buttonNamed("Discard"));
     expect(handlers.onDiscardProposal).toHaveBeenCalled();
+  });
+});
+
+describe("addressing review comments", () => {
+  const owner = {
+    capabilities: { can_edit: true, can_request_ai: true, can_request_review_suggestions: true },
+    owners: [{ id: "alice" }],
+    currentVersion: { id: "v2" },
+  };
+  const comment = (id, version, body) => ({
+    id,
+    version_id: version,
+    version_no: version === "v2" ? 2 : 1,
+    section_type: null,
+    author: { name: "Raj Patel" },
+    body,
+    created_at: "2026-11-01T12:00:00Z",
+  });
+  const commentsTab = async () => {
+    await click(buttonNamed("Comments"));
+    await act(async () => {});
+  };
+  const pick = (body) =>
+    [...host.querySelectorAll(".ne-comment")]
+      .find((card) => card.textContent.includes(body))
+      .querySelector('input[type="checkbox"]');
+
+  beforeEach(() => {
+    api.listPrdComments.mockResolvedValue({
+      items: [comment("c1", "v1", "Old note."), comment("c2", "v2", "Add the stale-data risk.")],
+    });
+  });
+
+  it("lets an owner pick current comments and ask for one proposal", async () => {
+    await show({ detail: owner });
+    await commentsTab();
+    await click(buttonNamed("Ask AI to address"));
+    expect(pick("Old note.")).toBeNull(); // older version: not pickable
+    expect(buttonNamed("Propose changes").disabled).toBe(true);
+    await click(pick("Add the stale-data risk."));
+    await typeInto(host.querySelector(".ne-comments textarea"), "Keep the scope as it is.");
+    await click(buttonNamed("Propose changes (1)"));
+    expect(handlers.onRequestFeedbackProposal).toHaveBeenCalledWith(["c2"], "Keep the scope as it is.");
+  });
+
+  it("isn't offered without the owners' flag", async () => {
+    await show({ detail: { ...owner, capabilities: { can_edit: true, can_request_review_suggestions: false } } });
+    await commentsTab();
+    expect(buttonNamed("Ask AI to address")).toBeUndefined();
+  });
+
+  it("keeps the picks and says why when it can't ask", async () => {
+    await show({ detail: owner });
+    handlers.onRequestFeedbackProposal.mockRejectedValue(apiError(422, "feedback_not_current"));
+    await commentsTab();
+    await click(buttonNamed("Ask AI to address"));
+    await click(pick("Add the stale-data risk."));
+    await click(buttonNamed("Propose changes (1)"));
+    expect(host.querySelector(".ne-comments").textContent).toContain("older version");
+    expect(pick("Add the stale-data risk.").checked).toBe(true);
+  });
+
+  it("asks for unsaved edits to be saved first", async () => {
+    await show({ detail: owner });
+    await click(host.querySelector('[aria-label="Confirm assumption: Students drive"]'));
+    await commentsTab();
+    await click(buttonNamed("Ask AI to address"));
+    await click(pick("Add the stale-data risk."));
+    await click(buttonNamed("Propose changes (1)"));
+    expect(handlers.onRequestFeedbackProposal).not.toHaveBeenCalled();
+    expect(host.querySelector(".ne-comments").textContent).toContain("Save your edits first");
   });
 });

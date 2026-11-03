@@ -1,5 +1,7 @@
-// Conversational AI revisions (POST /api/prds/{id}/ai-revisions): asking for
-// a proposal, accepting it through the save, and what their errors say.
+// AI proposals to compare and accept: conversational revisions (POST
+// /api/prds/{id}/ai-revisions) and revisions addressing review comments
+// (POST /api/prds/{id}/review-suggestions, owners only). Asking, accepting
+// through the save, and what their errors say.
 // The editor wires these to the chat and the comparison view.
 //
 // The rules this keeps (docs/frontend-api.md, "AI revisions from the chat"):
@@ -51,23 +53,46 @@ function outOfDate() {
 // was out of scope or unclear, { kind: "blocked" | "clarification", message }
 // with nothing to compare.
 export async function requestRevision(api, prdId, { revision, instruction, sessionMessages = [] }) {
-  const snapshot = await api.getPrd(prdId);
-  if (snapshot.revision !== revision) throw outOfDate();
+  const snapshot = await freshSnapshot(api, prdId, revision);
   const reply = await api.requestAiRevision(prdId, { revision, instruction, sessionMessages });
   if (reply.kind !== "proposal" || !reply.proposal) return { kind: reply.kind, message: reply.message };
   return {
     kind: "proposal",
     message: reply.message,
-    proposal: {
-      baseRevision: reply.base_revision,
-      generationRecordId: reply.generation_record_id,
-      originalDocument: snapshot.content_json ?? EMPTY_DOCUMENT,
-      proposedDocument: reply.proposal.content_json,
-      sectionTypes: reply.proposal.section_types ?? [],
-      explanation: reply.message,
-      // Kept so the person can ask again after a conflict or expiry.
-      instruction,
-    },
+    proposal: toProposal(snapshot, reply, reply.message, { instruction }),
+  };
+}
+
+// Asks for one proposal addressing chosen comments on the current version
+// (owners only; the backend checks). The same comparison and acceptance as
+// a revision from the chat. Out-of-scope instructions come back as 422
+// errors with a fixed sentence to show.
+export async function requestFeedbackRevision(api, prdId, { revision, feedbackIds, instruction = null }) {
+  const snapshot = await freshSnapshot(api, prdId, revision);
+  const reply = await api.requestReviewSuggestion(prdId, { revision, feedbackIds, instruction });
+  return {
+    kind: "proposal",
+    message: reply.explanation,
+    proposal: toProposal(snapshot, reply, reply.explanation, { instruction, feedbackIds }),
+  };
+}
+
+async function freshSnapshot(api, prdId, revision) {
+  const snapshot = await api.getPrd(prdId);
+  if (snapshot.revision !== revision) throw outOfDate();
+  return snapshot;
+}
+
+function toProposal(snapshot, reply, explanation, extra) {
+  return {
+    baseRevision: reply.base_revision,
+    generationRecordId: reply.generation_record_id,
+    originalDocument: snapshot.content_json ?? EMPTY_DOCUMENT,
+    proposedDocument: reply.proposal.content_json,
+    sectionTypes: reply.proposal.section_types ?? [],
+    explanation,
+    // Kept so the person can ask again after a conflict or expiry.
+    ...extra,
   };
 }
 
@@ -121,8 +146,10 @@ export function describeProposalError(error) {
     case "proposal_scope":
     case "unsupported_proposal":
       return "This proposal no longer fits the saved PRD. Ask Nautilus again.";
-    case "owner_required":
-      return "This PRD is approved, so only its owners can change it.";
+    case "invalid_feedback":
+      return "Some of these comments can’t be used any more. Choose them again.";
+    case "feedback_not_current":
+      return "Some of these comments are on an older version. Choose comments on the current version.";
     case "document_not_v2":
       return "AI changes aren’t available for this PRD’s format yet.";
     case "ai_invalid_output":

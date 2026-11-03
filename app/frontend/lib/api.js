@@ -102,6 +102,14 @@ export const api = {
       body: JSON.stringify({ revision, instruction, session_messages: sessionMessages }),
     }),
 
+  // One proposal addressing chosen comments on the current version (E12,
+  // owners only). Nothing is saved; accept it like an AI revision.
+  requestReviewSuggestion: (prdId, { revision, feedbackIds, instruction }) =>
+    request(`/prds/${prdId}/review-suggestions`, {
+      method: "POST",
+      body: JSON.stringify({ revision, feedback_ids: feedbackIds, ...(instruction ? { instruction } : {}) }),
+    }),
+
   listIntakeAnswers: (prdId) => request(`/prds/${prdId}/intake`),
   saveIntakeAnswer: (prdId, questionKey, answerText, skipped) =>
     request(`/prds/${prdId}/intake/${questionKey}`, {
