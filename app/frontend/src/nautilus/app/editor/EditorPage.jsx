@@ -655,11 +655,13 @@ function EditorPage({
             ) : null}
             {/* Side by side with the chat, as the split-view design. Off by
                 default, so the usual three columns are what you get. Not
-                during an AI preview, which has no chat to put beside it. */}
+                during an AI preview, which has no chat to put beside it. Not
+                on phones either: the header has no room left for it there, and
+                the chat is a tab away in the side panel. */}
             {aiDraft ? null : (
               <button
                 type="button"
-                className="nw-btn nw-btn-secondary ne-btn-38"
+                className="nw-btn nw-btn-secondary ne-btn-38 ne-hide-sm"
                 aria-pressed={split}
                 onClick={() => setSplit((on) => !on)}
               >
