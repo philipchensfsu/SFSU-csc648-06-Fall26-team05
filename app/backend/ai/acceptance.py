@@ -26,11 +26,13 @@ from errors import ApiError
 
 PROPOSAL_UNAVAILABLE = (409, "This AI suggestion is no longer available", "proposal_unavailable")
 STALE_REVISION = (409, "This PRD changed since you last loaded it. Refresh and try again.", "stale_revision")
-# Kinds this save can accept: whole drafts (A03), section edits (A04) and
-# revision suggestions from review feedback (E12).
-ACCEPTED_KINDS = ("generate", "ai_edit", "review_suggestion")
+# Kinds this save can accept: whole drafts (A03), section edits (A04),
+# revision suggestions from review feedback (E12) and conversational
+# revisions across sections (ai/chat_revision.py).
+ACCEPTED_KINDS = ("generate", "ai_edit", "review_suggestion", "ai_revision")
 SECTION_SCOPE = (422, "Accepting a section edit can only change that section", "proposal_scope")
 SUGGESTION_SCOPE = (422, "Accepting a suggestion can only change the sections it suggested", "proposal_scope")
+REVISION_SCOPE = (422, "Accepting these changes can only change the sections they propose", "proposal_scope")
 
 
 class AcceptanceError(ApiError):
@@ -70,9 +72,10 @@ def prepare(service_client, *, actor_id, prd_id, base_revision: int, generation_
     if proposal["kind"] == "ai_edit":
         return _prepare_scoped(service_client, prd_id, {proposed["section_type"]}, [proposed["section"]],
                                str(generation_record_id), title, description, content_json, unset, SECTION_SCOPE)
-    if proposal["kind"] == "review_suggestion":
+    if proposal["kind"] in ("review_suggestion", "ai_revision"):
+        scope_error = SUGGESTION_SCOPE if proposal["kind"] == "review_suggestion" else REVISION_SCOPE
         return _prepare_scoped(service_client, prd_id, set(proposed["section_types"]), proposed["sections"],
-                               str(generation_record_id), title, description, content_json, unset, SUGGESTION_SCOPE)
+                               str(generation_record_id), title, description, content_json, unset, scope_error)
     if content_json is unset:
         marked, marked_sections = unset, ()
     else:
@@ -93,8 +96,9 @@ def prepare(service_client, *, actor_id, prd_id, base_revision: int, generation_
 
 def _prepare_scoped(service_client, prd_id, targets: set, proposed_sections: list, generation_record_id: str,
                     title, description, content_json, unset, scope_error) -> Acceptance:
-    """A section edit (one section) or a review suggestion (the sections it
-    suggested) changes those sections and nothing else. Every other section
+    """A section edit (one section), a review suggestion or a conversational
+    revision (the sections it proposed) changes those sections and nothing
+    else. Every other section
     must match the saved document, and title and description are left out.
     A suggested section is marked ai_generated only if accepted exactly as
     proposed; an edited one is saved without the mark."""

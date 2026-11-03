@@ -459,7 +459,7 @@ discarding it.
 
 | Body | Response | Who |
 |---|---|---|
-| `{ "revision": int }`: the revision you last loaded | 200 `{ proposal: { title, description, content_json, doc_schema_version: 2, sources: [] }, base_revision, generation_record_id }` | Can edit the PRD |
+| `{ "revision": int }`: the revision you last loaded | 200 `{ proposal: { title, description, content_json, doc_schema_version: 2, sources: [] }, base_revision, generation_record_id }` | Can edit the PRD; **owners only once it's approved** (`final`/`assigned`), the same as the save |
 
 - **Needs** answers to `problem`, `target_users` and `goals`. It uses the title, the description, all seven
   answers and the PRD's saved AI context (decisions, constraints, open questions, summary).
@@ -473,6 +473,7 @@ discarding it.
 |---|---|---|---|
 | 404 | `not_found` | You can't see the PRD | Show "not found" |
 | 403 | `forbidden` | You can view the PRD but not edit it | Hide Generate for viewers |
+| 403 | `owner_required` | The PRD is approved and you aren't an owner | Hide Generate (`capabilities.can_request_ai` is false) |
 | 409 | `stale_revision` | The PRD was saved after you loaded it, or while the draft was being written | Reload, then generate again |
 | 409 | `intake_changed` | The interview answers changed while the draft was being written | Show the message and a **Generate again** button. Keep this separate from `stale_revision` |
 | 422 | `intake_incomplete` | `problem`, `target_users` or `goals` is unanswered | Send the user back to the interview |
@@ -486,8 +487,8 @@ discarding it.
 
 ## PRD chat (AI)
 
-`POST /api/prds/{id}/ai/chat` answers questions about one PRD. **Answers only: it never changes the PRD.** Edit
-suggestions come later, through the same proposal and save flow as generation.
+`POST /api/prds/{id}/ai/chat` answers questions about one PRD. **Answers only: it never changes the PRD.** To turn
+the conversation into proposed changes, use [AI revisions from the chat](#ai-revisions-from-the-chat).
 
 | Body | Response | Who |
 |---|---|---|
@@ -509,7 +510,7 @@ saved**; the person accepts it through the normal save or discards it.
 
 | Body | Response | Who |
 |---|---|---|
-| `{ "revision": int, "section_type": "goals", "instruction": "1–2000 chars", "session_messages": [ { "role": "user" \| "assistant", "content": "1–8000 chars" } ] }` (at most 20; the chat's recent turns) | 200 `{ kind: "proposal" \| "blocked" \| "clarification", message, proposal, base_revision, generation_record_id }`. `proposal` is `{ section_type, section, content_json }` (null unless `kind` is `"proposal"`) | **Can edit** the PRD (viewers can still chat; they get 403 here) |
+| `{ "revision": int, "section_type": "goals", "instruction": "1–2000 chars", "session_messages": [ { "role": "user" \| "assistant", "content": "1–8000 chars" } ] }` (at most 20; the chat's recent turns) | 200 `{ kind: "proposal" \| "blocked" \| "clarification", message, proposal, base_revision, generation_record_id }`. `proposal` is `{ section_type, section, content_json }` (null unless `kind` is `"proposal"`) | **Can edit** the PRD; **owners only once it's approved** (`final`/`assigned`), the same as the save. Viewers can still chat; they get 403 here |
 
 - `message` explains the change. `content_json` is the saved document with only that section replaced (or inserted in
   the standard order), ready to preview.
@@ -522,9 +523,41 @@ saved**; the person accepts it through the normal save or discards it.
 - **Frontend (Om/Aksh):** the editor's Rewrite / Expand / Shorten / Improve / Insert actions each map to `ai-edit`
   with the section's `type` and an instruction (the action, plus any selected text). Lock editing while the request
   runs.
-- Errors: as for the chat, plus 403 `forbidden` (can't edit), 409 `document_not_v2` (hide AI edits for that PRD),
+- **Button flag:** `capabilities.can_request_ai`, which is false exactly when this route would refuse with 403.
+- Errors: as for the chat, plus 403 `forbidden` (can't edit), 403 `owner_required` (approved, and you aren't an
+  owner), 409 `document_not_v2` (hide AI edits for that PRD),
   and on accept 422 `proposal_scope` (the save changed something besides that section: save manual edits first,
   then accept).
+
+## AI revisions from the chat
+
+`POST /api/prds/{id}/ai-revisions` turns what the person and the chat discussed into **one proposal that can change
+several sections**, with an explanation. **Nothing is saved**: show it beside the saved PRD (the comparison view) and
+accept or discard the whole proposal.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int, "instruction": "1–2000 chars", "session_messages": [ { "role": "user" \| "assistant", "content": "1–8000 chars" } ] }` (at most 20; the chat's recent turns) | 200 `{ kind: "proposal" \| "blocked" \| "clarification", message, proposal, base_revision, generation_record_id }`. `proposal` is `{ section_types, sections, content_json }` (null unless `kind` is `"proposal"`) | **Can edit** the PRD; **owners only once it's approved**. Same flag as section edits: `capabilities.can_request_ai` |
+
+- `instruction` says what to change ("Apply the improvements we discussed"); `session_messages` gives the conversation
+  it refers to. Om's scope check runs on both: `blocked` / `clarification` carry a fixed message to show as-is, and
+  there's no proposal.
+- `proposal.sections` are only the sections the AI changed or added. `content_json` is the **complete** saved
+  document with those replaced (or inserted in the standard order). Leaving a section out never deletes it, and the
+  title and description are never changed. `message` explains the changes.
+- **Accept** by saving `proposal.content_json` **exactly as received** with `generation_record_id`, and **without
+  `title` or `description`** in the body (even unchanged ones are refused with 422 `proposal_scope`). Every other
+  section must match the saved document, so **save manual edits before asking**. Sections accepted unchanged get the
+  AI highlight. Reject by discarding; the proposal expires on its own (about 30 minutes, provisional).
+- **Approved PRD:** the accepting save needs `confirmed_reviewer_ids` like any edit to an approved PRD (409
+  `reapproval_required` first, then the reviewer dialog). **In review:** it continues the round like any edit (E09).
+- **Errors on request:** 404; 403 `forbidden` / `owner_required`; 409 `stale_revision` (reload; keep the instruction
+  and conversation so the person can ask again); 409 `document_not_v2`; 422 `validation_error`; 503
+  `ai_chat_unavailable`; plus the shared AI codes (`ai_cooldown`, `ai_busy`, `ai_disabled`,
+  `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`, `ai_unavailable`, `ai_budget_exhausted`).
+- **Errors on accept:** 409 `stale_revision` (someone saved meanwhile: ask for a new proposal), 409
+  `proposal_unavailable` (expired or already used: ask again), 409 `reapproval_required`, 422 `proposal_scope`.
+- **Needs** the `20261102120000_ai_revision_proposals` migration (a new proposal kind, `ai_revision`).
 
 ## Revision suggestions from review feedback (E12)
 
