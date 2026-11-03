@@ -77,6 +77,33 @@ export async function requestFeedbackRevision(api, prdId, { revision, feedbackId
   };
 }
 
+// Request adjustments: asks for changes to a proposal that hasn't been
+// accepted. The comparison keeps the same "current" side (the saved PRD it
+// was made from) and base revision; the server revises the pending proposal
+// it holds, keeps every section changed so far in scope, and retires the old
+// one. A proposal from review comments stays one (owners only).
+export async function requestAdjustment(api, prdId, proposal, { instruction, sessionMessages = [] }) {
+  const reply = await api.requestAiRevision(prdId, {
+    revision: proposal.baseRevision,
+    instruction,
+    sessionMessages,
+    previousGenerationRecordId: proposal.generationRecordId,
+  });
+  if (reply.kind !== "proposal" || !reply.proposal) return { kind: reply.kind, message: reply.message };
+  return {
+    kind: "proposal",
+    message: reply.message,
+    proposal: {
+      ...proposal,
+      baseRevision: reply.base_revision,
+      generationRecordId: reply.generation_record_id,
+      proposedDocument: reply.proposal.content_json,
+      sectionTypes: reply.proposal.section_types ?? [],
+      explanation: reply.message,
+    },
+  };
+}
+
 async function freshSnapshot(api, prdId, revision) {
   const snapshot = await api.getPrd(prdId);
   if (snapshot.revision !== revision) throw outOfDate();

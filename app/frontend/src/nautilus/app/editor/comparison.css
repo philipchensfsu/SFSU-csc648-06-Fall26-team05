@@ -51,6 +51,20 @@
 .nc-actions {
   flex: none;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+/* Request adjustments: what to change in the proposal before accepting it. */
+.nc-adjust {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  max-width: 640px;
+}
+.nc-adjust-actions {
+  display: flex;
   gap: 8px;
 }
 

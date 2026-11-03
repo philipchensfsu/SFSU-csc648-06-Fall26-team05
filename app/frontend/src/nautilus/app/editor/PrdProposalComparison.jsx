@@ -54,6 +54,11 @@ function Side({ parts, side, missing }) {
 //   busy              while accepting: both buttons wait
 //   notice            an Alert to show above the documents (errors, conflicts)
 //   acceptLabel       defaults to "Accept changes"
+//   onAdjust(instruction)  optional: shows "Request adjustments", which asks
+//                     for changes to this proposal before accepting it. Resolves
+//                     once the new proposal (or a reply) is in; rejects with an
+//                     Error whose message is shown, keeping what was typed
+//   adjusting         while an adjustment is being prepared
 export default function PrdProposalComparison({
   currentDocument,
   proposedDocument,
@@ -63,14 +68,34 @@ export default function PrdProposalComparison({
   busy = false,
   notice = null,
   acceptLabel = "Accept changes",
+  onAdjust,
+  adjusting = false,
 }) {
   const id = useId();
+  const [asking, setAsking] = useState(false);
+  const [request, setRequest] = useState("");
+  const [adjustError, setAdjustError] = useState("");
   const rows = useMemo(() => compareDocuments(currentDocument, proposedDocument), [currentDocument, proposedDocument]);
   // On narrow screens one side shows at a time; wide screens show both.
   const [shown, setShown] = useState("proposed");
   // Long PRDs bury a two-section change; this hides the sections that match.
   const [changedOnly, setChangedOnly] = useState(false);
   const changes = rows.filter((row) => row.status !== "unchanged").length;
+  const busyAll = busy || adjusting;
+
+  async function adjust(event) {
+    event.preventDefault();
+    const typed = request.trim();
+    if (!typed || busyAll) return;
+    setAdjustError("");
+    try {
+      await onAdjust(typed);
+      setRequest("");
+      setAsking(false);
+    } catch (error) {
+      setAdjustError(error?.message || "Couldn’t adjust the proposal. Try again.");
+    }
+  }
   const visible = changedOnly ? rows.filter((row) => row.status !== "unchanged") : rows;
 
   return (
@@ -86,12 +111,57 @@ export default function PrdProposalComparison({
               : `${changes} of ${rows.length} ${rows.length === 1 ? "section" : "sections"} would change. Nothing is saved until you accept.`}
           </p>
           {explanation ? <p className="nc-explanation">{explanation}</p> : null}
+          {onAdjust && asking ? (
+            <form className="nc-adjust" onSubmit={adjust}>
+              <label className="nw-label" htmlFor={`${id}-adjust`}>
+                What should change in this proposal?
+              </label>
+              <textarea
+                id={`${id}-adjust`}
+                className="ne-comment-box"
+                rows={2}
+                maxLength={2000}
+                disabled={adjusting}
+                placeholder="For example: keep the original goals, only change the metrics."
+                value={request}
+                onChange={(event) => setRequest(event.target.value)}
+              />
+              {adjustError ? (
+                <p className="nw-error" role="alert">
+                  {adjustError}
+                </p>
+              ) : null}
+              <div className="nc-adjust-actions">
+                <button
+                  type="button"
+                  className="nw-btn nw-btn-secondary ne-btn-34"
+                  onClick={() => setAsking(false)}
+                  disabled={adjusting}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="nw-btn nw-btn-primary ne-btn-34" disabled={adjusting || !request.trim()}>
+                  {adjusting ? "Adjusting…" : "Adjust proposal"}
+                </button>
+              </div>
+            </form>
+          ) : null}
         </div>
         <div className="nc-actions">
-          <button type="button" className="nw-btn nw-btn-secondary ne-btn-38" onClick={onDiscard} disabled={busy}>
+          {onAdjust && !asking ? (
+            <button
+              type="button"
+              className="nw-btn nw-btn-secondary ne-btn-38"
+              onClick={() => setAsking(true)}
+              disabled={busyAll}
+            >
+              Request adjustments
+            </button>
+          ) : null}
+          <button type="button" className="nw-btn nw-btn-secondary ne-btn-38" onClick={onDiscard} disabled={busyAll}>
             Discard
           </button>
-          <button type="button" className="nw-btn nw-btn-primary ne-btn-38" onClick={onAccept} disabled={busy}>
+          <button type="button" className="nw-btn nw-btn-primary ne-btn-38" onClick={onAccept} disabled={busyAll}>
             {busy ? "Accepting…" : acceptLabel}
           </button>
         </div>
