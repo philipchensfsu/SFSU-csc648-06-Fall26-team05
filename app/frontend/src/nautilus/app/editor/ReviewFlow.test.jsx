@@ -7,7 +7,15 @@ import { api } from "../../../../lib/api";
 import EditorPage from "./EditorPage";
 import { reviewerCandidates } from "../format";
 
-vi.mock("../../../../lib/api", () => ({ api: { getDirectory: vi.fn(), listReviews: vi.fn() } }));
+// The editor's side panel loads comments as well, so the mock carries those.
+vi.mock("../../../../lib/api", () => ({
+  api: {
+    getDirectory: vi.fn(),
+    listReviews: vi.fn(),
+    listPrdComments: vi.fn(),
+    addPrdComment: vi.fn(),
+  },
+}));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom doesn't implement the native dialog or scrolling.
@@ -103,6 +111,7 @@ beforeEach(() => {
   api.getDirectory.mockResolvedValue({ organization: { id: "org", name: "Campus Apps" }, members });
   // The latest round's reviewers: Ben, and someone who has since left the org.
   api.listReviews.mockResolvedValue({ items: [{ reviewers: [{ user_id: "ben" }, { user_id: "gone" }] }] });
+  api.listPrdComments.mockResolvedValue({ items: [], next_cursor: null });
 });
 
 afterEach(async () => {
@@ -341,5 +350,40 @@ describe("edits to an approved PRD", () => {
     expect(buttonNamed("Apply edits")).toBeUndefined();
     await click(buttonNamed("Try again"));
     expect(buttonNamed("Apply edits")).toBeDefined();
+  });
+});
+
+describe("commenting when someone saved first", () => {
+  it("keeps the draft and the tab, and posts again on the new version", async () => {
+    const stale = Object.assign(new Error("Stale"), { status: 409, code: "stale_version" });
+    api.addPrdComment.mockRejectedValueOnce(stale).mockResolvedValueOnce({
+      id: "c1", version_id: "v2", section_type: null, author: { name: "Erin Engineer" }, body: "Ship it",
+      created_at: "2026-11-01T12:00:00Z",
+    });
+    const onReload = vi.fn();
+    const onRetryDetail = vi.fn();
+    const props = { onReload, onRetryDetail };
+    await show({ ...props, detail: { ...owner, currentVersion: { id: "v1" } } });
+    await click(buttonNamed("Comments"));
+    await typeInto(host.querySelector(".ne-comment-box"), "Ship it");
+    await click(buttonNamed("Comment"));
+    expect(onRetryDetail).toHaveBeenCalled();
+    expect(onReload).not.toHaveBeenCalled();
+
+    // The refreshed detail arrives without remounting the editor.
+    await act(async () =>
+      root.render(
+        <EditorPage
+          prd={prd} organizationId="org" userId="erin" onSave={vi.fn()} onSubmitReview={vi.fn()}
+          onDecideReview={vi.fn()} onOpenAnswers={vi.fn()} onExit={vi.fn()} onHome={vi.fn()}
+          {...props} detail={{ ...owner, currentVersion: { id: "v2" } }}
+        />,
+      ),
+    );
+    expect(host.querySelector(".ne-comment-box").value).toBe("Ship it");
+    expect(host.querySelector(".ne-comments").hidden).toBe(false); // still on the Comments tab
+    await click(buttonNamed("Comment"));
+    expect(api.addPrdComment).toHaveBeenLastCalledWith("p1", { versionId: "v2", body: "Ship it" });
+    expect(host.textContent).toContain("Ship it");
   });
 });

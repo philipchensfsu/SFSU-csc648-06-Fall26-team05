@@ -1461,3 +1461,107 @@
     outline-offset: 1px;
   }
 }
+
+/* --- comments (side panel) --------------------------------------------- */
+.ne-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+}
+.ne-comment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+.ne-comment {
+  padding: 12px 14px;
+  border: 1px solid #DCEBEE;
+  border-radius: 10px;
+  background: #FFFFFF;
+}
+.ne-comment-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.ne-comment-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #DCEBEE;
+  color: #102C33;
+  font-size: 11px;
+  font-weight: 650;
+}
+.ne-comment-who {
+  color: #102C33;
+  font-weight: 600;
+}
+.ne-comment-dept {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: #EDF5F6;
+  color: #557479;
+  font-size: 12px;
+}
+.ne-comment-when {
+  margin-left: auto;
+  color: #557479;
+  font-size: 12px;
+}
+.ne-comment-where {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  color: #557479;
+  font-size: 12px;
+}
+.ne-comment-ver {
+  padding: 1px 6px;
+  border: 1px solid #C3DADE;
+  border-radius: 999px;
+  font-family: "Geist Mono", ui-monospace, monospace;
+}
+/* Plain text from the API: React escapes it, this keeps its line breaks. */
+.ne-comment-body {
+  margin: 8px 0 0;
+  color: #102C33;
+  font-size: 14px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.ne-comment-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ne-comment-box {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #C3DADE;
+  border-radius: 9px;
+  background: #FFFFFF;
+  color: #102C33;
+  font: inherit;
+  font-size: 14px;
+  resize: vertical;
+}
+.ne-comment-box:disabled {
+  background: #F4F8F9;
+  color: #557479;
+}
+.ne-comment-actions {
+  display: flex;
+  justify-content: flex-end;
+}

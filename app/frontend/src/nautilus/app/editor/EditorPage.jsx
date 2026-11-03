@@ -4,6 +4,7 @@ import "../flow/flow.css";
 import "./editor.css";
 import { FlowBar } from "../flow/FlowBar";
 import AskAiPanel from "./AskAiPanel";
+import CommentsPanel from "./CommentsPanel";
 import { isDraftOutOfDate } from "./aiDraft";
 import { ReapprovalDialog } from "./ReapprovalDialog";
 import { ApprovalsCard, YourReviewCard } from "./ReviewPanel";
@@ -972,7 +973,7 @@ function EditorPage({
           </article>
         </main>
 
-        <aside className="ne-rail" aria-label="Review and AI">
+        <aside className="ne-rail" aria-label="Review, AI and comments">
           <div className="ne-rail-tabs" role="tablist" aria-label="Side panel">
             <button
               type="button"
@@ -1002,6 +1003,21 @@ function EditorPage({
                 Ask AI
               </button>
             )}
+            {/* Anyone who can view the PRD can read and post comments. Not on
+                an unsaved draft: comments belong to a saved version. */}
+            {aiDraft ? null : (
+              <button
+                type="button"
+                role="tab"
+                id={`${ids}-tab-comments`}
+                aria-selected={railTab === "comments"}
+                aria-controls={`${ids}-panel-comments`}
+                className={`ne-rail-tab${railTab === "comments" ? " is-active" : ""}`}
+                onClick={() => setRailTab("comments")}
+              >
+                Comments
+              </button>
+            )}
           </div>
 
           {aiDraft ? null : (
@@ -1013,7 +1029,18 @@ function EditorPage({
               hidden={railTab !== "ai"}
             />
           )}
-          {railTab === "ai" ? null : (
+          {aiDraft ? null : (
+            <CommentsPanel
+              key={prd.id}
+              prd={prd}
+              currentVersionId={detail?.currentVersion?.id ?? null}
+              onRefresh={onRetryDetail}
+              id={`${ids}-panel-comments`}
+              labelledBy={`${ids}-tab-comments`}
+              hidden={railTab !== "comments"}
+            />
+          )}
+          {railTab === "ai" || railTab === "comments" ? null : (
           <div role="tabpanel" id={`${ids}-panel-review`} aria-labelledby={`${ids}-tab-review`}>
           {canApprove ? (
             <YourReviewCard

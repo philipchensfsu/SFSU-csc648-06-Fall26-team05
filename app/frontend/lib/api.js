@@ -124,4 +124,20 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ version_id: versionId, decision, ...(explanation ? { explanation } : {}) }),
     }),
+
+  // Flat comments on a PRD's saved versions, oldest first. Without versionId,
+  // every version's comments, each carrying its own version_no.
+  listPrdComments: (prdId, { versionId, limit = 50, cursor } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (versionId) params.set("version_id", versionId);
+    if (cursor) params.set("cursor", cursor);
+    return request(`/prds/${prdId}/comments?${params}`);
+  },
+  // versionId is the PRD's current version; sectionType is one of the nine
+  // section types, or null for the whole PRD. body is plain text.
+  addPrdComment: (prdId, { versionId, sectionType = null, body }) =>
+    request(`/prds/${prdId}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ version_id: versionId, section_type: sectionType, body }),
+    }),
 };
