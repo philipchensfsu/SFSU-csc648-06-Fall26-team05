@@ -30,12 +30,19 @@ class FakeService:
     """Records the rpc call and returns a canned row, or raises a database error.
     Serves one staged proposal for AI saves."""
 
-    def __init__(self, error_code=None, proposal=None, message="from postgres"):
+    def __init__(self, error_code=None, proposal=None, message="from postgres", saved=None, prd_now=None):
         self.error_code, self.calls, self.proposal, self.message = error_code, [], proposal, message
+        # The row save_prd returns, and what a re-read of the PRD sees after
+        # the save (the status E09 left); no re-read row unless given.
+        self.saved = saved or {"id": PRD, "revision": 2}
+        self.prd_now, self.reads = prd_now, 0
 
     def table(self, name):
-        assert name == "ai_proposal"
-        rows = [self.proposal] if self.proposal else []
+        assert name in ("ai_proposal", "prd")
+        if name == "prd":
+            self.reads += 1
+        rows = ([self.proposal] if self.proposal else []) if name == "ai_proposal" else (
+            [self.prd_now] if self.prd_now else [])
         query = SimpleNamespace(execute=lambda: SimpleNamespace(data=rows))
         query.select = lambda *_: query
         query.eq = lambda *_: query
@@ -48,7 +55,7 @@ class FakeService:
     def execute(self):
         if self.error_code:
             raise APIError({"code": self.error_code, "message": self.message})
-        return SimpleNamespace(data={"id": PRD, "revision": 2})
+        return SimpleNamespace(data=dict(self.saved))
 
 
 def test_title_only_save_sends_only_the_title():
@@ -198,6 +205,37 @@ def test_confirmed_reviewers_are_sent_as_ids_and_default_to_none():
     reviewer = "11111111-1111-1111-1111-111111111111"
     save_prd(service, USER, PRD, 1, title="t", confirmed_reviewer_ids=[reviewer.upper()])
     assert service.calls[1][1]["p_confirmed_reviewers"] == [reviewer]
+
+
+def test_a_confirmed_edit_returns_the_status_the_new_round_left():
+    # save_prd captures its row before E09 opens the new round, so the row
+    # still says final; the status is read again for this revision.
+    service = FakeService(saved={"id": PRD, "revision": 2, "status": "final"},
+                          prd_now={"revision": 2, "status": "in_review"})
+    saved = save_prd(service, USER, PRD, 1, title="t", confirmed_reviewer_ids=["11111111-1111-1111-1111-111111111111"])
+    assert saved == {"id": PRD, "revision": 2, "status": "in_review"}
+
+
+def test_an_edit_that_ends_the_round_returns_draft():
+    # E09 ends an open round (the edit emptied the PRD, or no reviewer can
+    # take part) after the row is captured; no reviewer list is sent.
+    service = FakeService(saved={"id": PRD, "revision": 2, "status": "in_review"},
+                          prd_now={"revision": 2, "status": "draft"})
+    assert save_prd(service, USER, PRD, 1, title="t")["status"] == "draft"
+
+
+def test_a_later_save_by_someone_else_is_never_returned_as_this_one():
+    service = FakeService(saved={"id": PRD, "revision": 2, "status": "final"},
+                          prd_now={"revision": 3, "status": "in_review"})
+    saved = save_prd(service, USER, PRD, 1, title="t", confirmed_reviewer_ids=["11111111-1111-1111-1111-111111111111"])
+    assert saved == {"id": PRD, "revision": 2, "status": "final"}
+
+
+def test_a_drafts_save_is_returned_as_the_database_gave_it():
+    service = FakeService(saved={"id": PRD, "revision": 2, "status": "draft"},
+                          prd_now={"revision": 2, "status": "in_review"})
+    assert save_prd(service, USER, PRD, 1, title="t") == {"id": PRD, "revision": 2, "status": "draft"}
+    assert service.reads == 0  # a draft's save changes no review, so nothing is read again
 
 
 @pytest.mark.parametrize("bad", [["not-an-id"], [None], ["11111111-1111-1111-1111-111111111111"] * 51])
