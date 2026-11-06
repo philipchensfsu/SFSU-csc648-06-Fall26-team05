@@ -29,7 +29,7 @@ and the app generates a structured PRD draft they can review, edit, and save.
 | M0 | Team Formation & Tool Selection | ✅ Completed | [M0 Report](milestones/m0/CSC%20648-848%20M0%20section%206%20Team%205.docx) |
 | M1 | User Stories & High-Level Requirements | ✅ Completed (submitted 9/29/2026) | [M1 Report](milestones/m1/CSC%20648-848%20M1%20section%206%20Team%205.pdf) |
 | M2 | Architecture, UI Mockups & Vertical Prototype | ✅ Completed (submitted 10/20/2026) | [M2 Report](milestones/m2/CSC%20648-848%20M2%20section%206%20Team%205.pdf) |
-| M3 | TBD | ⏳ Upcoming | |
+| M3 | Project Status & UI Review | ✅ Completed (submitted 11/4/2026) | [M3 Report](milestones/m3/CSC%20648-848%20M3%20section%206%20Team%205.pdf) |
 | M4 | TBD | ⏳ Upcoming | |
 | M5 | TBD | ⏳ Upcoming | |
 
