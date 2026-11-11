@@ -40,7 +40,7 @@ from collections.abc import Callable
 
 from ai import chat, edit_access, records, usage_gate
 from ai.gemini_client import AIError, GeminiResult, generate_json, model_name
-from ai.generation import _heading, _list, _paragraph
+from ai.generation_schema import heading_schema, list_schema, paragraph_schema
 from ai.generation_output import FORBIDDEN_MARK_CODES
 from errors import ApiError
 from prd_document import section_title, section_types, validate_document
@@ -96,7 +96,8 @@ def response_schema(section_type: str) -> dict:
             "attrs": {"type": "object", "properties": {"type": {"type": "string", "enum": [section_type]}},
                       "required": ["type"]},
             "content": {"type": "array", "minItems": 1,
-                        "items": {"anyOf": [_paragraph(), _heading(), _list("bulletList"), _list("orderedList")]}},
+                        "items": {"anyOf": [paragraph_schema(), heading_schema(), list_schema("bulletList"),
+                                            list_schema("orderedList")]}},
         },
         "required": ["type", "attrs", "content"],
     }

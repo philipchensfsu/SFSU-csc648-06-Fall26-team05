@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 
 from ai.gemini_client import AIError, GeminiResult, generate_json
 from ai.generation_output import validate_generated_document
+from ai.generation_schema import RESPONSE_SCHEMA
 from errors import ApiError
 from prd_document import (
     DocumentError,
@@ -44,13 +45,13 @@ from prd_document import (
 
 # Recorded on generation_record so a reply can be traced to the prompt that
 # produced it. Bump it whenever SYSTEM_INSTRUCTION, the prompt layout or
-# RESPONSE_SCHEMA changes.
+# RESPONSE_SCHEMA (ai/generation_schema.py) changes.
 PROMPT_VERSION = "prd-generate-v2"  # v2: saved context (prd_context) in the data
 
 DOC_SCHEMA_VERSION = 2
 
 # The seven fixed interview questions, in interview order. Must match
-# INTAKE_QUESTION_KEYS in main.py (a test checks this).
+# INTAKE_QUESTION_KEYS in routes/intake.py (a test checks this).
 INTAKE_KEYS = (
     "problem",
     "target_users",
@@ -62,7 +63,7 @@ INTAKE_KEYS = (
 )
 # Generating without these would mean inventing the PRD (A03).
 REQUIRED_INTAKE_KEYS = ("problem", "target_users", "goals")
-MAX_ANSWER_CHARS = 5000  # same as IntakeAnswerIn in main.py
+MAX_ANSWER_CHARS = 5000  # same as IntakeAnswerIn in routes/intake.py
 
 # The saved context (A02 prd_context) sent with each request, with the
 # database's bounds. change_log and source_ids stay out: an audit trail and
@@ -175,120 +176,6 @@ Questions. Keep the draft consistent with the saved decisions and
 constraints, and carry saved open questions into Open Questions unless the
 answers settle them. Write in the language of the answers.
 """
-
-
-def _text_node() -> dict:
-    return {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["text"]},
-            "text": {"type": "string", "minLength": 1},
-            "marks": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {"type": {"type": "string", "enum": ["bold", "italic"]}},
-                    "required": ["type"],
-                },
-            },
-        },
-        "required": ["type", "text"],
-    }
-
-
-def _paragraph() -> dict:
-    return {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["paragraph"]},
-            "content": {"type": "array", "items": _text_node(), "minItems": 1},
-        },
-        "required": ["type", "content"],
-    }
-
-
-def _heading() -> dict:
-    return {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["heading"]},
-            "attrs": {
-                "type": "object",
-                "properties": {"level": {"type": "integer", "enum": [2, 3]}},
-                "required": ["level"],
-            },
-            "content": {"type": "array", "items": _text_node(), "minItems": 1},
-        },
-        "required": ["type", "attrs", "content"],
-    }
-
-
-def _list(list_type: str) -> dict:
-    item = {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["listItem"]},
-            "content": {"type": "array", "items": _paragraph(), "minItems": 1},
-        },
-        "required": ["type", "content"],
-    }
-    return {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": [list_type]},
-            "content": {"type": "array", "items": item, "minItems": 1},
-        },
-        "required": ["type", "content"],
-    }
-
-
-def _response_schema() -> dict:
-    """What Gemini is asked to return.
-
-    A deliberately small subset of the shared spec (no tables, quotes, links
-    or nested lists) that is enough for a first draft. It only guides the
-    model: every reply is still checked against the full shared rules.
-    Written out without $ref so it doesn't depend on recursive-schema
-    support.
-    """
-    section = {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["section"]},
-            "attrs": {
-                "type": "object",
-                "properties": {"type": {"type": "string", "enum": section_types()}},
-                "required": ["type"],
-            },
-            "content": {
-                "type": "array",
-                "items": {"anyOf": [_paragraph(), _heading(), _list("bulletList"), _list("orderedList")]},
-                "minItems": 1,
-            },
-        },
-        "required": ["type", "attrs", "content"],
-    }
-    limits = load_spec()["limits"]
-    return {
-        "type": "object",
-        "properties": {
-            "title": {"type": "string", "minLength": 1, "maxLength": limits["max_title_chars"]["value"]},
-            "description": {"type": "string", "maxLength": limits["max_description_chars"]["value"]},
-            "document": {
-                "type": "object",
-                "properties": {
-                    "type": {"type": "string", "enum": ["doc"]},
-                    "content": {"type": "array", "items": section,
-                                "minItems": len(section_types()), "maxItems": len(section_types())},
-                },
-                "required": ["type", "content"],
-            },
-        },
-        "required": ["title", "description", "document"],
-    }
-
-
-RESPONSE_SCHEMA = _response_schema()
 
 
 def build_prompt(inputs: GenerationInput) -> str:
