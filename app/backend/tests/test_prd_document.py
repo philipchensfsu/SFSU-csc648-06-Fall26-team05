@@ -141,10 +141,11 @@ def test_the_only_disabled_mark_is_the_reserved_citation():
 def test_the_seed_takes_section_types_from_the_spec():
     # The demo seed used to keep its own copy of the nine types; it now reads
     # them from the shared spec, so there's one list to keep in step.
-    tree = ast.parse((BACKEND / "seed_demo.py").read_text(encoding="utf-8"))
-    copies = [node for node in tree.body
-              if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "SECTION_TITLES"]
-    assert copies == []
+    for name in ("seed_demo.py", "seed_demo_content.py"):
+        tree = ast.parse((BACKEND / name).read_text(encoding="utf-8"))
+        copies = [node for node in tree.body
+                  if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "SECTION_TITLES"]
+        assert copies == [], name
     import seed_demo
     assert seed_demo.section_order() == section_types()
 
