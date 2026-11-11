@@ -5,6 +5,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import main
 
 client = TestClient(main.app, raise_server_exceptions=False)
@@ -31,7 +32,7 @@ class Rows:
 def sign_in_with(tables, people):
     user = SimpleNamespace(id=ALICE)
     fake = SimpleNamespace(table=lambda name: Rows(tables.get(name, [])), rpc=lambda name, params: Rows(people))
-    main.app.dependency_overrides[main.get_current_user] = lambda: {"user": user, "client": fake}
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": user, "client": fake}
 
 
 @pytest.fixture(autouse=True)

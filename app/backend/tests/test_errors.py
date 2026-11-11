@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from postgrest.exceptions import APIError
 from supabase_auth.errors import AuthApiError, AuthRetryableError, AuthSessionMissingError
 
+import auth
 import main
 
 # Unexpected errors should become JSON responses, not test failures.
@@ -40,7 +41,7 @@ class FakeQuery:
 def sign_in_with(query):
     user = SimpleNamespace(id="11111111-1111-1111-1111-111111111111")
     fake_client = SimpleNamespace(table=lambda name: query)
-    main.app.dependency_overrides[main.get_current_user] = lambda: {"user": user, "client": fake_client}
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": user, "client": fake_client}
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +63,7 @@ def test_missing_or_malformed_auth_is_401(headers, monkeypatch):
     def reject(token):
         raise AuthApiError("invalid JWT", 403, "bad_jwt")
 
-    monkeypatch.setattr(main.supabase.auth, "get_user", reject)
+    monkeypatch.setattr(auth.supabase.auth, "get_user", reject)
     assert_error(client.get("/api/projects", headers=headers), 401, "not_authenticated")
 
 
@@ -75,13 +76,13 @@ def test_invalid_token_is_401(error, monkeypatch):
     def reject(token):
         raise error
 
-    monkeypatch.setattr(main.supabase.auth, "get_user", reject)
+    monkeypatch.setattr(auth.supabase.auth, "get_user", reject)
     response = client.get("/api/projects", headers={"Authorization": "Bearer nope"})
     assert_error(response, 401, "not_authenticated")
 
 
 def test_no_user_returned_is_401(monkeypatch):
-    monkeypatch.setattr(main.supabase.auth, "get_user", lambda token: SimpleNamespace(user=None))
+    monkeypatch.setattr(auth.supabase.auth, "get_user", lambda token: SimpleNamespace(user=None))
     response = client.get("/api/projects", headers={"Authorization": "Bearer nope"})
     assert_error(response, 401, "not_authenticated")
 
@@ -97,7 +98,7 @@ def test_auth_outage_is_503_and_never_logs_the_token(error, monkeypatch, caplog)
     def fail(token):
         raise error
 
-    monkeypatch.setattr(main.supabase.auth, "get_user", fail)
+    monkeypatch.setattr(auth.supabase.auth, "get_user", fail)
     with caplog.at_level(logging.ERROR):
         response = client.get("/api/projects", headers={"Authorization": "Bearer secret-token-value"})
     assert_error(response, 503, "service_unavailable")
@@ -108,7 +109,7 @@ def test_unexpected_auth_failure_is_500(monkeypatch):
     def fail(token):
         raise ValueError("bug")
 
-    monkeypatch.setattr(main.supabase.auth, "get_user", fail)
+    monkeypatch.setattr(auth.supabase.auth, "get_user", fail)
     response = client.get("/api/projects", headers={"Authorization": "Bearer nope"})
     assert_error(response, 500, "internal_error")
 

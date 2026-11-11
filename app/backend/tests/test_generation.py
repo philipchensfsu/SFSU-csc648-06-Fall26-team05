@@ -161,9 +161,9 @@ def test_schema_lists_all_nine_sections_and_needs_no_refs():
 
 
 def test_intake_keys_match_the_api():
-    import main
+    from routes.intake import INTAKE_QUESTION_KEYS
 
-    assert set(generation.INTAKE_KEYS) == main.INTAKE_QUESTION_KEYS
+    assert set(generation.INTAKE_KEYS) == INTAKE_QUESTION_KEYS
 
 
 # --- input checks: no Gemini call ------------------------------------------

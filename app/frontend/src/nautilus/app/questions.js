@@ -1,5 +1,5 @@
 // The seven discovery-interview questions. Their ids are the intake
-// question keys the API accepts (INTAKE_QUESTION_KEYS in main.py), in order.
+// question keys the API accepts (INTAKE_QUESTION_KEYS in app/backend/routes/intake.py), in order.
 //
 // A question can have several parts on screen (A, B, C), but the API stores
 // one answer_text per question, so the parts are saved together as plain

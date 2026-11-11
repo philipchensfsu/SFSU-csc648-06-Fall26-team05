@@ -15,10 +15,12 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import main
 from ai import preview
 from ai.gemini_client import AIError, GeminiResult
 from errors import ApiError
+from routes import ai as ai_routes
 
 PRD = "11111111-1111-4111-8111-111111111111"
 ACTOR = "22222222-2222-4222-8222-222222222222"
@@ -340,9 +342,9 @@ def test_database_stale_outcome_after_a_late_save_is_a_409():
 def api(monkeypatch):
     user = FakeUserClient()
     service = FakeService(user)
-    monkeypatch.setattr(main, "supabase", service)
+    monkeypatch.setattr(ai_routes, "supabase", service)
     monkeypatch.setattr(preview, "generate_json", gemini())
-    main.app.dependency_overrides[main.get_current_user] = lambda: {"user": SimpleNamespace(id=ACTOR),
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": SimpleNamespace(id=ACTOR),
                                                                     "client": user}
     yield TestClient(main.app), user, service
     main.app.dependency_overrides.clear()

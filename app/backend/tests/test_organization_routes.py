@@ -6,6 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from postgrest.exceptions import APIError
 
+import auth
 import main
 
 client = TestClient(main.app, raise_server_exceptions=False)
@@ -32,7 +33,7 @@ def sign_in(tables=None, rpc=None):
     tables = tables or {}
     user = SimpleNamespace(id=USER_ID, email="alice@example.com")
     fake = SimpleNamespace(table=lambda name: tables.get(name, Query([])), rpc=lambda name, params: rpc)
-    main.app.dependency_overrides[main.get_current_user] = lambda: {"user": user, "client": fake}
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": user, "client": fake}
 
 
 @pytest.fixture(autouse=True)

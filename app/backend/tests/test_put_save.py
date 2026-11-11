@@ -15,9 +15,11 @@ from uuid import UUID
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import main
 import prd_save
 from prd_save import SaveError
+from routes import prd_update
 
 PRD = "11111111-1111-4111-8111-111111111111"
 USER = SimpleNamespace(id="22222222-2222-4222-8222-222222222222", email="alice@example.com")
@@ -36,8 +38,8 @@ def api(monkeypatch):
         return ROW
 
     monkeypatch.setattr(prd_save, "save_prd", fake_save)
-    monkeypatch.setattr(main, "with_my_role", lambda client, user_id, rows: [{**r, "my_role": "owner"} for r in rows])
-    main.app.dependency_overrides[main.get_current_user] = lambda: {"user": USER, "client": None}
+    monkeypatch.setattr(prd_update, "with_my_role", lambda client, user_id, rows: [{**r, "my_role": "owner"} for r in rows])
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": USER, "client": None}
     yield TestClient(main.app), calls
     main.app.dependency_overrides.clear()
 
@@ -147,4 +149,4 @@ def test_legacy_save_refuses_save_core_fields(api, monkeypatch, field, value):
                                             ("nope", False)])
 def test_the_switch(monkeypatch, value, enabled):
     monkeypatch.setenv("PRD_SAVE_V2", value)
-    assert main.prd_save_v2_enabled() is enabled
+    assert prd_update.prd_save_v2_enabled() is enabled

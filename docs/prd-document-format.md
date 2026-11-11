@@ -10,7 +10,8 @@
 | File | What it is |
 |---|---|
 | [`app/shared/prd_document_schema.v2.json`](../app/shared/prd_document_schema.v2.json) | The machine-readable spec. Every rule carries a `status`. |
-| [`app/backend/prd_document.py`](../app/backend/prd_document.py) | Structural validator for saved documents, `content_text` extraction, title check, command-line checker. |
+| [`app/backend/prd_document.py`](../app/backend/prd_document.py) | Structural validator for saved documents, `content_text` extraction, title check, command-line checker. The public API: import from here. |
+| [`app/backend/prd_document_spec.py`](../app/backend/prd_document_spec.py), [`prd_document_checker.py`](../app/backend/prd_document_checker.py), [`prd_document_text.py`](../app/backend/prd_document_text.py) | Its parts: spec loading and error types, the structural checks, and the plain-text helpers. |
 | [`app/backend/ai/generation_output.py`](../app/backend/ai/generation_output.py) | Extra checks for complete initial-generation output (lives under `ai/` per the team convention). |
 | [`app/shared/fixtures/prd_document/`](../app/shared/fixtures/prd_document/) | Valid and invalid example documents with their expected errors and text. |
 

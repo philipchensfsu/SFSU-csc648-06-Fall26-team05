@@ -14,12 +14,14 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import main
 from ai import acceptance, chat, section_edit
 from ai.gemini_client import AIError, GeminiResult
 from errors import ApiError
 from prd_document import validate_document
 from prd_save import save_prd
+from routes import ai as ai_routes
 
 FIXTURES = Path(__file__).resolve().parent.parent.parent / "shared" / "fixtures" / "prd_document" / "valid"
 DOC = json.loads((FIXTURES / "full_generated_draft.json").read_text(encoding="utf-8"))["document"]
@@ -288,10 +290,10 @@ def test_only_the_proposed_section_may_change(change):
 @pytest.fixture
 def api(monkeypatch):
     user = FakeUserClient()
-    monkeypatch.setattr(main, "supabase", FakeService())
+    monkeypatch.setattr(ai_routes, "supabase", FakeService())
     monkeypatch.setattr(chat, "load_modules", lambda: modules())
     monkeypatch.setattr(chat, "generate_json", model())
-    main.app.dependency_overrides[main.get_current_user] = lambda: {"user": SimpleNamespace(id=ACTOR), "client": user}
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": SimpleNamespace(id=ACTOR), "client": user}
     yield TestClient(main.app), user
     main.app.dependency_overrides.clear()
 
