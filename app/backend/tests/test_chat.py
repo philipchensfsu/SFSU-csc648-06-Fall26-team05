@@ -17,11 +17,13 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import main
 from ai import chat, usage_gate
 from ai.gemini_client import AIError, GeminiResult
 from ai.records import RecordError
 from errors import ApiError
+from routes import ai as ai_routes
 
 PRD = "11111111-1111-4111-8111-111111111111"
 OTHER_PRD = "99999999-9999-4999-8999-999999999999"
@@ -397,10 +399,10 @@ def test_missing_or_incomplete_modules_keep_chat_disabled(monkeypatch, caplog):
 def api(monkeypatch):
     user, service = FakeUserClient(), FakeService()
     modules, _ = fake_modules()
-    monkeypatch.setattr(main, "supabase", service)
+    monkeypatch.setattr(ai_routes, "supabase", service)
     monkeypatch.setattr(chat, "load_modules", lambda: modules)
     monkeypatch.setattr(chat, "generate_json", model())
-    main.app.dependency_overrides[main.get_current_user] = lambda: {"user": SimpleNamespace(id=ACTOR),
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": SimpleNamespace(id=ACTOR),
                                                                     "client": user}
     yield TestClient(main.app), user
     main.app.dependency_overrides.clear()

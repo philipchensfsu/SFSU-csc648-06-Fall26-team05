@@ -8,6 +8,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import main
 import prd_versions
 from errors import ApiError
@@ -32,7 +33,7 @@ def test_bad_cursors_are_400_invalid_cursor(cursor):
 
 @pytest.fixture
 def api():
-    main.app.dependency_overrides[main.get_current_user] = lambda: {"user": SimpleNamespace(id="u"), "client": None}
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": SimpleNamespace(id="u"), "client": None}
     yield TestClient(main.app)
     main.app.dependency_overrides.clear()
 

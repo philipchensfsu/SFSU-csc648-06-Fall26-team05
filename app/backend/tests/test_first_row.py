@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from errors import ApiError
-from main import first_row
+from common import first_row
 
 
 class Query:

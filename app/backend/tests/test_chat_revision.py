@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 from fastapi.testclient import TestClient
 
+import auth
 import main
 from ai import acceptance, chat, chat_revision
 from ai.gemini_client import AIError, GeminiResult
@@ -20,6 +21,7 @@ from ai.section_edit import merge_section
 from errors import ApiError
 from prd_document import validate_document
 from prd_save import save_prd
+from routes import ai as ai_routes
 from test_section_edit import ACTOR, DOC, NEW_GOALS, PRD, RECORD, FakeService, FakeUserClient, modules
 
 NEW_METRICS = {"type": "section", "attrs": {"type": "success_metrics"}, "content": [
@@ -250,9 +252,9 @@ def test_only_the_proposed_sections_may_change_and_title_and_description_stay_ou
 @pytest.fixture
 def api(monkeypatch):
     user = FakeUserClient()
-    monkeypatch.setattr(main, "supabase", FakeService())
+    monkeypatch.setattr(ai_routes, "supabase", FakeService())
     monkeypatch.setattr(chat, "load_modules", lambda: modules())
-    main.app.dependency_overrides[main.get_current_user] = lambda: {"user": SimpleNamespace(id=ACTOR), "client": user}
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": SimpleNamespace(id=ACTOR), "client": user}
     yield TestClient(main.app), user
     main.app.dependency_overrides.clear()
 
