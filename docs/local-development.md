@@ -61,6 +61,13 @@ like this yet. To try the legacy save locally: `PRD_SAVE_V2=false docker compose
 
 Edits under `app/backend` and `app/frontend` reload automatically.
 
+**Backend code style:** `app/backend/main.py` only creates the app and includes the routers.
+Each area's routes, request and response models and error tables are in `app/backend/routes/<area>.py`
+(for example `prds.py`, `reviews.py`, `directory_admin.py`, `ai.py`), sign-in checks are in `auth.py`,
+and shared helpers (`RequestModel`, `call_function`, `first_row`) are in `common.py`. Add new routes to
+the matching `routes/` module, or add a module and include it in `main.py`. Keep `.py` files to about
+300 lines.
+
 ## 3. Everyday commands
 
 | Task | Command |
