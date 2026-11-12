@@ -7,6 +7,7 @@ body:
     attributes:
       value: |
         Use this for any failed integration test or bug. Assign someone to fix it (right sidebar → Assignees).
+        Status: add the **in progress** label when you start fixing, **fixed** when the fix PR merges (the issue also closes), and **verified** once someone re-tests it.
         When it's fixed, link the fix PR (write "Fixes #<this issue number>" in the PR description) so this issue closes automatically.
   - type: input
     id: test_case_id
@@ -63,6 +64,16 @@ body:
     validations:
       required: true
   - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Critical (blocks a P1 feature or the demo)
+        - Major (feature works but wrong result)
+        - Minor (cosmetic or has a workaround)
+    validations:
+      required: true
+  - type: dropdown
     id: environment
     attributes:
       label: Where it happened
@@ -72,3 +83,9 @@ body:
         - Local (localhost)
     validations:
       required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser / device
+      placeholder: "e.g. Chrome 131 on macOS"
+      
