@@ -7,7 +7,7 @@ body:
     attributes:
       value: |
         Use this for any failed integration test or bug. Assign someone to fix it (right sidebar → Assignees).
-        Status: add the **in progress** label when you start fixing, **fixed** when the fix PR merges (the issue also closes), and **verified** once someone re-tests it.
+        Status labels are added by hand: **in progress** when you start fixing, **fixed** when the fix PR merges (merging closes the issue but doesn't add the label, so whoever merges adds it), and **verified** once someone re-tests it.
         When it's fixed, link the fix PR (write "Fixes #<this issue number>" in the PR description) so this issue closes automatically.
   - type: input
     id: test_case_id
@@ -88,4 +88,3 @@ body:
     attributes:
       label: Browser / device
       placeholder: "e.g. Chrome 131 on macOS"
-      
