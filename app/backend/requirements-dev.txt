@@ -5,3 +5,5 @@ pytest
 httpx
 # Integration tests talk to the local Postgres directly for setup.
 psycopg[binary]
+# Test coverage reports (pytest --cov in CI) for M4's coverage analysis.
+pytest-cov
