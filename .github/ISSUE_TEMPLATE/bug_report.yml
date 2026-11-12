@@ -1,0 +1,74 @@
+name: Bug report
+description: Log a failed test or a bug, with the details M4 asks for.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this for any failed integration test or bug. Assign someone to fix it (right sidebar → Assignees).
+        When it's fixed, link the fix PR (write "Fixes #<this issue number>" in the PR description) so this issue closes automatically.
+  - type: input
+    id: test_case_id
+    attributes:
+      label: Test case ID
+      description: The integration test case that failed, if any.
+      placeholder: "e.g. IT-07"
+  - type: input
+    id: feature
+    attributes:
+      label: P1 feature
+      placeholder: "e.g. Comments"
+    validations:
+      required: true
+  - type: input
+    id: date_tested
+    attributes:
+      label: Date tested
+      placeholder: "e.g. 2026-11-14"
+    validations:
+      required: true
+  - type: textarea
+    id: prerequisites
+    attributes:
+      label: Prerequisites
+      description: Accounts, data or setup needed before the steps.
+      placeholder: "e.g. Signed in as alice.pm@example.com; a PRD with at least one comment"
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the PRD
+        2. Add a comment
+        3. Switch to the owner's account
+    validations:
+      required: true
+  - type: textarea
+    id: test_data
+    attributes:
+      label: Test data
+      placeholder: "e.g. Comment text: Can we clarify the success metrics?"
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+      description: What happened instead. Add screenshots or error messages if you have them.
+    validations:
+      required: true
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Where it happened
+      options:
+        - Production (csc648-team05.vercel.app)
+        - Develop preview
+        - Local (localhost)
+    validations:
+      required: true
