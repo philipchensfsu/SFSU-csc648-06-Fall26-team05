@@ -25,7 +25,7 @@ jobs:
           cache: pip
           cache-dependency-path: app/backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest -q
+      - run: python -m pytest -q --cov=. --cov-report=term
 
   frontend:
     name: Frontend lint and build
@@ -43,7 +43,7 @@ jobs:
           cache-dependency-path: app/frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
-      - run: npm test
+      - run: npm test -- --coverage --coverage.reporter=text --coverage.reporter=text-summary
       - run: npm run build
 
   integration:

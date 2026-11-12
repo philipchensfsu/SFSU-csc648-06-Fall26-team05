@@ -1,0 +1,4 @@
+# Coverage settings for pytest --cov (used in CI).
+# Measure the app code only; the tests themselves would inflate the number.
+[run]
+omit = tests/*
