@@ -25,7 +25,7 @@ jobs:
           cache: pip
           cache-dependency-path: app/backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
-      - run: python -m pytest -q --cov=. --cov-report=term
+      - run: python -m pytest -q
 
   frontend:
     name: Frontend lint and build
@@ -84,7 +84,7 @@ jobs:
         run: |
           pid=$(cat uvicorn.pid)
           kill -INT "$pid"
-          while kill -0 "$pid" 2>/dev/null; do sleep 1; done
+          timeout 60 bash -c "while kill -0 $pid 2>/dev/null; do sleep 1; done"
       - name: Combined backend coverage (unit + integration)
         working-directory: app/backend
         run: |
