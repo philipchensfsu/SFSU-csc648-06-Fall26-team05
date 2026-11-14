@@ -12,7 +12,7 @@ import { ReapprovalDialog } from "./ReapprovalDialog";
 import { ApprovalsCard, YourReviewCard } from "./ReviewPanel";
 import { SubmitReviewDialog } from "./SubmitReviewDialog";
 import { approvalProgress, editedWhen, formatDate } from "../format";
-import { IconPencil, IconPeople } from "../icons";
+import { IconClock, IconPencil, IconPeople } from "../icons";
 import { Alert, MenuButton, Modal, StatusChip } from "../ui";
 import { IconBack, IconChat, IconCheck, IconDownload } from "./editorIcons";
 import { exportMarkdown, exportPdf, exportWord } from "./exporters";
@@ -224,6 +224,8 @@ function EditorPage({
   onDecideReview,
   onReload,
   onOpenAnswers,
+  // The PRD's details page (overview and version history). Not during an AI preview.
+  onOpenDetails,
   onExit,
   onHome,
 }) {
@@ -832,6 +834,12 @@ function EditorPage({
                 {split ? "Close chat" : "Ask Nautilus"}
               </button>
             )}
+            {onOpenDetails && !aiDraft ? (
+              <button type="button" className="nw-btn nw-btn-secondary ne-btn-38" onClick={() => guard(onOpenDetails)}>
+                <IconClock size={16} />
+                Details
+              </button>
+            ) : null}
             {canShare ? (
               <button type="button" className="nw-btn nw-btn-secondary ne-btn-38" onClick={() => setSharing(true)}>
                 <IconPeople size={16} />
