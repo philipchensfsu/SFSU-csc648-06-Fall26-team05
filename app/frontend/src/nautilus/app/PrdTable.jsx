@@ -1,12 +1,12 @@
 import { useMemo, useState } from "react";
 import { ConfirmDialog, NameDialog } from "./dialogs";
 import { STATUS_ORDER, formatDay, prdSummary, statusLabel } from "./format";
-import { IconFolder, IconMore, IconOpen, IconPencil, IconTrash } from "./icons";
+import { IconClock, IconFolder, IconMore, IconOpen, IconPencil, IconTrash } from "./icons";
 import { MenuButton, StatusChip } from "./ui";
 
 // Every PRD the person can see, newest first, with status filters and a
 // menu per row to open, rename or delete it.
-function PrdTable({ prds, projects, onOpenPrd, onOpenProject, onRenamePrd, onDeletePrd }) {
+function PrdTable({ prds, projects, onOpenPrd, onOpenDetails, onOpenProject, onRenamePrd, onDeletePrd }) {
   const [status, setStatus] = useState("all");
   const [renaming, setRenaming] = useState(null);
   const [deleting, setDeleting] = useState(null);
@@ -108,6 +108,9 @@ function PrdTable({ prds, projects, onOpenPrd, onOpenProject, onRenamePrd, onDel
                       className="nw-icon-btn nw-more"
                       items={[
                         { label: "Open", icon: <IconOpen />, onSelect: () => onOpenPrd(prd) },
+                        ...(onOpenDetails
+                          ? [{ label: "Details & history", icon: <IconClock />, onSelect: () => onOpenDetails(prd) }]
+                          : []),
                         { label: "Rename", icon: <IconPencil />, onSelect: () => setRenaming(prd) },
                         { label: "Delete", icon: <IconTrash />, danger: true, onSelect: () => setDeleting(prd) },
                       ]}
