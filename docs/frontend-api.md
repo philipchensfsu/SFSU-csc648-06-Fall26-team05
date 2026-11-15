@@ -319,6 +319,40 @@ requests changes; when everyone has approved, the PRD becomes `final`.
   approval sends a single `round_approved` to the owners and reviewers instead. A change request doesn't also send
   a `comment_added`.
 
+### Activity (E13)
+
+A PRD's activity feed: one event per change (saves, people added or removed, comments, review steps, work status).
+Anyone who can view the PRD can read it. Events are never edited or deleted.
+
+`Event`:
+
+```json
+{
+  "id": "uuid", "type": "member_added",
+  "actor": { "id": "uuid | null", "name": "string | null" },
+  "summary": "Olive Owner added Ben Lee as an editor",
+  "payload": { "user_id": "uuid", "role": "editor" },
+  "version_id": "uuid | null", "round_id": "uuid | null", "comment_id": "uuid | null",
+  "created_at": "…"
+}
+```
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `GET /api/prds/{id}/events?type=&limit=25&cursor=` | | 200 `{ "items": Event[], "next_cursor": "string \| null" }`, **newest first** | 404 if you can't see the PRD; 400 `invalid_cursor`; 422 `validation_error` (unknown `type`) |
+
+- **`summary`** is a full sentence that starts with the actor's name: show it as is, with `created_at`. People it
+  mentions (an invited person, a removed reviewer) use their current name, or "a former member".
+- **`actor`** is who acted, with their name **when it happened**. It's `null` for system actions (e.g. a round that
+  ended because a reviewer was deactivated; the summary says why). `actor.id` is `null` once the account is deleted,
+  and the name is kept.
+- **`type`** filters the feed; repeat it for several (`?type=approved&type=changes_requested`). Types: `created`,
+  `version_saved`, `ai_applied`, `member_added`, `member_role_changed`, `member_removed`, `comment_added`,
+  `submitted`, `approved`, `changes_requested`, `round_approved`, `superseded`, `work_status_changed`. Show any
+  other type you don't recognise with its `summary`; new types will be added.
+- **`payload`** is the same as the inbox's (see [Notifications](#notifications)); use `version_id`, `round_id` and
+  `comment_id` for links.
+
 ## Intake answers
 
 The interview answers for a PRD, one per question.
