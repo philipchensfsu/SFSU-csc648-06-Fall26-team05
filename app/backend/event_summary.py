@@ -14,7 +14,7 @@ from prd_document import section_title
 EVENT_TYPES = (
     "created", "version_saved", "ai_applied",
     "member_added", "member_role_changed", "member_removed", "team_added",
-    "comment_added", "submitted", "approved", "changes_requested", "round_approved", "superseded",
+    "comment_added", "mentioned", "submitted", "approved", "changes_requested", "round_approved", "superseded",
     "work_status_changed",
 )
 
@@ -27,8 +27,15 @@ SYSTEM_REASONS = {
 }
 
 
+# Payload keys that hold a list of people (mentioned, team_added).
+PEOPLE_LIST_KEYS = ("user_ids",)
+
+
 def people_in(payload: dict) -> set[str]:
-    return {payload[key] for key in PERSON_KEYS if payload.get(key)}
+    people = {payload[key] for key in PERSON_KEYS if payload.get(key)}
+    for key in PEOPLE_LIST_KEYS:
+        people.update(payload.get(key) or [])
+    return people
 
 
 def summarize(event: dict, names: dict) -> str:
@@ -112,6 +119,19 @@ def _commented(actor, payload, name):
     return f"{actor} commented on {section}" if section else f"{actor} commented"
 
 
+def _listed(names: list[str]) -> str:
+    if len(names) > 3:
+        names = names[:2] + [f"{len(names) - 2} others"]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _mentioned(actor, payload, name):
+    people = _listed([name(user_id) for user_id in payload.get("user_ids") or []] or ["someone"])
+    section = _section(payload.get("section_type"))
+    where = f" in a comment on {section}" if section else " in a comment"
+    return f"{actor} mentioned {people}{where}"
+
+
 def _submitted(actor, payload, name):
     verb = "resubmitted" if payload.get("resubmitted") else "submitted"
     return f"{actor} {verb} the PRD for review ({_round(payload)})"
@@ -165,6 +185,7 @@ SUMMARIES = {
     "member_removed": _member_removed,
     "team_added": _team_added,
     "comment_added": _commented,
+    "mentioned": _mentioned,
     "submitted": _submitted,
     "approved": _approved,
     "changes_requested": _changes_requested,
