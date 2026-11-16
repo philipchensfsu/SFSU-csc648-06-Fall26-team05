@@ -13,7 +13,7 @@ from prd_document import section_title
 
 EVENT_TYPES = (
     "created", "version_saved", "ai_applied",
-    "member_added", "member_role_changed", "member_removed",
+    "member_added", "member_role_changed", "member_removed", "team_added",
     "comment_added", "submitted", "approved", "changes_requested", "round_approved", "superseded",
     "work_status_changed",
 )
@@ -99,6 +99,14 @@ def _member_removed(actor, payload, name):
     return f"{actor} removed {name(payload.get('user_id'))}"
 
 
+def _team_added(actor, payload, name):
+    count = len(payload.get("user_ids") or [])
+    people = f"{count} {'person' if count == 1 else 'people'}"
+    role = payload.get("role") or "member"
+    team = f"the {payload['team_name']} team" if payload.get("team_name") else "a team"
+    return f"{actor} added {team} as {role}s ({people})"
+
+
 def _commented(actor, payload, name):
     section = _section(payload.get("section_type"))
     return f"{actor} commented on {section}" if section else f"{actor} commented"
@@ -155,6 +163,7 @@ SUMMARIES = {
     "member_added": _member_added,
     "member_role_changed": _role_changed,
     "member_removed": _member_removed,
+    "team_added": _team_added,
     "comment_added": _commented,
     "submitted": _submitted,
     "approved": _approved,
