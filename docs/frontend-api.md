@@ -295,7 +295,10 @@ requests changes; when everyone has approved, the PRD becomes `final`.
   "submitted_by": "uuid | null", "submitted_at": "…", "completed_at": "… | null",
   "reviewers": [{ "user_id": "uuid", "name": "string | null", "department": "string | null",
                   "state": "pending | approved | changes_requested", "decided_at": "… | null",
-                  "explanation": "string | null", "comment_id": "uuid | null" }]
+                  "explanation": "string | null", "comment_id": "uuid | null" }],
+  "removed_reviewers": [{ "user_id": "uuid | null", "name": "string | null", "department": "string | null",
+                          "reason": "removed | replaced | reviewer_deactivated | reviewer_removed",
+                          "replaced_by": "uuid | null", "removed_by": "uuid | null", "removed_at": "…" }]
 }
 ```
 
@@ -303,6 +306,8 @@ requests changes; when everyone has approved, the PRD becomes `final`.
 |---|---|---|---|
 | `POST /api/prds/{id}/reviews` | `{ "revision": int, "version_id": "uuid", "reviewer_ids": ["uuid", …] }` (1–50) | 201 `{ "round": ReviewRound, "revision": int, "status": "in_review" }` | 404; 403 not an owner or org admin; 409 `stale_revision`, `stale_version`, `no_saved_version`, `review_in_progress`; 422 `empty_prd`, `not_in_organization`, `owner_cannot_review`, `validation_error` (no reviewers) |
 | `GET /api/prds/{id}/reviews?limit=25&cursor=` | | 200 `{ "items": ReviewRound[], "next_cursor": … }`, newest first, superseded rounds included | 404; 400 `invalid_cursor` |
+| `POST /api/prds/{id}/reviews/{round_id}/reviewers/{user_id}/replace` | `{ "reviewer_id": "uuid" }` | 200 `{ "round": ReviewRound, "revision": int, "status": … }` | 404 can't see the PRD, the round, or that reviewer on it; 403 not an owner or org admin; 409 `round_not_open`, `reviewer_already_decided`, `already_a_reviewer`; 422 `not_in_organization`, `owner_cannot_review` |
+| `DELETE /api/prds/{id}/reviews/{round_id}/reviewers/{user_id}` | | 200 `{ "round": ReviewRound, "revision": int, "status": "in_review" \| "final" }` | as replace, plus 409 `last_reviewer` (replace them instead) |
 | `PUT /api/prds/{id}/reviews/{round_id}/decision` | `{ "version_id": "uuid", "decision": "approved" \| "changes_requested", "explanation"?: "string", "section_type"?: null \| "<section type>" }` | 200 `{ "round": ReviewRound, "revision": int, "status": "in_review" \| "final" }` | 404 can't see the PRD or round; 403 not a reviewer on it, or `owner_cannot_review`; 409 `stale_version` (the PRD changed since submission), `round_not_current`, `decision_already_made`; 422 `validation_error` (no explanation for changes, over 5,000 characters, unknown section) |
 
 - Send the `revision` and `current_version.id` of the PRD you loaded (`GET /api/prds/{id}`).
@@ -318,9 +323,17 @@ requests changes; when everyone has approved, the PRD becomes `final`.
   (`GET .../reviews`). Reviewers who left are dropped; if none remain, or the PRD is emptied, it goes back to `draft`.
   Edits to an approved PRD are owner-only and go through a modal to confirm the reviewers. Request and response
   details: [Saving during or after a review](#prds).
-- The reviewer list is frozen when the round starts. Names and departments are as of submission. The one exception
-  for now: a reviewer who loses access (deactivated, or removed from the PRD) before deciding is dropped from the
-  round, and its `reviewers` no longer list them. Decisions already made stay.
+- The reviewer list is set when the round starts. Names and departments are as of submission. It changes only for
+  reviewers who **haven't decided yet**; decisions already made always stay:
+  - **Owners and org admins replace or remove them** on an open round (`in_review` or `changes_requested`). A
+    replacement starts pending (added as a viewer if needed, same rules as submitting). The last reviewer can only be
+    replaced. If removing someone leaves only approvals on an `in_review` round, the round is approved and the PRD
+    becomes `final`.
+  - **A reviewer who loses access** (deactivated, or removed from the PRD) is dropped automatically, as before.
+  - Either way they move to `removed_reviewers` with the `reason`, so show them as history. `removed_by` is `null`
+    when the system dropped them.
+  - A replace or remove sends a `reviewer_changed` notification to the removed and the added reviewer
+    (`payload`: `{ round_no, removed_reviewer_id, added_reviewer_id }`).
 - **Deciding:** send the round's `version_id`. **Requesting changes needs an `explanation`**; it's saved as a comment
   on that version (optionally on one section) and shown as the reviewer's `explanation`. An approval can carry an
   optional note the same way.
@@ -363,6 +376,7 @@ Anyone who can view the PRD can read it. Events are never edited or deleted.
 - **`type`** filters the feed; repeat it for several (`?type=approved&type=changes_requested`). Types: `created`,
   `version_saved`, `ai_applied`, `member_added`, `member_role_changed`, `member_removed`, `comment_added`,
   `team_added`, `mentioned`, `submitted`, `approved`, `changes_requested`, `round_approved`, `superseded`,
+  `reviewer_changed`,
   `work_status_changed`. Show any
   other type you don't recognise with its `summary`; new types will be added.
 - **`payload`** is the same as the inbox's (see [Notifications](#notifications)); use `version_id`, `round_id` and
@@ -699,11 +713,12 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   (`comment_id` is the comment; never batched);
   `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`; `approved`: `{ round_no }`;
   `changes_requested`: `{ round_no, section_type }`; `round_approved`: `{ round_no, reviewer_id }` (the last
-  approver; `null` when the round completed because a pending reviewer lost access, with `reason` and
-  `removed_reviewer_id`: see [Managing members](#managing-members-admins)); `superseded` (`round_id` is the
+  approver; `null` when the round completed because a pending reviewer lost access or an owner removed them, with
+  `reason` (`reviewer_dropped` for an owner's removal) and `removed_reviewer_id`: see [Managing members](#managing-members-admins)); `superseded` (`round_id` is the
   superseded round): after an edit `{ reviewer_ids, continued, version_no, changed, generation_record_id? }`, where
   `continued` is `false` when the PRD went back to draft, or, when the last pending reviewer lost access,
-  `{ round_no, reviewer_ids: [], continued: false, reason, removed_reviewer_id }`; `work_status_changed`:
+  `{ round_no, reviewer_ids: [], continued: false, reason, removed_reviewer_id }`; `reviewer_changed`: `{ round_no, removed_reviewer_id, added_reviewer_id }` (`added_reviewer_id` is `null` for a
+  removal); `work_status_changed`:
   `{ from, to, status }` (only `done` notifies, the owners).
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
