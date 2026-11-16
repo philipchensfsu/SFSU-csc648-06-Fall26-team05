@@ -48,6 +48,10 @@ def test_every_event_type_has_a_summary():
      "Olive Owner saved version 6, which reset 2 approvals"),
     ("superseded", {"version_no": 6, "reviewer_ids": [], "continued": False},
      "Olive Owner saved version 6; the PRD went back to draft"),
+    ("reviewer_changed", {"round_no": 1, "removed_reviewer_id": BEN, "added_reviewer_id": OLIVE},
+     "Olive Owner replaced Ben Lee with a former member as a reviewer (round 1)"),
+    ("reviewer_changed", {"round_no": 2, "removed_reviewer_id": BEN, "added_reviewer_id": None},
+     "Olive Owner removed Ben Lee as a reviewer (round 2)"),
     ("work_status_changed", {"from": "in_progress", "to": "done", "status": "done"},
      "Olive Owner changed work status from in progress to done"),
 ])

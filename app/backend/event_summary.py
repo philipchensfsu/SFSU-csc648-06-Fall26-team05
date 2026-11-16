@@ -15,15 +15,16 @@ EVENT_TYPES = (
     "created", "version_saved", "ai_applied",
     "member_added", "member_role_changed", "member_removed", "team_added",
     "comment_added", "mentioned", "submitted", "approved", "changes_requested", "round_approved", "superseded",
-    "work_status_changed",
+    "reviewer_changed", "work_status_changed",
 )
 
 # Payload keys that hold another person's id, whose name the summary needs.
-PERSON_KEYS = ("user_id", "removed_reviewer_id")
+PERSON_KEYS = ("user_id", "removed_reviewer_id", "added_reviewer_id")
 
 SYSTEM_REASONS = {
     "reviewer_deactivated": "was deactivated",
     "reviewer_removed": "was removed from the PRD",
+    "reviewer_dropped": "was taken off the review",
 }
 
 
@@ -169,6 +170,13 @@ def _superseded(actor, payload, name):
     return f"{actor} saved version {payload.get('version_no', '?')}, which reset {approvals}"
 
 
+def _reviewer_changed(actor, payload, name):
+    removed = name(payload.get("removed_reviewer_id"))
+    if payload.get("added_reviewer_id"):
+        return f"{actor} replaced {removed} with {name(payload['added_reviewer_id'])} as a reviewer ({_round(payload)})"
+    return f"{actor} removed {removed} as a reviewer ({_round(payload)})"
+
+
 def _work_status(actor, payload, name):
     return f"{actor} changed work status from {_status(payload.get('from'))} to {_status(payload.get('to'))}"
 
@@ -191,5 +199,6 @@ SUMMARIES = {
     "changes_requested": _changes_requested,
     "round_approved": _round_approved,
     "superseded": _superseded,
+    "reviewer_changed": _reviewer_changed,
     "work_status_changed": _work_status,
 }
