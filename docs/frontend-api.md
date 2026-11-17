@@ -242,6 +242,59 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 - Removing a reviewer who hasn't decided on the open round (and isn't an org admin, so can't see the PRD any more)
   drops their review slot, as [deactivating a reviewer](#managing-members-admins) does.
 
+### AI-recommended teams (feature 08(b))
+
+**Proposed contract (draft PR, stacked on #159; not on `develop` yet).** The AI suggests up to three of the
+organization's teams to add to a PRD, each with a reason. Nothing changes until an owner or org admin picks which
+ones to add, each as editors or viewers. Picked teams are added exactly like **Adding a team** above: a snapshot,
+nobody already on the PRD changes role, one `team_added` event per team. This is separate from the single
+[owning team and priority](#owning-team-and-priority-a08) suggestion, which is unchanged.
+
+| Method and path | Body | Response | Who |
+|---|---|---|---|
+| `POST /api/prds/{id}/members/team-recommendations` | `{ "revision": int }` | 200 `{ recommendation: { id, teams: [TeamPick] }, base_revision, generation_record_id }`. A preview: nothing on the PRD changes | Owners and org admins |
+| `PUT /api/prds/{id}/members/team-recommendations/{recommendation_id}/decision` | `{ "decision": "accepted", "teams": [ { "team_id", "role": "editor" \| "viewer" } ] }` (1–3 of the recommended teams) or `{ "decision": "rejected" }` | 200 `{ status, results: [ { team_id, role, added: PRDMember[], skipped: PRDMember[] } ], members: PRDMember[] }` (`results` is empty for a rejection) | Owners and org admins, checked again here |
+
+`TeamPick` is `{ team_id, name, department, reason, active_members, new_members }`. `new_members` is how many of
+its active members aren't on the PRD yet; only teams that would add someone are offered.
+
+```json
+{
+  "recommendation": {
+    "id": "8f1e…",
+    "teams": [
+      { "team_id": "2c4a…", "name": "Platform", "department": "Engineering", "active_members": 4, "new_members": 4,
+        "reason": "The PRD moves checkout to the new payments service that Platform runs." },
+      { "team_id": "71b0…", "name": "Growth", "department": "Product", "active_members": 3, "new_members": 2,
+        "reason": "The success metrics are conversion targets Growth tracks." }
+    ]
+  },
+  "base_revision": 7,
+  "generation_record_id": "c93d…"
+}
+```
+
+- **Show** each team with its `reason` (plain text) and "adds N people" from `new_members`, with a checkbox and an
+  editor/viewer choice per team. Viewer is the safer default. Accept sends only the checked teams; "Not now" rejects.
+- **Accepting** adds the checked teams in one step: all of them or none. Editors are added first, so someone in two
+  checked teams gets the higher role. People already on the PRD are in `skipped` with their role unchanged (never
+  downgraded). Show "Added 5, 2 already on it", and refresh the people list from `members`.
+- **Decided once:** a second decision (or another owner deciding at the same time) gets 409
+  `recommendation_unavailable`. Ask for a new recommendation instead.
+- **Rechecked at accept time:** the caller must still be an owner or org admin (403 `forbidden`), and each team
+  must still be an active team of the PRD's org (422 `team_not_found`: a team was archived since; nothing was
+  added). Edits to the PRD's content after the recommendation don't block accepting it (membership isn't content).
+- **Errors on request:** 404; 403 `forbidden` (editors, viewers); 409 `stale_revision` (reload); 422
+  `needs_content` (save something first); 422 `no_eligible_teams` (every team member is already on the PRD, or
+  there are no teams); plus the shared AI codes (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_invalid_output`, …).
+  The 422s are checked before any AI call.
+- **Errors on decide:** 404; 403 `forbidden`; 409 `recommendation_unavailable`; 422 `team_not_recommended` (a team
+  that wasn't in this recommendation); 422 `team_not_found`; 422 `validation_error` (accepting without teams,
+  rejecting with teams, a team twice, or `owner` as the role).
+- **Button flag:** `capabilities.can_assign` (owner or org admin, the same rule as adding people or a team). No new
+  flag; AI being off still comes back as `ai_disabled` from the request.
+- **Needs** #159 (`add_team_to_prd`) and the `20261117081550_team_recommendations` migration.
+
 ### Comments
 
 Flat comments on a PRD's saved version. Anyone who can view the PRD (owners, editors, viewers, org admins) can read
