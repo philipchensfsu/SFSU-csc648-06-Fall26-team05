@@ -225,9 +225,10 @@ def test_accepting_adds_the_chosen_teams_with_their_roles(cast, db, service):
     assert roles(db, cast["prd"]) == {cast["olive"].id: "owner", cast["ed"].id: "editor", cast["vi"].id: "viewer",
                                       cast["gus"].id: "viewer", cast["hal"].id: "editor", cast["ivy"].id: "editor"}
     assert len(body["members"]) == 6
-    # Feature 02's events: one team_added per team.
-    assert [(p["team_name"], p["role"], len(p["user_ids"])) for (p,) in events(db, cast["prd"])] == [
-        ("Platform", "editor", 2), ("Growth", "viewer", 1)]
+    # Feature 02's events: one team_added per team. Both come from one
+    # transaction, so they share created_at; compare without order.
+    assert sorted((p["team_name"], p["role"], len(p["user_ids"])) for (p,) in events(db, cast["prd"])) == [
+        ("Growth", "viewer", 1), ("Platform", "editor", 2)]
     status, selections, decided_by = rec_row(db, rec["id"])
     assert status == "accepted" and decided_by == cast["olive"].id and len(selections) == 2
     # The single owning team and priority (A08) are a separate operation.
