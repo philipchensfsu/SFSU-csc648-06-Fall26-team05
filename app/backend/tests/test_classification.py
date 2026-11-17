@@ -4,8 +4,6 @@ and the database rules run on the local stack in
 tests/integration/test_routing_db.py."""
 
 import json
-from types import SimpleNamespace
-
 import pytest
 
 from ai import classification
