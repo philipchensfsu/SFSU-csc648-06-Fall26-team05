@@ -41,6 +41,7 @@ function Workspace({
   onCreatePrd,
   onOpenPrd,
   onOpenPrdById,
+  onOpenDetails,
   onRenamePrd,
   onDeletePrd,
   onCreateProject,
@@ -187,6 +188,7 @@ function Workspace({
         onNavigate={go}
         onCreatePrd={onCreatePrd}
         onOpenPrd={onOpenPrd}
+        onOpenDetails={onOpenDetails}
         onLoadAnswers={onLoadAnswers}
         onRenamePrd={onRenamePrd}
         onDeletePrd={onDeletePrd}
