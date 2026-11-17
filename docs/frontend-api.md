@@ -357,7 +357,8 @@ Anyone who can view the PRD can read it. Events are never edited or deleted.
   `version_saved`, `ai_applied`, `member_added`, `member_role_changed`, `member_removed`, `comment_added`,
   `team_added`, `submitted`, `approved`, `changes_requested`, `round_approved`, `superseded`,
   `work_status_changed`. Show any
-  other type you don't recognise with its `summary`; new types will be added.
+  other type you don't recognise with its `summary`; new types will be added. Nothing records `created` yet, so
+  the feed has no "created the PRD" line: show the PRD's own `created_at` for that.
 - **`payload`** is the same as the inbox's (see [Notifications](#notifications)); use `version_id`, `round_id` and
   `comment_id` for links.
 
