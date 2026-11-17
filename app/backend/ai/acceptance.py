@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from ai import records
 from ai.generation import with_ai_generated_marks
 from errors import ApiError
 
@@ -47,16 +48,18 @@ class Acceptance:
 
 
 def prepare(service_client, *, actor_id, prd_id, base_revision: int, generation_record_id,
-            title, description, content_json, unset) -> Acceptance:
+            title, description, content_json, unset, option: int | None = None) -> Acceptance:
     """Checks the proposal and returns what to save. `unset` is the save's
     marker for a field the request didn't include. content_json, when given,
     has already passed the document validator. The database repeats every
     binding check under lock; these are here for clear errors and to read
-    the proposal's content, which never changes after staging."""
-    rows = (service_client.table("ai_proposal")
-            .select("prd_id, requester_id, kind, base_revision, status, content, context_patch")
-            .eq("generation_record_id", str(generation_record_id)).execute().data)
-    proposal = rows[0] if rows else None
+    the proposal's content, which never changes after staging.
+
+    option names one of the options a call staged (alternatives, feature 09);
+    it's None for every other proposal. An option whose sibling was accepted
+    or adjusted is superseded, so it's unavailable here."""
+    proposal = records.load_proposal(service_client, generation_record_id, option,
+                                     "prd_id, requester_id, kind, base_revision, status, content, context_patch")
     # "accepted" goes on to the database: a retry after a lost response gets
     # the saved state back if that save is still current, otherwise a 409.
     if (proposal is None or proposal["requester_id"] != str(actor_id) or proposal["prd_id"] != str(prd_id)

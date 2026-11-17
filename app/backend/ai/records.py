@@ -63,7 +63,11 @@ DATABASE_ERRORS = {
     "NT409": (409, "This PRD changed since you last loaded it. Refresh and try again.", "stale_revision"),
     "NT422": (422, "The AI result couldn't be recorded", "validation_error"),
     "NTPRP": (409, "This AI suggestion is no longer available", "proposal_unavailable"),
+    "NTOWN": (403, "Only the PRD's owners can ask the AI for revisions from review feedback.", "owner_required"),
 }
+# A call that staged options (alternatives, feature 09) is accepted or
+# adjusted one option at a time, so the request has to say which.
+OPTION_REQUIRED = (422, "Choose one of the options.", "option_required")
 
 
 class RecordError(ApiError):
@@ -183,6 +187,50 @@ def record_ai_request(service_client, *, actor_id, prd_id, base_revision: int, t
     row = rows[0]
     return RecordResult(generation_record_id=row["generation_record_id"],
                         proposal_id=row["proposal_id"], outcome=row["outcome"])
+
+
+def load_proposal(service_client, generation_record_id, option: int | None, columns: str) -> dict | None:
+    """The staged proposal a request names: (generation_record_id, option).
+
+    Most calls stage one proposal (option None). A call that staged options
+    has one row per option_no, and each is named by its number. None when
+    nothing matches; 422 option_required when the record has options but the
+    request named none."""
+    rows = (service_client.table("ai_proposal").select(f"{columns}, option_no")
+            .eq("generation_record_id", str(generation_record_id)).execute().data)
+    if option is None:
+        singles = [row for row in rows if row.get("option_no") is None]
+        if rows and not singles:
+            raise RecordError(*OPTION_REQUIRED)
+        return singles[0] if singles else None
+    return next((row for row in rows if row.get("option_no") == option), None)
+
+
+def stage_alternatives(service_client, *, actor_id, prd_id, base_revision: int, model: str,
+                       prompt_version: str, prompt_tokens: int | None, output_tokens: int | None,
+                       candidates: list[dict], ttl_seconds: int = PROPOSAL_TTL_SECONDS) -> RecordResult:
+    """Records one provider call and stages its options (review_suggestion
+    proposals numbered 1..n) in one transaction. The record carries the call's
+    usage once; the options have none of their own. Owner-only in the
+    database too. proposal_id is None: options are named by number."""
+    if isinstance(base_revision, bool) or not isinstance(base_revision, int) or base_revision < 1:
+        raise RecordError(422, "Invalid base revision", "validation_error")
+    rows = _call(service_client, "ai_stage_alternatives", {
+        "p_actor": str(actor_id), "p_prd_id": str(prd_id), "p_base_revision": base_revision,
+        "p_model": model, "p_prompt_version": prompt_version, "p_prompt_tokens": prompt_tokens,
+        "p_output_tokens": output_tokens, "p_candidates": candidates, "p_ttl_seconds": ttl_seconds,
+    })
+    row = rows[0]
+    return RecordResult(generation_record_id=row["generation_record_id"], proposal_id=None, outcome=row["outcome"])
+
+
+def retire_alternatives(service_client, *, actor_id, prd_id, generation_record_id, option: int) -> None:
+    """Request adjustments on an option: that option is replaced (rejected)
+    and the call's other options can't be accepted any more (superseded).
+    409 proposal_unavailable if the option isn't the requester's and pending."""
+    _call(service_client, "ai_retire_alternatives", {
+        "p_actor": str(actor_id), "p_prd_id": str(prd_id),
+        "p_generation_record_id": str(generation_record_id), "p_option": option})
 
 
 def reject_proposal(service_client, *, actor_id, proposal_id) -> str:
