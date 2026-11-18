@@ -264,7 +264,7 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 
 ### AI-recommended teams (feature 08(b))
 
-**Proposed contract (draft PR, stacked on #159; not on `develop` yet).** The AI suggests up to three of the
+**Proposed contract (PR #166; builds on #159, which is on `develop`).** The AI suggests up to three of the
 organization's teams to add to a PRD, each with a reason. Nothing changes until an owner or org admin picks which
 ones to add, each as editors or viewers. Picked teams are added exactly like **Adding a team** above: a snapshot,
 nobody already on the PRD changes role, one `team_added` event per team. This is separate from the single
@@ -301,9 +301,16 @@ its active members aren't on the PRD yet; only teams that would add someone are 
   downgraded). Show "Added 5, 2 already on it", and refresh the people list from `members`.
 - **Decided once:** a second decision (or another owner deciding at the same time) gets 409
   `recommendation_unavailable`. Ask for a new recommendation instead.
-- **Rechecked at accept time:** the caller must still be an owner or org admin (403 `forbidden`), and each team
-  must still be an active team of the PRD's org (422 `team_not_found`: a team was archived since; nothing was
-  added). Edits to the PRD's content after the recommendation don't block accepting it (membership isn't content).
+- **Rechecked at accept time:** the caller must still be an owner or an org admin and an active member of the
+  PRD's org (403 `forbidden`; 404 if they've left the org and can no longer see the PRD). Each team must still be an
+  active team of the PRD's org (422 `team_not_found`: a team was archived since; nothing was added). People who
+  left the org since the recommendation aren't added. Any failure adds nobody and leaves the recommendation open.
+- **Content edits don't invalidate it.** A recommendation stays acceptable after the PRD is saved (membership isn't
+  content). It keeps the revision it was made from as `base_revision`. When that's lower than the PRD's current
+  `revision` (from the PRD you already have loaded), show a note such as "Suggested before the latest edits
+  (version {base_revision})" and still allow accepting. Asking again gives a fresh one for the current version.
+- **Not listed anywhere else:** the recommendation lives in the POST response. If the panel is closed or the page
+  reloads, it's just not shown; ask again. An undecided one changes nothing.
 - **Errors on request:** 404; 403 `forbidden` (editors, viewers); 409 `stale_revision` (reload); 422
   `needs_content` (save something first); 422 `no_eligible_teams` (every team member is already on the PRD, or
   there are no teams); plus the shared AI codes (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_invalid_output`, …).
@@ -313,7 +320,10 @@ its active members aren't on the PRD yet; only teams that would add someone are 
   rejecting with teams, a team twice, or `owner` as the role).
 - **Button flag:** `capabilities.can_assign` (owner or org admin, the same rule as adding people or a team). No new
   flag; AI being off still comes back as `ai_disabled` from the request.
-- **Needs** #159 (`add_team_to_prd`) and the `20261117081550_team_recommendations` migration.
+- **Usage records:** each request is one `generation_record` with trigger `classification` (the same AI usage
+  bucket as the owning-team suggestion) and prompt version `prd-team-recommend-v1`, which is how the two are told
+  apart. The saved recommendation points at its record through `generation_record_id`.
+- **Needs** #159 (`add_team_to_prd`, on `develop`) and the `20261117081550_team_recommendations` migration.
 
 ### Comments
 
