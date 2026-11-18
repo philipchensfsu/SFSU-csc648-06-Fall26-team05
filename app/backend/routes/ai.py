@@ -1,4 +1,4 @@
-"""AI routes (Marco's A03, A04, A08, E12) and the PRD's owning team and priority."""
+"""AI routes (Marco's A03, A04, A08, E12, feature 05) and the PRD's owning team and priority."""
 
 from typing import Literal, Optional
 from uuid import UUID
@@ -6,7 +6,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends
 from pydantic import Field
 
-from ai import chat, chat_revision, classification, preview, review_suggestion, section_edit, usage_gate
+from ai import (chat, chat_revision, classification, discussion_summary, preview, review_suggestion, section_edit,
+                usage_gate)
 from auth import get_current_user
 from common import RequestModel, call_function
 from errors import ApiError
@@ -52,6 +53,11 @@ class ReviewSuggestionRequest(RequestModel):
     # explanations are comments too).
     feedback_ids: list[UUID] = Field(..., min_length=1, max_length=review_suggestion.MAX_FEEDBACK_ITEMS)
     instruction: Optional[str] = Field(default=None, max_length=review_suggestion.MAX_INSTRUCTION_CHARS)
+
+
+class DiscussionSummaryRequest(RequestModel):
+    # A saved version of this PRD; the current one when left out.
+    version_id: Optional[UUID] = None
 
 
 class ClassificationRequest(RequestModel):
@@ -109,6 +115,20 @@ def request_review_suggestion(prd_id: UUID, payload: ReviewSuggestionRequest, au
         auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
         feedback_ids=[str(i) for i in payload.feedback_ids], instruction=payload.instruction,
         budget=usage_gate.RequestBudget(),
+    )
+
+
+# AI discussion summary (feature 05): anyone who can view the PRD may ask,
+# viewers included. Read-only: nothing is saved, staged or decided, and only
+# the generation record persists. No comments on the version answers an
+# empty summary without calling the model or using the usage gate.
+@router.post("/api/prds/{prd_id}/discussion-summary")
+def summarize_discussion(prd_id: UUID, payload: Optional[DiscussionSummaryRequest] = None,
+                         auth=Depends(get_current_user)):
+    version_id = payload.version_id if payload else None
+    return discussion_summary.summarize_discussion(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id),
+        version_id=None if version_id is None else str(version_id), budget=usage_gate.RequestBudget(),
     )
 
 
