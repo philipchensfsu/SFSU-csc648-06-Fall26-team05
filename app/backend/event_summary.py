@@ -162,11 +162,15 @@ def _superseded(actor, payload, name):
     if not actor:
         return (f"{_round(payload).capitalize()} ended and the PRD went back to draft "
                 f"after {_system_reason(payload, name)}")
+    version = payload.get("version_no", "?")
+    saved = (f"{actor} applied an AI suggestion (version {version})" if payload.get("generation_record_id")
+             else f"{actor} saved version {version}")
     if not payload.get("continued"):
-        return f"{actor} saved version {payload.get('version_no', '?')}; the PRD went back to draft"
+        return f"{saved}; the PRD went back to draft"
+    # reviewer_ids is everyone who had decided: approvals and change requests.
     reset = len(payload.get("reviewer_ids") or [])
-    approvals = f"{reset} approval{'' if reset == 1 else 's'}"
-    return f"{actor} saved version {payload.get('version_no', '?')}, which reset {approvals}"
+    decisions = f" ({reset} decision{'' if reset == 1 else 's'} reset)" if reset else ""
+    return f"{saved}; the review restarted{decisions}"
 
 
 def _work_status(actor, payload, name):

@@ -124,7 +124,6 @@ submitted, or the last round was superseded by an edit). Use it for badges such 
   | `can_delete`, `can_assign` | you're an owner or org admin (`can_assign`: manage people, choose reviewers) |
   | `can_submit_review` | you're an owner or org admin, the PRD has a saved, non-empty version, and no review is open |
   | `can_approve` | you're a reviewer on the current round who hasn't decided, and the round is still on the current version |
-
   | `can_update_work_status` | you're an owner or org admin and the PRD is approved ([Work status](#work-status-e14)) |
   | `can_request_classification`, `can_set_routing` | you're an owner or org admin (owning team and priority, A08) |
   | `can_request_review_suggestions` | you're an **owner** (not editors or admins), the PRD has a saved v2 version, and there's at least one comment on it ([Revision suggestions](#revision-suggestions-from-review-feedback-e12)). Use this, not `can_request_ai`, for that button |
@@ -194,6 +193,27 @@ the same `PUT /api/prds/{id}` goes through the S03 save. It's on in the local Co
   Reviewers who hadn't decided get nothing new. An approved PRD's new round notifies the confirmed reviewers
   (`submitted`, `resubmitted: true`). Each save records one event.
 - A save that changes nothing never needs a reviewer list and never touches the review.
+
+### Version history (S04)
+
+Read-only history of a PRD's saves. Every save that changes the title, description or document keeps a
+permanent snapshot (since the S03 save core). There's no restore; don't show a Restore control.
+
+| Route | Query | Response | Errors |
+|---|---|---|---|
+| `GET /api/prds/{id}/versions` | `limit` (1–100, default 25), `cursor` | 200 `{ items: [Version], next_cursor }`, newest first | 404 if you can't see the PRD; 400 `invalid_cursor` (start again without one); 422 bad `limit` |
+| `GET /api/prds/{id}/versions/{version_id}` | | 200 `Version` plus `title`, `description`, `content_json`, `doc_schema_version`, `generation_record_id` | 404 if you can't see the PRD, or the version isn't one of **this** PRD's |
+
+`Version`: `{ id, version_no, saved_revision, actor: { id, name } | null, origin, created_at, changed_sections, change_summary }`
+
+- **Pages:** send `next_cursor` back as `cursor` for the next page; it's `null` on the last page. Cursors are opaque.
+  Pages are stable: a save made while you page doesn't shift them.
+- **`origin`:** `pm_edit`, `ai_generated` (an accepted AI proposal, saved by `actor`) or `checkpoint`.
+- **`actor`:** `null` for the checkpoint that kept content saved before history existed, and for people whose account
+  was deleted. `name` can be `null` if they never set one.
+- **`changed_sections`:** section types whose content changed. `change_summary` is a short line such as "Edited title,
+  problem" (wording may still change).
+- **Who can see it:** anyone who can view the PRD (owner, editor, viewer, org admin), the same as the PRD itself.
 
 ### Work status (E14)
 
@@ -364,9 +384,41 @@ Anyone who can view the PRD can read it. Events are never edited or deleted.
   `version_saved`, `ai_applied`, `member_added`, `member_role_changed`, `member_removed`, `comment_added`,
   `team_added`, `mentioned`, `submitted`, `approved`, `changes_requested`, `round_approved`, `superseded`,
   `work_status_changed`. Show any
-  other type you don't recognise with its `summary`; new types will be added.
+  other type you don't recognise with its `summary`; new types will be added. Nothing records `created` yet, so
+  the feed has no "created the PRD" line: show the PRD's own `created_at` for that.
 - **`payload`** is the same as the inbox's (see [Notifications](#notifications)); use `version_id`, `round_id` and
   `comment_id` for links.
+
+## Reports (feature 10)
+
+Numbers and recent activity across **the PRDs you can see**: your own PRDs, or every PRD in the org for an org admin.
+
+| Route | Query | Response | Errors |
+|---|---|---|---|
+| `GET /api/reports/progress` | `team_id`, `project_id`, `owner_id` (all optional), `activity_limit` (1–50, default 20) | 200 `ProgressReport` | 422 bad id or limit |
+
+`ProgressReport`:
+
+```json
+{
+  "total": 3,
+  "by_status": { "draft": 1, "in_review": 1, "final": 1 },
+  "by_work_status": { "not_started": 3 },
+  "by_priority": { "high": 1, "none": 2 },
+  "by_owner": [{ "owner": { "id": "uuid", "name": "Olive Owner" }, "total": 2, "by_status": { "draft": 1, "final": 1 } }],
+  "by_team": [{ "team": { "id": "uuid", "name": "Growth" } | null, "total": 1, "by_status": { "draft": 1 } }],
+  "activity": [Event + { "prd_id": "uuid", "prd_title": "Alpha" }]
+}
+```
+
+- **Filters:** `team_id` is the PRD's owning team; `owner_id` keeps PRDs that person owns; `project_id` is the
+  folder. They combine.
+- **Counts** list only values that occur (a missing key is 0). `by_priority` uses `"none"` for PRDs without one.
+  A PRD with several owners counts once for each in `by_owner`. `by_team` has one `team: null` row for PRDs without
+  an owning team. Both lists are sorted by `total`, largest first.
+- **`activity`** is the newest events across those PRDs, in the [activity feed's](#activity-e13) `Event` shape
+  plus the PRD's id and title.
+- **No "overdue" yet:** it needs dates, which wait for the milestone decision.
 
 ## Intake answers
 
@@ -720,37 +772,15 @@ about a PRD you can no longer see are hidden from the list and the unread count.
 
 Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
 
-### AI (Marco)
-
-Open: #106 (save events).
-Each adds its entry here or in the main reference as it merges.
-
-### Version history (Marco, draft, #84)
-
-Read-only history of a PRD's saves (S04). Every save that changes the title, description or document keeps a
-permanent snapshot (since the S03 save core). There's no restore; don't show a Restore control.
-
-| Route | Query | Response | Errors |
-|---|---|---|---|
-| `GET /api/prds/{id}/versions` | `limit` (1–100, default 25), `cursor` | 200 `{ items: [Version], next_cursor }`, newest first | 404 if you can't see the PRD; 400 `invalid_cursor` (start again without one); 422 bad `limit` |
-| `GET /api/prds/{id}/versions/{version_id}` | | 200 `Version` plus `title`, `description`, `content_json`, `doc_schema_version`, `generation_record_id` | 404 if you can't see the PRD, or the version isn't one of **this** PRD's |
-
-`Version`: `{ id, version_no, saved_revision, actor: { id, name } | null, origin, created_at, changed_sections, change_summary }`
-
-- **Pages:** send `next_cursor` back as `cursor` for the next page; it's `null` on the last page. Cursors are opaque.
-  Pages are stable: a save made while you page doesn't shift them.
-- **`origin`:** `pm_edit`, `ai_generated` (an accepted AI proposal, saved by `actor`) or `checkpoint`.
-- **`actor`:** `null` for the checkpoint that kept content saved before history existed, and for people whose account
-  was deleted. `name` can be `null` if they never set one.
-- **`changed_sections`:** section types whose content changed. `change_summary` is a short line such as "Edited title,
-  problem" (wording may still change).
-- **Who can see it:** anyone who can view the PRD (owner, editor, viewer, org admin), the same as the PRD itself.
+None right now.
 
 ## Changes from the integration guide
 
 Team decisions (2026-10-29/30) that change the Frontend Integration Guide v0.1:
 
-- **No `can_approve` or `can_assign` flags.** Being assigned as a reviewer is what lets someone approve; PRD owners assign.
+- **`can_approve` and `can_assign` are worked out, not granted.** Nobody is given them: they're
+  [capabilities](#prds) from your role on the PRD. `can_assign` is true for owners and org admins; `can_approve` for a
+  reviewer on the current round who hasn't decided yet. Owners and org admins choose the reviewers.
 - **Org roles are `admin` and `member` only** (no `viewer`/`editor`). PRD access comes from per-PRD roles: owner, editor, viewer.
 - **One org per account.** `GET /api/me` returns `organization` (object or `null`), not a `memberships` list.
 - **Members join with an org code**, not admin-created accounts. There's no initial password and no
