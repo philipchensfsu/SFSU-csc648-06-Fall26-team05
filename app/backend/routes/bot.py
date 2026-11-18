@@ -5,16 +5,21 @@ id; the others run as the person linked to it (bot_auth.get_bot_user), so
 they answer exactly what that person could see in Nautilus.
 """
 
-from typing import Optional
+from datetime import datetime
+from typing import Literal, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
 from bot_auth import check_bot_secret, discord_user_id, get_bot_user, sign_token
 from common import RequestModel
 from errors import ApiError
+from pagination import PageParams
+from routes.notifications import NotificationPage, list_notifications
 from routes.organizations import MeOut, get_me
+from routes.prds import ApprovalSummary, PersonRef, get_prd, list_prds
 from supabase_client import supabase, user_client
 
 router = APIRouter()
@@ -52,3 +57,53 @@ def link(payload: LinkRequest, discord_id: str = Depends(discord_user_id)):
 def me(auth=Depends(get_bot_user)):
     # The linked person and their organization, the same as GET /api/me.
     return get_me(auth=auth)
+
+
+# Discord messages are short, so PRDs come without their document.
+class BotPRD(BaseModel):
+    id: UUID
+    title: str
+    status: str
+    review_state: Optional[Literal["in_review", "changes_requested", "approved"]]
+    work_status: Optional[str]
+    priority: Optional[Literal["low", "medium", "high", "critical"]]
+    my_role: Literal["owner", "editor", "viewer", "org_admin"]
+    updated_at: datetime
+
+
+class BotPRDList(BaseModel):
+    items: list[BotPRD]
+    total: int
+
+
+class BotPRDStatus(BotPRD):
+    description: Optional[str]
+    approval: ApprovalSummary
+    owners: list[PersonRef]
+
+
+View = Literal["owned", "shared", "needs_my_approval", "waiting_for_approval"]
+
+
+@router.get("/api/bot/prds", response_model=BotPRDList)
+def prds(search: Optional[str] = Query(default=None, max_length=200), view: Optional[View] = None,
+         limit: int = Query(default=10, ge=1, le=25), auth=Depends(get_bot_user)):
+    # /prd list: the same PRDs and filters as GET /api/prds, newest change
+    # first, with `total` so the bot can say "10 of 23".
+    rows = list_prds(search=search, view=view, auth=auth)
+    return {"items": rows[:limit], "total": len(rows)}
+
+
+@router.get("/api/bot/prds/{prd_id}", response_model=BotPRDStatus)
+def prd_status(prd_id: UUID, auth=Depends(get_bot_user)):
+    # /prd status: where one PRD stands, as GET /api/prds/{id} without the
+    # document. 404 when the person can't see it.
+    return get_prd(prd_id=prd_id, auth=auth)
+
+
+@router.get("/api/bot/inbox", response_model=NotificationPage)
+def inbox(unread_only: bool = True, limit: int = Query(default=10, ge=1, le=25),
+          cursor: Optional[str] = Query(default=None, max_length=200), auth=Depends(get_bot_user)):
+    # /inbox: the person's notifications, as GET /api/notifications, unread
+    # only unless asked otherwise.
+    return list_notifications(unread_only=unread_only, params=PageParams(cursor=cursor, limit=limit), auth=auth)
