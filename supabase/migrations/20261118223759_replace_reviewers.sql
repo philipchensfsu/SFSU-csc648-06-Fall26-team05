@@ -25,7 +25,7 @@
 -- reviewer_already_decided, last_reviewer, reviewer_not_in_organization,
 -- already_a_reviewer, owner_cannot_review.
 --
--- Apply after 20261116010138_comment_mentions. Adds a table and a function,
+-- Apply after 20261118214219_comment_mentions. Adds a table and a function,
 -- replaces the event_type check (adds reviewer_changed), record_prd_event and
 -- drop_pending_review_slots. Changes no rows.
 
@@ -63,7 +63,7 @@ alter table prd_event add constraint prd_event_event_type_check check (event_typ
   'reviewer_changed', 'work_status_changed'
 ));
 
--- As in 20261116010138_comment_mentions, plus reviewer_changed: the removed
+-- As in 20261118214219_comment_mentions, plus reviewer_changed: the removed
 -- and the added reviewer.
 create or replace function record_prd_event(
   p_prd_id uuid,
