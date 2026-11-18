@@ -186,5 +186,37 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ version_id: versionId, section_type: sectionType, body }),
     }),
+
+  // Revision history (read-only): newest first, paged with next_cursor.
+  listVersions: (prdId, { limit = 25, cursor } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set("cursor", cursor);
+    return request(`/prds/${prdId}/versions?${params}`);
+  },
+  // One saved version with its title, description and document.
+  getVersion: (prdId, versionId) => request(`/prds/${prdId}/versions/${versionId}`),
+
+  // Work status changes only while approved; `from` is the status last seen.
+  setWorkStatus: (prdId, { from, to }) =>
+    request(`/prds/${prdId}/work-status`, { method: "PUT", body: JSON.stringify({ from, to }) }),
+  // Owning team and priority; both are sent every time (null clears one).
+  setRouting: (prdId, { teamId, priority }) =>
+    request(`/prds/${prdId}/routing`, {
+      method: "PUT",
+      body: JSON.stringify({ owning_team_id: teamId, priority }),
+    }),
+  // An AI suggestion for the team and priority. Nothing changes until it's decided.
+  suggestRouting: (prdId, revision) =>
+    request(`/prds/${prdId}/classification`, { method: "POST", body: JSON.stringify({ revision }) }),
+  // decision: "accepted" (optionally with another teamId or priority) or "rejected".
+  decideRouting: (prdId, suggestionId, { decision, teamId, priority } = {}) => {
+    const body = { decision };
+    if (decision === "accepted" && teamId !== undefined) body.team_id = teamId;
+    if (decision === "accepted" && priority !== undefined) body.priority = priority;
+    return request(`/prds/${prdId}/classification/${suggestionId}/decision`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  },
 };
 

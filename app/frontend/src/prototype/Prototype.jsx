@@ -28,6 +28,8 @@ import { draftFromAnswers } from "../nautilus/app/editor/draftFromAnswers";
 
 // The editor carries TipTap, so it loads only when a PRD is opened.
 const EditorPage = lazy(() => import("../nautilus/app/editor/EditorPage"));
+// The details page shows saved versions through the editor's schema too.
+const PrdDetailsPage = lazy(() => import("../nautilus/app/details/PrdDetailsPage"));
 
 // App renders this workspace only after Supabase confirms a signed-in user
 // who is in an organization (OrgGate). `userName` and `userId` come from that
@@ -84,6 +86,8 @@ function Prototype({
   // no longer open is dropped (editor/chatLog.js).
   const openPrdIdRef = useRef(null);
   const [aiProposal, setAiProposal] = useState(null);
+  // Where the details screen is: { tab: "overview" | "history", versionId?, compare? }.
+  const [detailsView, setDetailsView] = useState({ tab: "overview" });
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
 
@@ -290,6 +294,13 @@ function Prototype({
         go(finished ? "review" : "interview", prd.id);
       })
       .catch((error) => setPrdsError(error.message));
+  }
+
+  // The details page (overview and history) for a PRD from any list.
+  function openDetails(prd, view = { tab: "overview" }) {
+    setPrds((current) => (current.some((p) => p.id === prd.id) ? current : [prd, ...current]));
+    setDetailsView(view);
+    go("details", prd.id);
   }
 
   // The inbox only knows a PRD's id. Rejects if this person can't open it.
@@ -702,6 +713,26 @@ function Prototype({
       </Suspense>
     );
   }
+  if (screen === "details" && activePrd) {
+    return (
+      <Suspense fallback={null}>
+        <PrdDetailsPage
+          key={activePrd.id}
+          prd={activePrd}
+          view={detailsView}
+          organizationId={organization?.organization_id}
+          userId={userId}
+          onNavigate={(next) => {
+            setDetailsView(next);
+            window.scrollTo(0, 0);
+          }}
+          onOpenEditor={() => openPrd(activePrd)}
+          onHome={() => showHome({ page: "dashboard" })}
+        />
+      </Suspense>
+    );
+  }
+
   // `sections` is null until a PRD has saved content; the editor shows its
   // empty state for those, so only the PRD itself has to be loaded.
   if (screen === "editor" && activePrd) {
@@ -738,6 +769,7 @@ function Prototype({
           onAdjustProposal={(instruction, sessionMessages) => adjustAiProposal(activePrd.id, instruction, sessionMessages)}
           onReload={() => reloadPrd(activePrd.id)}
           onOpenAnswers={() => openAnswers(activePrd.id)}
+          onOpenDetails={() => openDetails(activePrd)}
           onExit={() => showHome({ page: "dashboard" })}
           onHome={() => showHome({ page: "dashboard" })}
         />
@@ -767,6 +799,7 @@ function Prototype({
       onCreatePrd={startNewPrd}
       onOpenPrd={openPrd}
       onOpenPrdById={openPrdById}
+      onOpenDetails={openDetails}
       onRenamePrd={renamePrd}
       onDeletePrd={deletePrd}
       onCreateProject={createProject}
