@@ -15,7 +15,9 @@ SUPABASE_ANON_KEY = os.environ["SUPABASE_ANON_KEY"]
 # behalf -- use user_client() instead so Postgres RLS enforces access.
 # The one exception is the save_prd database function (prd_save.py), which
 # only the service role may call and which checks the verified user's
-# permissions itself with the same helpers RLS uses.
+# permissions itself with the same helpers RLS uses. The Discord bot routes
+# (bot_auth.py, routes/bot.py) also use it, after checking the bot's secret,
+# only to find who a Discord account is linked to and to redeem link codes.
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 
