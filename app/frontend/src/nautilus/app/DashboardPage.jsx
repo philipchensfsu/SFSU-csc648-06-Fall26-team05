@@ -81,6 +81,7 @@ function DashboardPage({
   onNavigate,
   onCreatePrd,
   onOpenPrd,
+  onOpenDetails,
   onLoadAnswers,
   onRenamePrd,
   onDeletePrd,
@@ -193,6 +194,7 @@ function DashboardPage({
           prds={mine}
           projects={projects}
           onOpenPrd={onOpenPrd}
+          onOpenDetails={onOpenDetails}
           onOpenProject={(projectId) => onNavigate({ page: "projects", projectId })}
           onRenamePrd={onRenamePrd}
           onDeletePrd={onDeletePrd}
