@@ -801,6 +801,14 @@ a channel.
 |---|---|---|---|
 | `POST /api/bot/link` | `{ "code": "K7QX-M2PA-9DZR" }` (any case; dashes and spaces optional) | 200 `{ linked: true, full_name }`: reply "Linked as {full_name}" | 404 `invalid_link_code` (unknown, used or expired: create a new one in Nautilus) |
 | `GET /api/bot/me` | | 200, the same as `GET /api/me`: `{ id, email, full_name, organization }` | 403 `discord_not_linked` |
+| `GET /api/bot/prds?search=&view=&limit=10` | | 200 `{ items: BotPRD[], total }`: the same PRDs, filters and order as `GET /api/prds` (newest change first); `limit` 1–25 | 403; 422 |
+| `GET /api/bot/prds/{id}` | | 200 `BotPRD` plus `{ description, approval, owners }` (`approval` and `owners` as in `GET /api/prds/{id}`) | 403; 404 if they can't see it |
+| `GET /api/bot/inbox?unread_only=true&limit=10&cursor=` | | 200, the same as `GET /api/notifications`: `{ items, next_cursor, unread_count }`; `limit` 1–25 | 403; 400 `invalid_cursor` |
+
+`BotPRD` is a PRD without its document, short enough for a Discord message:
+`{ id, title, status, review_state, work_status, priority, my_role, updated_at }` (values as in [PRDs](#prds)).
+Use `total` for "Showing 10 of 23". The inbox is read-only from Discord: marking notifications read stays in
+Nautilus.
 
 - **403 `discord_not_linked`** on any route: the Discord account isn't linked (or the person unlinked it, or the
   account is gone). Reply with how to link: create a code in Nautilus settings, then `/link <code>`.
