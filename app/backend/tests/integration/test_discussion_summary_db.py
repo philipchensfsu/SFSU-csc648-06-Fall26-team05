@@ -227,6 +227,20 @@ def test_only_the_newest_comments_that_fit_are_summarized(cast, service, monkeyp
     assert [c["text"] for c in model.prompts[0]["comments"]] == [INJECTION, "The goal isn't measurable."]
 
 
+def test_the_character_limit_keeps_only_the_newest_comments_that_fit(cast, service, monkeypatch):
+    newest, older = "The goal isn't measurable.", INJECTION
+    monkeypatch.setattr(ds, "MAX_COMMENT_CHARS", len(newest) + len(older))  # exactly two fit
+    model = Model()
+    body = summarize(cast["viewer"], cast, service, model)
+    assert (body["comment_count"], body["summarized_comment_count"]) == (3, 2)
+    assert [c["text"] for c in model.prompts[0]["comments"]] == [older, newest]
+    monkeypatch.setattr(ds, "MAX_COMMENT_CHARS", len(newest) + len(older) - 1)  # one character short
+    model = Model()
+    body = summarize(cast["viewer"], cast, service, model)
+    assert body["summarized_comment_count"] == 1
+    assert [c["text"] for c in model.prompts[0]["comments"]] == [newest]
+
+
 def test_a_summary_record_can_never_stage_a_proposal(cast, service):
     with pytest.raises(ai_records.RecordError) as info:
         ai_records.record_ai_request(service, actor_id=cast["owner"].id, prd_id=cast["prd"], base_revision=2,

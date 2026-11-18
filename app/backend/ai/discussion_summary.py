@@ -249,8 +249,9 @@ def checked_summary(result: GeminiResult, refs: dict[str, str]) -> dict:
         for item in items:
             if not isinstance(item, dict) or not _texts_ok(item, fields) or not isinstance(item.get("refs"), list):
                 _invalid(result)
-            ids = list(dict.fromkeys(refs[r] for r in item["refs"] if isinstance(r, str) and r in refs))
-            if len(ids) < len(item["refs"]):
+            known = [r for r in item["refs"] if isinstance(r, str) and r in refs]
+            ids = list(dict.fromkeys(refs[r] for r in known))
+            if len(known) < len(item["refs"]):  # a repeated known ref isn't an unknown one
                 dropped += 1
             if not ids:
                 continue

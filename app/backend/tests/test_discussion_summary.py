@@ -73,6 +73,13 @@ def test_unknown_references_are_dropped_and_items_without_any_are_left_out(caplo
     assert "cited unknown comments in 2 item(s)" in caplog.text
 
 
+def test_a_repeated_reference_is_kept_once_and_isnt_reported_as_unknown(caplog):
+    summary = ds.checked_summary(reply(themes=[{"title": "Budget", "summary": "x", "refs": ["C2", "C1", "C2"]}]),
+                                 REFS)
+    assert summary["themes"][0]["comment_ids"] == ["id-2", "id-1"]
+    assert "cited unknown comments" not in caplog.text
+
+
 @pytest.mark.parametrize("data", [
     None,
     {"themes": []},
