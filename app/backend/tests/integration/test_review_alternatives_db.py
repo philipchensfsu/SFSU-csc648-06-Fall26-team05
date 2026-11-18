@@ -480,6 +480,8 @@ def test_the_database_rechecks_access_before_retiring_a_set(cast, db, service):
                   option=1)
     db.execute("update prd_member set role = 'owner' where prd_id = %s and user_id = %s",
                (cast["prd"], cast["editor"].id))
+    # The owner also made the org, so they're its admin, and admins can view and edit every org PRD.
+    db.execute("update organization_member set access_role = 'member' where user_id = %s", (cast["owner"].id,))
     for role, expected in (("editor", (403, "owner_required")), ("viewer", (403, "forbidden"))):
         db.execute("update prd_member set role = %s where prd_id = %s and user_id = %s",
                    (role, cast["prd"], cast["owner"].id))
