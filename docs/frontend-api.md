@@ -328,7 +328,7 @@ its active members aren't on the PRD yet; only teams that would add someone are 
 - **Usage records:** each request is one `generation_record` with trigger `classification` (the same AI usage
   bucket as the owning-team suggestion) and prompt version `prd-team-recommend-v1`, which is how the two are told
   apart. The saved recommendation points at its record through `generation_record_id`.
-- **Needs** #159 (`add_team_to_prd`, on `develop`) and the `20261117081550_team_recommendations` migration.
+- **Needs** #159 (`add_team_to_prd`, on `develop`) and the `20261118220955_team_recommendations` migration.
 
 ### Comments
 
