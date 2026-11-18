@@ -473,6 +473,27 @@ def test_adjusting_an_option_retires_the_whole_set(cast, db, service):
     assert "Low adoption" in json.dumps(risks) and adjusted["generation_record_id"] in json.dumps(risks)
 
 
+def test_the_database_rechecks_access_before_retiring_a_set(cast, db, service):
+    # Whatever the Python layer did: a requester who lost ownership or access retires nothing.
+    body = alternatives(cast["owner"], cast, service)
+    retire = dict(actor_id=cast["owner"].id, prd_id=cast["prd"], generation_record_id=body["generation_record_id"],
+                  option=1)
+    db.execute("update prd_member set role = 'owner' where prd_id = %s and user_id = %s",
+               (cast["prd"], cast["editor"].id))
+    for role, expected in (("editor", (403, "owner_required")), ("viewer", (403, "forbidden"))):
+        db.execute("update prd_member set role = %s where prd_id = %s and user_id = %s",
+                   (role, cast["prd"], cast["owner"].id))
+        with pytest.raises(records.RecordError) as info:
+            records.retire_alternatives(service, **retire)
+        assert (info.value.status_code, info.value.code) == expected
+    db.execute("delete from prd_member where prd_id = %s and user_id = %s", (cast["prd"], cast["owner"].id))
+    with pytest.raises(records.RecordError) as info:
+        records.retire_alternatives(service, **retire)
+    assert (info.value.status_code, info.value.code) == (404, "not_found")
+    assert options(db, body["generation_record_id"]) == [(1, "review_suggestion", "pending"),
+                                                         (2, "review_suggestion", "pending")]
+
+
 def test_an_option_already_accepted_cant_be_adjusted(cast, db, service):
     body = alternatives(cast["owner"], cast, service)
     accept(service, cast["owner"], cast, body, 1)

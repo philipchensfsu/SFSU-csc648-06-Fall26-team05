@@ -146,8 +146,9 @@ $$;
 -- The requester adjusts option p_option: it's replaced by the adjusted
 -- proposal (rejected) and every other pending option of the call is
 -- superseded. Called after the model's adjustment passed its checks and
--- before it is staged. NTPRP if the option isn't the requester's, pending
--- and unexpired.
+-- before it is staged. Rechecks access as ai_stage_alternatives does (NT404
+-- can't view, NT403 can't edit, NTOWN not an owner), so it doesn't rely on
+-- the caller's checks alone. NTPRP if the option isn't the requester's, pending and unexpired.
 create or replace function ai_retire_alternatives(
   p_actor uuid,
   p_prd_id uuid,
@@ -164,6 +165,18 @@ declare
 begin
   if p_option is null then
     raise exception 'Name the option to adjust' using errcode = 'NT422';
+  end if;
+  perform set_config('request.jwt.claim.sub', p_actor::text, true);
+  perform set_config('request.jwt.claims',
+                     json_build_object('sub', p_actor, 'role', 'authenticated')::text, true);
+  if not exists (select 1 from prd where id = p_prd_id) or not can_view_prd(p_prd_id) then
+    raise exception 'PRD not found' using errcode = 'NT404';
+  end if;
+  if not can_edit_prd(p_prd_id) then
+    raise exception 'Not allowed to edit this PRD' using errcode = 'NT403';
+  end if;
+  if not is_prd_owner(p_prd_id) then
+    raise exception 'Only owners adjust alternatives from review feedback' using errcode = 'NTOWN';
   end if;
   -- Same row locks as ai_take_proposal, so an acceptance and an adjustment
   -- of the same call queue here and only one of them goes through.

@@ -786,8 +786,9 @@ is saved, and nothing about the review changes** until then.
 |---|---|---|
 | `{ "revision": int, "feedback_ids": [uuid] (1–20), "instruction"?: "≤ 2000 chars" }` (the same body as E12) | 200 `{ base_revision, generation_record_id, options: [Option, Option] }` | **Owners only**, as for E12 (403 `owner_required`) |
 
-`Option` is `{ option: 1 | 2, title, explanation, tradeoffs: [string] (1–4), proposal: { section_types, sections,
-content_json } }`. `proposal` has the same shape as an E12 proposal:
+`Option` is `{ option: int, title, explanation, tradeoffs: [string] (1–4), proposal: { section_types, sections,
+content_json } }`. `option` is 1 or 2 today. The save and `previous_option` accept 1–3, so take the number from
+the response rather than hard-coding it. `proposal` has the same shape as an E12 proposal:
 - `sections`: only the sections this option changes;
 - `content_json`: the complete saved document with those sections replaced, ready for the existing preview or diff.
 
@@ -821,10 +822,16 @@ content_json } }`. `proposal` has the same shape as an E12 proposal:
 - **Accepting one option retires the other** in the same save. The other then gets 409 `proposal_unavailable`, so
   close the options view after a successful accept. Resending the same acceptance after a lost response returns
   the saved PRD. Sending the other option after that is still 409, never a false success.
+- **Both accepted at the same moment** (two tabs, or two owners): one wins. The other usually gets 409
+  `stale_revision`, because the winner's save moved the revision, and sometimes 409 `proposal_unavailable`. Treat
+  both the same: close the options view and reload the PRD.
 - **Request adjustments** on the chosen option uses `/ai-revisions` with `previous_generation_record_id` and
   **`previous_option`** (see [AI revisions from the chat](#ai-revisions-from-the-chat)). The answer is a single
-  proposal (no `option`) that builds on that option and keeps its comment ids. **Once an adjustment comes back,
-  neither option of the set can be accepted** (409 `proposal_unavailable`): show the adjusted proposal instead.
+  proposal (no `option`) that builds on that option and keeps its comment ids. **Once the AI has produced a valid
+  adjustment, neither option of the set can be accepted** (409 `proposal_unavailable`): show the adjusted proposal
+  instead. This happens just before the adjustment is stored, so in the rare case that storing it then fails, both
+  options are already gone: ask again. If the adjustment request fails earlier (for example `ai_invalid_output`),
+  the options stay usable.
   If the other option was accepted first, the adjustment gets 409 `proposal_unavailable`.
 - **Discarding** needs no call: options expire with the proposal lifetime (30 minutes today).
 - **An `instruction` is scope-checked** first, exactly as for E12 (422 `out_of_scope` / `clarification_needed`,
