@@ -7,8 +7,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from errors import register_error_handlers
-from routes import (ai, comments, directory, directory_admin, events, health, intake, notifications, organizations,
-                    prd_members, prd_update, prds, projects, reports, reviews, versions, work_status)
+from routes import (ai, comments, directory, directory_admin, discord, events, health, intake, notifications,
+                    organizations, prd_members, prd_update, prds, projects, reports, reviews, versions, work_status)
 
 app = FastAPI()
 register_error_handlers(app)
@@ -26,5 +26,5 @@ app.add_middleware(
 )
 
 for module in (health, projects, prds, versions, prd_update, work_status, prd_members, comments, reviews, events,
-               intake, organizations, directory, notifications, directory_admin, reports, ai):
+               intake, organizations, directory, notifications, directory_admin, reports, discord, ai):
     app.include_router(module.router)
