@@ -10,6 +10,7 @@ vi.mock("../../../../lib/api", () => ({
     listPrdMembers: vi.fn(),
     setPrdMember: vi.fn(),
     removePrdMember: vi.fn(),
+    addTeamToPrd: vi.fn(),
     getDirectory: vi.fn(),
   },
 }));
@@ -138,6 +139,91 @@ describe("ShareDialog", () => {
     expect(host.textContent).toContain(message);
     expect(select("Role for Ben PM").value).toBe("editor");
     expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it("shows no team switch when the organization has no teams", async () => {
+    await show();
+    expect(host.querySelector('[aria-label="Add"]')).toBeNull();
+    expect(select("Team to add")).toBeNull();
+  });
+
+  describe("adding a whole team", () => {
+    const fran = { user_id: "fran", name: "Fran Dev", email: null, role: null };
+    const teamDirectory = {
+      ...directory,
+      members: [
+        { ...alice, email: null, team_ids: [] },
+        { ...ben, email: null, team_ids: ["platform", "design"] },
+        { ...erin, team_ids: ["platform"] },
+        { ...fran, team_ids: ["platform"] },
+      ],
+      departments: [{ id: "eng", name: "Engineering", archived: false }],
+      teams: [
+        { id: "platform", name: "Platform", department_id: "eng", archived: false },
+        { id: "design", name: "Design", department_id: null, archived: false },
+        { id: "old", name: "Old team", department_id: "eng", archived: true },
+        { id: "empty", name: "Empty team", department_id: null, archived: false },
+      ],
+    };
+
+    async function showTeams() {
+      api.getDirectory.mockResolvedValue(teamDirectory);
+      await show();
+      await act(async () => buttonNamed("A whole team").click());
+    }
+
+    it("offers active teams with people, and marks ones already on the PRD", async () => {
+      await showTeams();
+      const options = [...select("Team to add").options].slice(1);
+      expect(options.map((option) => [option.value, option.textContent, option.disabled])).toEqual([
+        ["platform", "Engineering · Platform (3 people)", false],
+        ["design", "Design (1 person) · all already on it", true],
+      ]);
+      const roles = [...select("Role for the team").options].map((option) => option.value);
+      expect(roles).toEqual(["editor", "viewer"]);
+    });
+
+    it("adds the team with the chosen role and says who was added and skipped", async () => {
+      api.addTeamToPrd.mockResolvedValue({
+        added: [
+          { ...erin, role: "viewer" },
+          { ...fran, role: "viewer" },
+        ],
+        skipped: [ben],
+        members: [alice, ben, { ...erin, role: "viewer" }, { ...fran, role: "viewer" }],
+      });
+      await showTeams();
+      expect(buttonNamed("Add team").disabled).toBe(true);
+      await choose(select("Team to add"), "platform");
+      await choose(select("Role for the team"), "viewer");
+      await act(async () => buttonNamed("Add team").click());
+      expect(api.addTeamToPrd).toHaveBeenCalledWith("p1", "platform", "viewer");
+      expect(onChanged).toHaveBeenCalledOnce();
+      expect(host.textContent).toContain("Added 2 from Engineering · Platform, 1 already on it.");
+      expect(host.textContent).toContain("Already on it, role unchanged: Ben PM.");
+      expect(host.textContent).toContain("People with access · 4");
+      expect(select("Team to add").value).toBe("");
+    });
+
+    it("says so when everyone on the team already had access", async () => {
+      const onIt = [ben, { ...erin, role: "viewer" }, { ...fran, role: "viewer" }];
+      api.addTeamToPrd.mockResolvedValue({ added: [], skipped: onIt, members: [alice, ...onIt] });
+      await showTeams();
+      await choose(select("Team to add"), "platform");
+      await act(async () => buttonNamed("Add team").click());
+      expect(host.textContent).toContain("Everyone on Engineering · Platform already has access.");
+      expect(host.textContent).not.toContain("role unchanged");
+    });
+
+    it("words team_not_found and changes nothing", async () => {
+      api.addTeamToPrd.mockRejectedValue(Object.assign(new Error("Backend sentence"), { code: "team_not_found" }));
+      await showTeams();
+      await choose(select("Team to add"), "platform");
+      await act(async () => buttonNamed("Add team").click());
+      expect(host.textContent).toContain("That team isn’t active in your organization any more.");
+      expect(host.textContent).toContain("People with access · 2");
+      expect(onChanged).not.toHaveBeenCalled();
+    });
   });
 
   it("offers a retry when the list can't be loaded", async () => {
