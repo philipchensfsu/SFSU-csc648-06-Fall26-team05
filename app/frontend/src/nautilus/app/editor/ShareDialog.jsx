@@ -2,6 +2,8 @@ import { useEffect, useId, useState } from "react";
 import { api } from "../../../../lib/api";
 import { initialsOf } from "../format";
 import { Alert, Avatar, Modal } from "../ui";
+// For the "A person / A whole team" switch, shared with the comparison view.
+import "./comparison.css";
 
 const ROLES = [
   { value: "owner", label: "Owner" },
@@ -257,7 +259,7 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
           Add people
         </h3>
         {teams.length ? (
-          <div className="ne-share-mode" role="group" aria-label="Add">
+          <div className="nc-toggle ne-share-mode" role="group" aria-label="Add">
             {[
               ["person", "A person"],
               ["team", "A whole team"],
@@ -265,7 +267,7 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
               <button
                 key={value}
                 type="button"
-                className={`ne-share-mode-btn${mode === value ? " is-active" : ""}`}
+                className={`nc-toggle-btn${mode === value ? " is-active" : ""}`}
                 aria-pressed={mode === value}
                 disabled={busy}
                 onClick={() => setAddMode(value)}
