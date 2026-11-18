@@ -79,7 +79,7 @@ jobs:
           curl -sf --retry 20 --retry-delay 1 --retry-connrefused http://localhost:8000/api/health
       - name: Run unit and integration tests
         working-directory: app/backend
-        run: python -m pytest -q --cov=. --cov-report=
+        run: python -m pytest -v -rs --cov=. --cov-report=
       - name: Stop the API so it saves its coverage
         working-directory: app/backend
         run: |

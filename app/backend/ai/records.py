@@ -39,7 +39,7 @@ from errors import ApiError
 # Not a team-agreed value.
 PROPOSAL_TTL_SECONDS = 30 * 60
 
-TRIGGERS = ("initial_generation", "chat_request")
+TRIGGERS = ("initial_generation", "chat_request", "discussion_summary")
 PROPOSAL_KINDS = ("generate", "ai_edit", "review_suggestion", "ai_revision")
 OUTCOMES = ("staged", "stale", "recorded")
 MAX_USER_REQUEST_CHARS = 2000

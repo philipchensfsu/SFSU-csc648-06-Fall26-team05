@@ -775,6 +775,53 @@ reject, reply to or resolve anything.
   (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`, `ai_provider_error`, `ai_invalid_output`,
   `ai_unavailable`, `ai_budget_exhausted`).
 
+## Discussion summary (feature 05)
+
+`POST /api/prds/{id}/discussion-summary` summarizes the comments on one saved version of a PRD, including reviewers'
+change-request and approval notes (they're comments too). **Read-only**: nothing is saved, no proposal is staged,
+and no review state changes. Every request is a fresh summary (nothing is cached).
+
+| Body | Response | Who |
+|---|---|---|
+| none, `{}`, or `{ "version_id"?: uuid }` | 200 `DiscussionSummary` | Anyone who can view the PRD, **viewers included**. Asking gives no other rights |
+
+`DiscussionSummary`:
+
+```json
+{
+  "version_id": "uuid | null", "version_no": 3,
+  "comment_count": 12, "summarized_comment_count": 12,
+  "summary": {
+    "themes": [{ "title": "Budget", "summary": "Reviewers want the costs spelled out.", "comment_ids": ["uuid"] }],
+    "open_questions": [{ "question": "Who signs off on the budget?", "comment_ids": ["uuid"] }],
+    "requested_changes": [{ "section_type": "risks | null", "change": "Add a budget risk.", "comment_ids": ["uuid"] }],
+    "unresolved_items": [{ "item": "The launch date is still disputed.", "comment_ids": ["uuid"] }]
+  },
+  "generation_record_id": "uuid | null"
+}
+```
+
+- **Which version:** the PRD's current version unless you send `version_id`. It must be a version of **this** PRD
+  (404 `Version not found` otherwise). Only comments on that version are summarized.
+- **No comments** (or nothing saved yet): 200 with four empty lists, `comment_count: 0` and
+  `generation_record_id: null`. The AI isn't called, so this never hits `ai_cooldown`, `ai_busy` or `ai_disabled`
+  and uses no quota. The PRD has nothing saved yet when `version_id` is also `null`.
+- **`comment_ids`** point at comments on that version ([Comments](#comments)); every item has at least one. Use them
+  to jump to the comment. The server drops any reference the AI made up, and leaves out an item that's left with
+  none.
+- **`section_type`** in `requested_changes` is one of the nine section types, or `null` for the whole PRD.
+- **Comment resolution isn't tracked**, so nothing here means "resolved". `unresolved_items` are points the comments
+  themselves leave open; the AI is told never to call anything resolved.
+- **Long discussions:** the newest comments that fit (up to 100, about 60,000 characters) are summarized. When
+  `summarized_comment_count` is less than `comment_count`, say the summary covers the most recent comments.
+- **Showing it:** every text field is plain text (no Markdown or HTML): render it as text, never as HTML. The
+  summary doesn't name comment authors; the comments it links to do.
+- **Button:** show it to anyone who can open the PRD (no capability flag). AI being off comes back as `ai_disabled`,
+  only when there are comments to summarize.
+- Errors: 404 (you can't see the PRD, or the version); 422 `validation_error` (bad `version_id` or an unknown
+  field); plus the shared AI codes (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`,
+  `ai_provider_error`, `ai_invalid_output`, `ai_unavailable`, `ai_budget_exhausted`).
+
 ## Alternative proposals from review feedback (feature 09)
 
 **Proposed contract (draft PR, not on `develop` yet).** `POST /api/prds/{id}/review-alternatives` is E12 with two

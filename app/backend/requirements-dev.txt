@@ -8,4 +8,4 @@ psycopg[binary]
 # Test coverage reports (pytest --cov in CI) for M4's coverage analysis.
 pytest-cov
 # Linter that enforces the backend coding style (ruff check in CI).
-ruff
+ruff==0.17.5
