@@ -176,7 +176,7 @@ describe("ShareDialog", () => {
       await showTeams();
       const options = [...select("Team to add").options].slice(1);
       expect(options.map((option) => [option.value, option.textContent, option.disabled])).toEqual([
-        ["platform", "Engineering · Platform (3 people)", false],
+        ["platform", "Engineering · Platform (3 people, 2 new)", false],
         ["design", "Design (1 person) · all already on it", true],
       ]);
       const roles = [...select("Role for the team").options].map((option) => option.value);
@@ -203,6 +203,17 @@ describe("ShareDialog", () => {
       expect(host.textContent).toContain("Already on it, role unchanged: Ben PM.");
       expect(host.textContent).toContain("People with access · 4");
       expect(select("Team to add").value).toBe("");
+    });
+
+    it("shows just the size when everyone on the team is new", async () => {
+      api.getDirectory.mockResolvedValue({
+        ...teamDirectory,
+        members: teamDirectory.members.map((person) => (person.user_id === "ben" ? { ...person, team_ids: [] } : person)),
+      });
+      await show();
+      await act(async () => buttonNamed("A whole team").click());
+      const platform = [...select("Team to add").options].find((option) => option.value === "platform");
+      expect(platform.textContent).toBe("Engineering · Platform (2 people)");
     });
 
     it("says so when everyone on the team already had access", async () => {

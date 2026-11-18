@@ -24,6 +24,13 @@ function describeError(error) {
 
 const peopleCount = (count) => `${count} ${count === 1 ? "person" : "people"}`;
 
+// "Engineering · Platform (3 people, 1 new)": how many adding it would bring in.
+function teamOptionLabel({ label, size, newPeople }) {
+  if (newPeople === 0) return `${label} (${peopleCount(size)}) · all already on it`;
+  if (newPeople === size) return `${label} (${peopleCount(size)})`;
+  return `${label} (${peopleCount(size)}, ${newPeople} new)`;
+}
+
 // Active teams that have anyone in them, labelled "Department · Team", with how
 // many of their people aren't on the PRD yet.
 function teamChoices(directory, onPrd) {
@@ -281,7 +288,7 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
                 <option value="">Choose a team…</option>
                 {teams.map((team) => (
                   <option key={team.id} value={team.id} disabled={team.newPeople === 0}>
-                    {team.label} ({peopleCount(team.size)}){team.newPeople === 0 ? " · all already on it" : ""}
+                    {teamOptionLabel(team)}
                   </option>
                 ))}
               </select>
