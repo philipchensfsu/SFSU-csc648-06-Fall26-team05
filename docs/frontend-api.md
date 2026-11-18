@@ -311,15 +311,20 @@ its active members aren't on the PRD yet; only teams that would add someone are 
   (version {base_revision})" and still allow accepting. Asking again gives a fresh one for the current version.
 - **Not listed anywhere else:** the recommendation lives in the POST response. If the panel is closed or the page
   reloads, it's just not shown; ask again. An undecided one changes nothing.
-- **Errors on request:** 404; 403 `forbidden` (editors, viewers); 409 `stale_revision` (reload); 422
-  `needs_content` (save something first); 422 `no_eligible_teams` (every team member is already on the PRD, or
-  there are no teams); plus the shared AI codes (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_invalid_output`, …).
-  The 422s are checked before any AI call.
+- **Errors on request, in the order they're checked:** 404; 403 `forbidden` (editors, viewers); 409
+  `stale_revision` (the `revision` sent isn't the PRD's current one: reload); 422 `needs_content` (save something
+  first); 422 `no_eligible_teams` (every team member is already on the PRD, or there are no teams). Only then come
+  the shared AI codes (`ai_disabled`, `ai_cooldown`, `ai_busy`, then `ai_invalid_output`, `ai_provider_error`, …).
+  So with AI switched off, a PRD with no content still gets `needs_content`, not `ai_disabled`. None of these use
+  AI quota.
+- **A save while the AI is working** doesn't fail the request. The recommendation comes back with the
+  `base_revision` whose content the AI read, which is now older than the PRD's `revision`, so show the "Suggested
+  before the latest edits" note above.
 - **Errors on decide:** 404; 403 `forbidden`; 409 `recommendation_unavailable`; 422 `team_not_recommended` (a team
   that wasn't in this recommendation); 422 `team_not_found`; 422 `validation_error` (accepting without teams,
   rejecting with teams, a team twice, or `owner` as the role).
-- **Button flag:** `capabilities.can_assign` (owner or org admin, the same rule as adding people or a team). No new
-  flag; AI being off still comes back as `ai_disabled` from the request.
+- **Button flag:** `capabilities.can_assign` (owner or org admin, the same rule as adding people or a team). There's
+  no separate AI flag: when AI is off, the request returns `ai_disabled` once the checks above pass.
 - **Usage records:** each request is one `generation_record` with trigger `classification` (the same AI usage
   bucket as the owning-team suggestion) and prompt version `prd-team-recommend-v1`, which is how the two are told
   apart. The saved recommendation points at its record through `generation_record_id`.

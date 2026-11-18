@@ -117,10 +117,13 @@ grant execute on function prd_team_candidates(uuid) to authenticated, service_ro
 -- 3. Recording a recommendation
 -- -------------------------------------------------------------------------
 
--- Records one model call for p_actor and, when it succeeded on the current
--- revision, stores its recommendation. Returns (generation_record_id,
--- recommendation_id, outcome): 'suggested', 'stale' (the PRD was saved
--- meanwhile; recorded, nothing stored) or 'recorded' (a failed call).
+-- Records one model call for p_actor and, when it succeeded, stores its
+-- recommendation. p_base_revision is the revision whose content was sent to
+-- the model. A save that landed while the model ran doesn't discard the
+-- recommendation (content edits don't invalidate one); it keeps that older
+-- base_revision so the frontend can show it predates the latest edits.
+-- Returns (generation_record_id, recommendation_id, outcome): 'suggested', or
+-- 'recorded' for a failed call.
 create or replace function ai_record_team_recommendation(
   p_actor uuid,
   p_prd_id uuid,
@@ -172,6 +175,9 @@ begin
   if not found or not can_view_prd(p_prd_id) then
     raise exception 'PRD not found' using errcode = 'NT404';
   end if;
+  if p_base_revision > target.revision then
+    raise exception 'Base revision is newer than the PRD' using errcode = 'NT422';
+  end if;
   if not can_manage_prd(p_prd_id) then
     raise exception 'Only the PRD''s owners or an org admin can add teams' using errcode = 'NT403';
   end if;
@@ -192,10 +198,6 @@ begin
 
   if p_status = 'failed' then
     return query select record_id, null::uuid, 'recorded'::text;
-    return;
-  end if;
-  if target.revision <> p_base_revision then
-    return query select record_id, null::uuid, 'stale'::text;
     return;
   end if;
   insert into team_recommendation (prd_id, requested_by, base_revision, teams, generation_record_id)

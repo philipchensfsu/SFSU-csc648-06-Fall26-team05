@@ -20,8 +20,9 @@ add_team_to_prd (Vineela, #159), the same as adding a team by hand.
   department and member counts.
 - Every call is recorded (generation_record, trigger 'classification', prompt
   version prd-team-recommend-v1). A successful call stores a recommendation
-  bound to the requester, PRD and base revision. A save while the model ran
-  stores nothing (409).
+  bound to the requester, PRD and base revision: the revision whose content
+  the model saw. A save while the model ran doesn't discard it (content edits
+  don't invalidate a recommendation); it keeps that older base revision.
 - Accepting is decide_team_recommendation in the database, with the user's
   own token. It rechecks the caller and every team under the PRD lock and
   adds the teams in one transaction: everyone or no one. People already on
@@ -127,9 +128,9 @@ def recommend_teams(user_client, service_client, *, actor_id, prd_id: str, revis
         except AIError as exc:
             _record_failure(service_client, actor_id, prd_id, revision, calls, exc.code)
             raise
+        # `revision` is the one whose content was in the prompt (read and
+        # checked above), so a save during the call leaves an older base_revision.
         record = _record(service_client, actor_id, prd_id, revision, calls, status="success", teams=picks)
-    if record["outcome"] != "suggested":
-        raise ApiError(*chat.STALE_REVISION)
     by_id = {t["team_id"]: t for t in candidates}
     return {
         "recommendation": {

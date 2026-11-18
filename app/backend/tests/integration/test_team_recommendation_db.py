@@ -163,21 +163,32 @@ def test_nothing_to_add_or_no_content_stops_before_the_model(cast, db, service, 
     assert model.prompts == [] and records(db, cast["prd"]) == []
 
 
-def test_stale_requests_and_saves_during_the_call_store_nothing(cast, db, service):
+def test_a_stale_request_is_refused_before_the_model(cast, db, service):
+    model = Model(picks(cast, "growth"))
     with pytest.raises(ApiError) as info:
-        recommend(cast["olive"], cast, service, revision=1)
+        recommend(cast["olive"], cast, service, model, revision=1)
     assert info.value.code == "stale_revision"
+    assert model.prompts == [] and records(db, cast["prd"]) == []
 
+
+def test_a_save_during_the_call_keeps_the_revision_the_model_saw(cast, db, service):
     class SavingMeanwhile(Model):
         def __call__(self, prompt, **kwargs):
             save_prd(service, verified(service, cast["ed"]), cast["prd"], 2, title="Saved meanwhile")
             return super().__call__(prompt, **kwargs)
 
-    with pytest.raises(ApiError) as info:
-        recommend(cast["olive"], cast, service, SavingMeanwhile(picks(cast, "growth")))
-    assert info.value.code == "stale_revision"
-    assert [r[1] for r in records(db, cast["prd"])] == ["success"]  # the call is counted
-    assert db.execute("select count(*) from team_recommendation where prd_id = %s", (cast["prd"],)).fetchone() == (0,)
+    model = SavingMeanwhile(picks(cast, "growth"))
+    body = recommend(cast["olive"], cast, service, model)
+    # The model saw revision 2's content; the PRD is at 3 now, so the frontend can flag it as older.
+    assert "Checkout redesign" in model.prompts[0] and "Saved meanwhile" not in model.prompts[0]
+    assert body["base_revision"] == 2
+    assert db.execute("select revision from prd where id = %s", (cast["prd"],)).fetchone() == (3,)
+    assert db.execute("select base_revision from team_recommendation where id = %s",
+                      (body["recommendation"]["id"],)).fetchone() == (2,)
+    assert db.execute("select base_revision from generation_record where id = %s",
+                      (body["generation_record_id"],)).fetchone() == (2,)
+    # Still acceptable (content edits don't invalidate it).
+    assert decide(cast["olive"], cast, body["recommendation"]["id"], teams=[("growth", "viewer")]).status_code == 200
 
 
 @pytest.mark.parametrize("bad", [
@@ -385,6 +396,11 @@ def test_the_database_functions_hold_without_the_api(cast, db, service):
         team_recommendation._record(service, cast["olive"].id, cast["prd"], 2,
                                     type("Calls", (), {"model": "x", "prompt_tokens": 0, "output_tokens": 0})(),
                                     status="success", teams=[{"team_id": cast["teams"]["theirs"], "reason": "x"}])
+    assert info.value.code == "validation_error"
+    with pytest.raises(ApiError) as info:  # ...and a base revision the PRD hasn't reached
+        team_recommendation._record(service, cast["olive"].id, cast["prd"], 3,
+                                    type("Calls", (), {"model": "x", "prompt_tokens": 0, "output_tokens": 0})(),
+                                    status="success", teams=[{"team_id": cast["teams"]["growth"], "reason": "x"}])
     assert info.value.code == "validation_error"
     assert rec_row(db, rec["id"])[0] == "pending"
 
