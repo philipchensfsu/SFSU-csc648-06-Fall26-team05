@@ -266,7 +266,7 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 
 Flat comments on a PRD's saved version. Anyone who can view the PRD (owners, editors, viewers, org admins) can read
 and post them. New comments go on the PRD's **current** version; older comments stay readable and carry their
-`version_no` for a "v2" label. No replies, edits, deletes or mentions. Comments never change the PRD, its revision or
+`version_no` for a "v2" label. Comments can @mention people. No replies, edits or deletes. Comments never change the PRD, its revision or
 its review.
 
 `Comment`:
@@ -275,14 +275,14 @@ its review.
 {
   "id": "uuid", "prd_id": "uuid", "version_id": "uuid", "version_no": 3, "section_type": "goals | null",
   "author": { "id": "uuid | null", "name": "string | null", "department": "string | null" },
-  "body": "plain text", "created_at": "…"
+  "body": "plain text", "mentions": [{ "id": "uuid", "name": "string | null" }], "created_at": "…"
 }
 ```
 
 | Route | Body | Response | Errors |
 |---|---|---|---|
 | `GET /api/prds/{id}/comments?version_id=&limit=25&cursor=` | | 200 `{ "items": Comment[], "next_cursor": "string \| null" }`, **oldest first**; without `version_id`, every version's comments | 404 if you can't see the PRD; 400 `invalid_cursor` |
-| `POST /api/prds/{id}/comments` | `{ "version_id": "uuid", "section_type": null \| "<section type>", "body": "1–5,000 chars" }` | 201 `Comment` | 404; 409 `no_saved_version` (the PRD has never been saved: disable the comment box); 409 `stale_version` (someone saved since: reload, keep the draft, post again); 422 `validation_error` (blank or too-long body, unknown section) |
+| `POST /api/prds/{id}/comments` | `{ "version_id": "uuid", "section_type": null \| "<section type>", "body": "1–5,000 chars", "mentions"?: ["user_id", …] }` | 201 `Comment` | 404; 409 `no_saved_version` (the PRD has never been saved: disable the comment box); 409 `stale_version` (someone saved since: reload, keep the draft, post again); 422 `validation_error` (blank or too-long body, unknown section, more than 20 mentions); 422 `mention_without_access` (someone mentioned can't see the PRD: nothing is posted) |
 
 - Send the `current_version.id` from `GET /api/prds/{id}` as `version_id`.
 - `section_type` is one of the nine section types in [`prd-document-format.md`](prd-document-format.md), or `null`
@@ -291,7 +291,14 @@ its review.
 - `author.name` and `author.department` are frozen when the comment is posted, so later renames or department
   moves don't change them.
 - Posting notifies the PRD's owners and editors (`comment_added`, with `comment_id` and `version_id` set). Inbox
-  `payload`: `{ section_type }`.
+  `payload`: `{ section_type }`, plus `mentioned_user_ids` when the comment mentions anyone.
+- **Mentions:** send the ids of the people mentioned in `mentions` (up to 20; duplicates are ignored). Only people
+  who can see the PRD can be mentioned: offer the PRD's people (`GET /api/prds/{id}/members`); org admins can also be
+  mentioned. Anyone else rejects the comment with 422 `mention_without_access`; mentioning never gives access.
+  - Each mentioned person gets one `mentioned` notification straight away (never batched), **instead of** the
+    `comment_added` one. Mentioning yourself notifies no one.
+  - `mentions[].name` is frozen when the comment is posted, like `author.name`. The body is still plain text: put
+    "@Name" in it for display and highlight it by matching `mentions` names.
 
 ### Reviews
 
@@ -375,7 +382,7 @@ Anyone who can view the PRD can read it. Events are never edited or deleted.
   and the name is kept.
 - **`type`** filters the feed; repeat it for several (`?type=approved&type=changes_requested`). Types: `created`,
   `version_saved`, `ai_applied`, `member_added`, `member_role_changed`, `member_removed`, `comment_added`,
-  `team_added`, `submitted`, `approved`, `changes_requested`, `round_approved`, `superseded`,
+  `team_added`, `mentioned`, `submitted`, `approved`, `changes_requested`, `round_approved`, `superseded`,
   `work_status_changed`. Show any
   other type you don't recognise with its `summary`; new types will be added. Nothing records `created` yet, so
   the feed has no "created the PRD" line: show the PRD's own `created_at` for that.
@@ -716,7 +723,7 @@ The owning team grants no access. PRD responses add `owning_team_id` and `priori
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD, alone or
-with your team, having your role changed, comments, review submissions and decisions). You never get one for your own action, and notifications
+with your team, having your role changed, comments, mentions, review submissions and decisions). You never get one for your own action, and notifications
 about a PRD you can no longer see are hidden from the list and the unread count.
 
 `Notification`:
@@ -740,7 +747,8 @@ about a PRD you can no longer see are hidden from the list and the unread count.
 - **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
 - **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`;
-  `team_added`: `{ team_id, team_name, role, user_ids }` (the people added);
+  `team_added`: `{ team_id, team_name, role, user_ids }` (the people added); `mentioned`: `{ section_type, user_ids }`
+  (`comment_id` is the comment; never batched);
   `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`; `approved`: `{ round_no }`;
   `changes_requested`: `{ round_no, section_type }`; `round_approved`: `{ round_no, reviewer_id }` (the last
   approver; `null` when the round completed because a pending reviewer lost access, with `reason` and

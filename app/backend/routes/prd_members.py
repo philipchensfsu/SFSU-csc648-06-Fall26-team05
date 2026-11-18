@@ -47,6 +47,7 @@ MEMBER_ERRORS = {
 TEAM_ERRORS = {
     **MEMBER_ERRORS,
     "invalid_team_role": (422, "A team can be added as editors or viewers.", "validation_error"),
+    # 422, not 404: the team is a body field, like not_in_organization above.
     "team_not_found": (422, "That team isn't an active team in this PRD's organization.", "team_not_found"),
 }
 
