@@ -246,12 +246,19 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 | `GET /api/prds/{id}/members` | | 200 `PRDMember[]`, in the order they were added (the creator first) | 404 if you can't see the PRD |
 | `PUT /api/prds/{id}/members/{user_id}` | `{ "role": "owner" \| "editor" \| "viewer" }` | 200 `PRDMember[]` (the updated list): adds the person, or changes their role | 404 can't see the PRD; 403 `forbidden` not an owner or org admin; 422 `not_in_organization` (not an active member of the PRD's org); 422 `validation_error` unknown role; 409 `owner_required` (demoting the last owner) |
 | `DELETE /api/prds/{id}/members/{user_id}` | | 204, also when the person wasn't on it | 404; 403 removing someone else without managing the PRD; 409 `owner_required` (the last owner) |
+| `POST /api/prds/{id}/members/teams` | `{ "team_id": "uuid", "role": "editor" \| "viewer" }` | 200 `{ "added": PRDMember[], "skipped": PRDMember[], "members": PRDMember[] }` | 404 can't see the PRD; 403 `forbidden` not an owner or org admin; 422 `team_not_found` (not an active team in the PRD's org); 422 `validation_error` (`owner` or an unknown role) |
 
 - To leave a PRD, `DELETE` with your own `user_id`. Afterwards it's 404 for you unless you're an org admin.
 - An owner who demotes themselves loses the right to manage people straight away.
 - Pick invitees from the [organization directory](#organization-directory) (`members[].user_id`).
 - Inviting someone or changing their role sends them a [notification](#notifications); removing someone doesn't.
   Setting a role someone already has changes nothing.
+- **Adding a team** adds the team's active members as individual people, once: someone who joins the team later
+  isn't added, and everyone added is managed one by one afterwards. Teams can be added as editors or viewers, not
+  owners. People already on the PRD are `skipped` and keep their role (never downgraded or upgraded); `members` is
+  the full list afterwards. Show "Added 3, 1 already on it". Pick teams from the
+  [organization directory](#organization-directory). The people added get one `team_added`
+  [notification](#notifications) each; if nobody was added, nothing is recorded.
 - Removing a reviewer who hasn't decided on the open round (and isn't an org admin, so can't see the PRD any more)
   drops their review slot, as [deactivating a reviewer](#managing-members-admins) does.
 
@@ -368,8 +375,10 @@ Anyone who can view the PRD can read it. Events are never edited or deleted.
   and the name is kept.
 - **`type`** filters the feed; repeat it for several (`?type=approved&type=changes_requested`). Types: `created`,
   `version_saved`, `ai_applied`, `member_added`, `member_role_changed`, `member_removed`, `comment_added`,
-  `submitted`, `approved`, `changes_requested`, `round_approved`, `superseded`, `work_status_changed`. Show any
-  other type you don't recognise with its `summary`; new types will be added.
+  `team_added`, `submitted`, `approved`, `changes_requested`, `round_approved`, `superseded`,
+  `work_status_changed`. Show any
+  other type you don't recognise with its `summary`; new types will be added. Nothing records `created` yet, so
+  the feed has no "created the PRD" line: show the PRD's own `created_at` for that.
 - **`payload`** is the same as the inbox's (see [Notifications](#notifications)); use `version_id`, `round_id` and
   `comment_id` for links.
 
@@ -675,8 +684,8 @@ The owning team grants no access. PRD responses add `owning_team_id` and `priori
 
 ## Notifications
 
-Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD or
-having your role changed, comments, review submissions and decisions). You never get one for your own action, and notifications
+Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD, alone or
+with your team, having your role changed, comments, review submissions and decisions). You never get one for your own action, and notifications
 about a PRD you can no longer see are hidden from the list and the unread count.
 
 `Notification`:
@@ -700,6 +709,7 @@ about a PRD you can no longer see are hidden from the list and the unread count.
 - **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
 - **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`;
+  `team_added`: `{ team_id, team_name, role, user_ids }` (the people added);
   `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`; `approved`: `{ round_no }`;
   `changes_requested`: `{ round_no, section_type }`; `round_approved`: `{ round_no, reviewer_id }` (the last
   approver; `null` when the round completed because a pending reviewer lost access, with `reason` and

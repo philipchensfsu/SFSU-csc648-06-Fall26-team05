@@ -24,6 +24,17 @@ class PRDMemberIn(RequestModel):
     role: Literal["owner", "editor", "viewer"]
 
 
+class TeamMembersIn(RequestModel):
+    team_id: UUID
+    role: Literal["editor", "viewer"]
+
+
+class TeamMembersOut(BaseModel):
+    added: list[PRDMemberOut]
+    skipped: list[PRDMemberOut]  # already on the PRD; their role is unchanged
+    members: list[PRDMemberOut]
+
+
 # Errors raised by the member functions (P0001 with a fixed message).
 MEMBER_ERRORS = {
     "prd_not_found": (404, "PRD not found", None),
@@ -31,6 +42,12 @@ MEMBER_ERRORS = {
     "invalid_role": (422, "The role must be owner, editor or viewer.", "validation_error"),
     "not_in_organization": (422, "That person isn't an active member of this PRD's organization.", "not_in_organization"),
     "owner_required": (409, "A PRD needs at least one owner. Add another owner first.", "owner_required"),
+}
+
+TEAM_ERRORS = {
+    **MEMBER_ERRORS,
+    "invalid_team_role": (422, "A team can be added as editors or viewers.", "validation_error"),
+    "team_not_found": (422, "That team isn't an active team in this PRD's organization.", "team_not_found"),
 }
 
 
@@ -64,3 +81,21 @@ def remove_prd_member(prd_id: UUID, user_id: UUID, auth=Depends(get_current_user
     # Owners and org admins remove anyone; anyone can remove themselves.
     call_function(auth["client"], "remove_prd_member", {"target_prd": str(prd_id), "target_user": str(user_id)},
                   MEMBER_ERRORS)
+
+
+@router.post("/api/prds/{prd_id}/members/teams", response_model=TeamMembersOut)
+def add_team_to_prd(prd_id: UUID, payload: TeamMembersIn, auth=Depends(get_current_user)):
+    # Adds the team's current active members once (a snapshot), as editors or
+    # viewers. People already on the PRD keep their role. Owners and org
+    # admins only.
+    client = auth["client"]
+    result = call_function(client, "add_team_to_prd", {
+        "target_prd": str(prd_id), "target_team": str(payload.team_id), "new_role": payload.role,
+    }, TEAM_ERRORS)
+    members = list_people(client, prd_id)
+    by_id = {str(m["user_id"]): m for m in members}
+
+    def pick(ids):
+        return [by_id[i] for i in ids if i in by_id]
+
+    return {"added": pick(result["added"]), "skipped": pick(result["skipped"]), "members": members}

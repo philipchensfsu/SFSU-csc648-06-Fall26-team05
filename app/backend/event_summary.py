@@ -13,7 +13,7 @@ from prd_document import section_title
 
 EVENT_TYPES = (
     "created", "version_saved", "ai_applied",
-    "member_added", "member_role_changed", "member_removed",
+    "member_added", "member_role_changed", "member_removed", "team_added",
     "comment_added", "submitted", "approved", "changes_requested", "round_approved", "superseded",
     "work_status_changed",
 )
@@ -99,6 +99,14 @@ def _member_removed(actor, payload, name):
     return f"{actor} removed {name(payload.get('user_id'))}"
 
 
+def _team_added(actor, payload, name):
+    count = len(payload.get("user_ids") or [])
+    people = f"{count} {'person' if count == 1 else 'people'}"
+    role = payload.get("role") or "member"
+    team = f"the {payload['team_name']} team" if payload.get("team_name") else "a team"
+    return f"{actor} added {team} as {role}s ({people})"
+
+
 def _commented(actor, payload, name):
     section = _section(payload.get("section_type"))
     return f"{actor} commented on {section}" if section else f"{actor} commented"
@@ -134,11 +142,15 @@ def _superseded(actor, payload, name):
     if not actor:
         return (f"{_round(payload).capitalize()} ended and the PRD went back to draft "
                 f"after {_system_reason(payload, name)}")
+    version = payload.get("version_no", "?")
+    saved = (f"{actor} applied an AI suggestion (version {version})" if payload.get("generation_record_id")
+             else f"{actor} saved version {version}")
     if not payload.get("continued"):
-        return f"{actor} saved version {payload.get('version_no', '?')}; the PRD went back to draft"
+        return f"{saved}; the PRD went back to draft"
+    # reviewer_ids is everyone who had decided: approvals and change requests.
     reset = len(payload.get("reviewer_ids") or [])
-    approvals = f"{reset} approval{'' if reset == 1 else 's'}"
-    return f"{actor} saved version {payload.get('version_no', '?')}, which reset {approvals}"
+    decisions = f" ({reset} decision{'' if reset == 1 else 's'} reset)" if reset else ""
+    return f"{saved}; the review restarted{decisions}"
 
 
 def _work_status(actor, payload, name):
@@ -155,6 +167,7 @@ SUMMARIES = {
     "member_added": _member_added,
     "member_role_changed": _role_changed,
     "member_removed": _member_removed,
+    "team_added": _team_added,
     "comment_added": _commented,
     "submitted": _submitted,
     "approved": _approved,

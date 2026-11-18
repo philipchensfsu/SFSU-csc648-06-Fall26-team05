@@ -29,6 +29,9 @@ def test_every_event_type_has_a_summary():
     ("member_role_changed", {"user_id": BEN, "from": "editor", "to": "owner"},
      "Olive Owner changed Ben Lee's role from editor to owner"),
     ("member_removed", {"user_id": BEN, "role": "viewer"}, "Olive Owner removed Ben Lee"),
+    ("team_added", {"team_name": "Growth", "role": "editor", "user_ids": [BEN, OLIVE]},
+     "Olive Owner added the Growth team as editors (2 people)"),
+    ("team_added", {"role": "viewer", "user_ids": [BEN]}, "Olive Owner added a team as viewers (1 person)"),
     ("member_removed", {"user_id": OLIVE, "role": "editor"}, "Olive Owner left the PRD"),
     ("comment_added", {"section_type": "risks"}, "Olive Owner commented on Risks"),
     ("comment_added", {"section_type": None}, "Olive Owner commented"),
@@ -39,7 +42,13 @@ def test_every_event_type_has_a_summary():
     ("changes_requested", {"round_no": 1, "section_type": None}, "Olive Owner requested changes (round 1)"),
     ("round_approved", {"round_no": 2, "reviewer_id": OLIVE}, "Olive Owner approved round 2; the PRD is approved"),
     ("superseded", {"version_no": 6, "reviewer_ids": [BEN, OLIVE], "continued": True},
-     "Olive Owner saved version 6, which reset 2 approvals"),
+     "Olive Owner saved version 6; the review restarted (2 decisions reset)"),
+    ("superseded", {"version_no": 6, "reviewer_ids": [BEN], "continued": True},
+     "Olive Owner saved version 6; the review restarted (1 decision reset)"),
+    ("superseded", {"version_no": 6, "reviewer_ids": [], "continued": True},
+     "Olive Owner saved version 6; the review restarted"),
+    ("superseded", {"version_no": 6, "reviewer_ids": [BEN], "continued": True, "generation_record_id": OLIVE},
+     "Olive Owner applied an AI suggestion (version 6); the review restarted (1 decision reset)"),
     ("superseded", {"version_no": 6, "reviewer_ids": [], "continued": False},
      "Olive Owner saved version 6; the PRD went back to draft"),
     ("work_status_changed", {"from": "in_progress", "to": "done", "status": "done"},
@@ -62,7 +71,7 @@ def test_missing_names_and_unknown_types_still_read():
     assert summary("member_added", {"user_id": "00000000-0000-0000-0000-0000000000ff", "role": "owner"}) == \
         "Olive Owner added a former member as an owner"
     assert summary("comment_added", {}, None, OLIVE) == "Someone commented"
-    assert summary("team_added", {"team_id": "x"}) == "Olive Owner updated the PRD"
+    assert summary("some_new_type", {"id": "x"}) == "Olive Owner updated the PRD"
     assert summary("comment_added", {"section_type": "not_a_section"}) == "Olive Owner commented on not_a_section"
 
 
