@@ -10,8 +10,6 @@ Run from app/backend with: python -m pytest tests/test_put_save.py
 from types import SimpleNamespace
 from uuid import UUID
 
-from uuid import UUID
-
 import pytest
 from fastapi.testclient import TestClient
 
