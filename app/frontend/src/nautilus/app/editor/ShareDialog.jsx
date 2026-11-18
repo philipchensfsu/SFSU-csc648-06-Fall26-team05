@@ -125,6 +125,12 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
     if (await setRole(addId, addRole)) setAddId("");
   }
 
+  // The last team add's summary belongs to that form, so it goes when you leave it.
+  function switchMode(value) {
+    setAddMode(value);
+    setTeamResult(null);
+  }
+
   async function addTeam(label) {
     let result = null;
     const done = await change(async () => {
@@ -270,7 +276,7 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
                 className={`nc-toggle-btn${mode === value ? " is-active" : ""}`}
                 aria-pressed={mode === value}
                 disabled={busy}
-                onClick={() => setAddMode(value)}
+                onClick={() => switchMode(value)}
               >
                 {label}
               </button>

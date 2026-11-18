@@ -216,6 +216,21 @@ describe("ShareDialog", () => {
       expect(platform.textContent).toBe("Engineering · Platform (2 people)");
     });
 
+    it("clears the last result when you switch forms", async () => {
+      api.addTeamToPrd.mockResolvedValue({
+        added: [{ ...erin, role: "editor" }],
+        skipped: [],
+        members: [alice, ben, { ...erin, role: "editor" }],
+      });
+      await showTeams();
+      await choose(select("Team to add"), "platform");
+      await act(async () => buttonNamed("Add team").click());
+      expect(host.textContent).toContain("Added 1 from Engineering · Platform.");
+      await act(async () => buttonNamed("A person").click());
+      await act(async () => buttonNamed("A whole team").click());
+      expect(host.textContent).not.toContain("Added 1 from");
+    });
+
     it("says so when everyone on the team already had access", async () => {
       const onIt = [ben, { ...erin, role: "viewer" }, { ...fran, role: "viewer" }];
       api.addTeamToPrd.mockResolvedValue({ added: [], skipped: onIt, members: [alice, ...onIt] });
