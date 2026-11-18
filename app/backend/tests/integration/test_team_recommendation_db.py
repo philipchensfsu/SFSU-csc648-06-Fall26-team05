@@ -278,6 +278,26 @@ def test_permissions_are_checked_again_when_deciding(cast, db, service):
     assert rec_row(db, rec["id"])[2] == cast["ada"].id
 
 
+def test_org_membership_is_checked_again_when_deciding(cast, db, service):
+    rec = recommend(cast["olive"], cast, service)["recommendation"]
+    # The owner who asked has left the organization: her PRD role no longer counts, so she can't even see it.
+    db.execute("update organization_member set active = false where user_id = %s", (cast["olive"].id,))
+    assert decide(cast["olive"], cast, rec["id"], teams=[("growth", "viewer")]).status_code == 404
+    # An org admin who is no longer an admin (and isn't on the PRD) can't either.
+    db.execute("update organization_member set access_role = 'member' where user_id = %s", (cast["ada"].id,))
+    assert decide(cast["ada"], cast, rec["id"], teams=[("growth", "viewer")]).status_code == 404
+    assert rec_row(db, rec["id"])[0] == "pending" and cast["gus"].id not in roles(db, cast["prd"])
+
+
+def test_people_who_left_the_org_since_the_recommendation_are_not_added(cast, db, service):
+    rec = recommend(cast["olive"], cast, service)["recommendation"]
+    db.execute("update organization_member set active = false where user_id = %s", (cast["hal"].id,))
+    r = decide(cast["olive"], cast, rec["id"], teams=[("platform", "editor")])
+    assert r.status_code == 200
+    assert [p["user_id"] for p in r.json()["results"][0]["added"]] == [cast["ivy"].id]
+    assert cast["hal"].id not in roles(db, cast["prd"])
+
+
 def test_team_eligibility_is_checked_again_and_a_failure_adds_no_one(cast, db, service):
     rec = recommend(cast["olive"], cast, service)["recommendation"]
     db.execute("delete from team_member where team_id = %s", (cast["teams"]["platform"],))
