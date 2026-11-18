@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, Query
 from postgrest.exceptions import APIError
 from pydantic import BaseModel, Field
 
+from ai import discussion_summary, usage_gate
 from bot_auth import check_bot_secret, discord_user_id, get_bot_user, sign_token
 from common import RequestModel
 from errors import ApiError
@@ -107,3 +108,20 @@ def inbox(unread_only: bool = True, limit: int = Query(default=10, ge=1, le=25),
     # /inbox: the person's notifications, as GET /api/notifications, unread
     # only unless asked otherwise.
     return list_notifications(unread_only=unread_only, params=PageParams(cursor=cursor, limit=limit), auth=auth)
+
+
+class SummaryRequest(RequestModel):
+    # A saved version of this PRD; the current one when left out.
+    version_id: Optional[UUID] = None
+
+
+@router.post("/api/bot/prds/{prd_id}/summary")
+def summary(prd_id: UUID, payload: Optional[SummaryRequest] = None, auth=Depends(get_bot_user)):
+    # /summary: Marco's discussion summary (feature 05), asked as the linked
+    # person, so it uses their AI allowance and needs only view access. Same
+    # response as POST /api/prds/{id}/discussion-summary.
+    version_id = payload.version_id if payload else None
+    return discussion_summary.summarize_discussion(
+        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id),
+        version_id=None if version_id is None else str(version_id), budget=usage_gate.RequestBudget(),
+    )
