@@ -450,6 +450,37 @@ Anyone who can view the PRD can read it. Events are never edited or deleted.
 - **`payload`** is the same as the inbox's (see [Notifications](#notifications)); use `version_id`, `round_id` and
   `comment_id` for links.
 
+## Reports (feature 10)
+
+Numbers and recent activity across **the PRDs you can see**: your own PRDs, or every PRD in the org for an org admin.
+
+| Route | Query | Response | Errors |
+|---|---|---|---|
+| `GET /api/reports/progress` | `team_id`, `project_id`, `owner_id` (all optional), `activity_limit` (1–50, default 20) | 200 `ProgressReport` | 422 bad id or limit |
+
+`ProgressReport`:
+
+```json
+{
+  "total": 3,
+  "by_status": { "draft": 1, "in_review": 1, "final": 1 },
+  "by_work_status": { "not_started": 3 },
+  "by_priority": { "high": 1, "none": 2 },
+  "by_owner": [{ "owner": { "id": "uuid", "name": "Olive Owner" }, "total": 2, "by_status": { "draft": 1, "final": 1 } }],
+  "by_team": [{ "team": { "id": "uuid", "name": "Growth" } | null, "total": 1, "by_status": { "draft": 1 } }],
+  "activity": [Event + { "prd_id": "uuid", "prd_title": "Alpha" }]
+}
+```
+
+- **Filters:** `team_id` is the PRD's owning team; `owner_id` keeps PRDs that person owns; `project_id` is the
+  folder. They combine.
+- **Counts** list only values that occur (a missing key is 0). `by_priority` uses `"none"` for PRDs without one.
+  A PRD with several owners counts once for each in `by_owner`. `by_team` has one `team: null` row for PRDs without
+  an owning team. Both lists are sorted by `total`, largest first.
+- **`activity`** is the newest events across those PRDs, in the [activity feed's](#activity-e13) `Event` shape
+  plus the PRD's id and title.
+- **No "overdue" yet:** it needs dates, which wait for the milestone decision.
+
 ## Intake answers
 
 The interview answers for a PRD, one per question.
