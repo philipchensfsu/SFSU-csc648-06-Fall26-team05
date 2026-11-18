@@ -842,7 +842,7 @@ the response rather than hard-coding it. `proposal` has the same shape as an E12
   `invalid_feedback`, `feedback_not_current`, `validation_error`; the shared AI codes). Both options come from one
   reply, so if either is malformed (or they're identical) the whole request is 502 `ai_invalid_output`: offer to
   try again.
-- **Needs** the `20261117063638_review_alternatives` migration (options on staged proposals, and a save that names
+- **Needs** the `20261118224047_review_alternatives` migration (options on staged proposals, and a save that names
   the option).
 
 ## Owning team and priority (A08)
