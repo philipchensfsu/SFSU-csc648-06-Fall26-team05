@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
 
 from auth import get_current_user
+from event_summary import people_in
 from routes.events import EventOut, event_item
 
 router = APIRouter()
@@ -42,6 +43,9 @@ class ActivityOut(EventOut):
 class ProgressReport(BaseModel):
     total: int
     by_status: dict[str, int]
+    # progress_report() maps a null priority to "none" but not work_status: work_status is
+    # "not null default 'not_started'", and priority is nullable. Keep it that way, because
+    # jsonb_object_agg raises on a null key.
     by_work_status: dict[str, int]
     by_priority: dict[str, int]  # "none" counts PRDs without a priority
     by_owner: list[OwnerCount]
@@ -49,8 +53,11 @@ class ProgressReport(BaseModel):
     activity: list[ActivityOut]
 
 
-def directory_names(client, user_id) -> dict:
+def directory_names(client, user_id, report) -> dict:
     # Everyone in the caller's organization, including people who have left.
+    # Fetched only when an owner row or an activity payload needs a name.
+    if not report["by_owner"] and not any(people_in(row["payload"] or {}) for row in report["activity"]):
+        return {}
     rows = (client.table("organization_member").select("organization_id")
             .eq("user_id", str(user_id)).eq("active", True).execute().data)
     if not rows:
@@ -70,7 +77,7 @@ def progress_report(team_id: Optional[UUID] = None, project_id: Optional[UUID] =
         "p_team": str(team_id) if team_id else None, "p_project": str(project_id) if project_id else None,
         "p_owner": str(owner_id) if owner_id else None, "p_activity_limit": activity_limit,
     }).execute().data
-    names = directory_names(client, auth["user"].id)
+    names = directory_names(client, auth["user"].id, report)
     return {
         **{key: report[key] for key in ("total", "by_status", "by_work_status", "by_priority")},
         "by_owner": [{"owner": {"id": row["user_id"], "name": names.get(row["user_id"])},
