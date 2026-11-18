@@ -84,6 +84,10 @@ export const api = {
     request(`/prds/${prdId}/members/${userId}`, { method: "PUT", body: JSON.stringify({ role }) }),
   removePrdMember: (prdId, userId) =>
     request(`/prds/${prdId}/members/${userId}`, { method: "DELETE" }),
+  // Adds a team's current active members, as editors or viewers. People already
+  // on the PRD keep their role. Resolves to { added, skipped, members }.
+  addTeamToPrd: (prdId, teamId, role) =>
+    request(`/prds/${prdId}/members/teams`, { method: "POST", body: JSON.stringify({ team_id: teamId, role }) }),
 
   // Answer-only PRD chat. `history` is the recent turns for this PRD only;
   // the backend caps it and never treats it as instructions. Resolves to
