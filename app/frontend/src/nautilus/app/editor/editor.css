@@ -605,27 +605,39 @@
 .ne-outline-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 4px;
 }
+/* Each section is a light, bordered button so the list reads as navigation
+   on the white page. Current adds a teal border and left bar, so it stays
+   distinct from hover. */
 .ne-outline-item {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
+  min-width: 0;
   padding: 6px 8px;
-  border: 0;
+  border: 1px solid #DCEBEE;
   border-radius: 7px;
-  background: transparent;
+  background: #F7FBFC;
   color: #3E5A60;
   font-size: 13.5px;
   text-align: left;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .ne-outline-item:hover {
-  background: #E9F3F5;
+  background: #EDF5F6;
+  border-color: #C3DADE;
   color: #102C33;
+}
+.ne-outline-item:focus-visible {
+  outline: 2px solid #1D6F7A;
+  outline-offset: 2px;
 }
 .ne-outline-item.is-current {
   background: #E3F6F8;
+  border-color: #1D6F7A;
+  box-shadow: inset 3px 0 0 #1D6F7A;
   color: #155E68;
   font-weight: 600;
 }
@@ -1489,7 +1501,8 @@
     animation: none;
   }
   .ne-meter-fill,
-  .ne-pfish {
+  .ne-pfish,
+  .ne-outline-item {
     transition: none;
   }
   .ne-pbubble {
