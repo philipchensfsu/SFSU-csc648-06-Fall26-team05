@@ -35,6 +35,9 @@ def test_every_event_type_has_a_summary():
     ("member_removed", {"user_id": OLIVE, "role": "editor"}, "Olive Owner left the PRD"),
     ("comment_added", {"section_type": "risks"}, "Olive Owner commented on Risks"),
     ("comment_added", {"section_type": None}, "Olive Owner commented"),
+    ("mentioned", {"section_type": "goals", "user_ids": [BEN]}, "Olive Owner mentioned Ben Lee in a comment on Goals"),
+    ("mentioned", {"section_type": None, "user_ids": [BEN, OLIVE, BEN, OLIVE]},
+     "Olive Owner mentioned Ben Lee, a former member and 2 others in a comment"),
     ("submitted", {"round_no": 1, "resubmitted": False}, "Olive Owner submitted the PRD for review (round 1)"),
     ("submitted", {"round_no": 2, "resubmitted": True}, "Olive Owner resubmitted the PRD for review (round 2)"),
     ("approved", {"round_no": 1}, "Olive Owner approved round 1"),
@@ -51,6 +54,10 @@ def test_every_event_type_has_a_summary():
      "Olive Owner applied an AI suggestion (version 6); the review restarted (1 decision reset)"),
     ("superseded", {"version_no": 6, "reviewer_ids": [], "continued": False},
      "Olive Owner saved version 6; the PRD went back to draft"),
+    ("reviewer_changed", {"round_no": 1, "removed_reviewer_id": BEN, "added_reviewer_id": OLIVE},
+     "Olive Owner replaced Ben Lee with a former member as a reviewer (round 1)"),
+    ("reviewer_changed", {"round_no": 2, "removed_reviewer_id": BEN, "added_reviewer_id": None},
+     "Olive Owner removed Ben Lee as a reviewer (round 2)"),
     ("work_status_changed", {"from": "in_progress", "to": "done", "status": "done"},
      "Olive Owner changed work status from in progress to done"),
 ])
@@ -79,3 +86,4 @@ def test_people_in_lists_mentioned_users_only():
     assert people_in({"user_id": BEN, "role": "editor"}) == {BEN}
     assert people_in({"removed_reviewer_id": BEN, "reviewer_id": None}) == {BEN}
     assert people_in({"round_no": 1}) == set()
+    assert people_in({"user_ids": [BEN, OLIVE]}) == {BEN, OLIVE}

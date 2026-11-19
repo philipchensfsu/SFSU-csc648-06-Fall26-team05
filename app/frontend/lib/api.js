@@ -84,6 +84,10 @@ export const api = {
     request(`/prds/${prdId}/members/${userId}`, { method: "PUT", body: JSON.stringify({ role }) }),
   removePrdMember: (prdId, userId) =>
     request(`/prds/${prdId}/members/${userId}`, { method: "DELETE" }),
+  // Adds a team's current active members, as editors or viewers. People already
+  // on the PRD keep their role. Resolves to { added, skipped, members }.
+  addTeamToPrd: (prdId, teamId, role) =>
+    request(`/prds/${prdId}/members/teams`, { method: "POST", body: JSON.stringify({ team_id: teamId, role }) }),
 
   // Answer-only PRD chat. `history` is the recent turns for this PRD only;
   // the backend caps it and never treats it as instructions. Resolves to
@@ -180,12 +184,27 @@ export const api = {
     return request(`/prds/${prdId}/comments?${params}`);
   },
   // versionId is the PRD's current version; sectionType is one of the nine
-  // section types, or null for the whole PRD. body is plain text.
-  addPrdComment: (prdId, { versionId, sectionType = null, body }) =>
+  // section types, or null for the whole PRD. body is plain text. mentions is
+  // the user ids of people @mentioned in it (up to 20, all able to see the PRD).
+  addPrdComment: (prdId, { versionId, sectionType = null, body, mentions = [] }) =>
     request(`/prds/${prdId}/comments`, {
       method: "POST",
-      body: JSON.stringify({ version_id: versionId, section_type: sectionType, body }),
+      body: JSON.stringify({
+        version_id: versionId,
+        section_type: sectionType,
+        body,
+        ...(mentions.length ? { mentions } : {}),
+      }),
     }),
+
+  // A PRD's activity feed (E13): one event per change, newest first, paged
+  // with next_cursor. types narrows it to those event types (repeated ?type=).
+  listPrdEvents: (prdId, { types = [], limit = 25, cursor } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    for (const type of types) params.append("type", type);
+    if (cursor) params.set("cursor", cursor);
+    return request(`/prds/${prdId}/events?${params}`);
+  },
 
   // Revision history (read-only): newest first, paged with next_cursor.
   listVersions: (prdId, { limit = 25, cursor } = {}) => {

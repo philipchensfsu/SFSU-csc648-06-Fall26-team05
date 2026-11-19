@@ -10,6 +10,7 @@ vi.mock("../../../../lib/api", () => ({
     getPrd: vi.fn(),
     listPrdMembers: vi.fn(),
     listVersions: vi.fn(),
+    listPrdEvents: vi.fn(),
     getVersion: vi.fn(),
     getDirectory: vi.fn(),
     setWorkStatus: vi.fn(),
@@ -160,8 +161,32 @@ async function choose(element, value) {
   });
 }
 
+const event = (id, type, summary, extra = {}) => ({
+  id,
+  type,
+  actor: { id: "aksh", name: "Aksh Patel" },
+  summary,
+  payload: {},
+  version_id: null,
+  round_id: null,
+  comment_id: null,
+  created_at: "2026-11-13T09:12:00Z",
+  ...extra,
+});
+
+const eventsPage = {
+  items: [
+    event("e1", "work_status_changed", "Aksh Patel moved work status from Not started to In progress"),
+    event("e2", "comment_added", "Hannah Okafor commented", { comment_id: "c1", version_id: "v6" }),
+    event("e3", "version_saved", "Hannah Okafor saved v6", { version_id: "v6" }),
+    event("e4", "brand_new_type", "Something new happened"),
+  ],
+  next_cursor: "older",
+};
+
 beforeEach(() => {
   vi.resetAllMocks();
+  api.listPrdEvents.mockResolvedValue(eventsPage);
   api.getPrd.mockResolvedValue(prdRow());
   api.listPrdMembers.mockResolvedValue(members);
   api.listVersions.mockResolvedValue(versionsPage);
@@ -331,5 +356,77 @@ describe("revision history", () => {
     expect(host.querySelectorAll(".nc-section")).toHaveLength(1);
     expect(host.querySelector("del").textContent).toContain("70");
     expect(host.querySelector("ins").textContent).toContain("72");
+  });
+});
+
+describe("activity", () => {
+  const rows = () => [...host.querySelectorAll(".nd-act")];
+
+  it("shows the newest few on the overview and opens the full feed", async () => {
+    await show();
+    expect(api.listPrdEvents).toHaveBeenCalledWith("p1", { limit: 3 });
+    expect(text()).toContain("Recent activity");
+    expect(text()).toContain("Aksh Patel moved work status from Not started to In progress");
+    await click(buttonNamed("See all"));
+    expect(onNavigate).toHaveBeenCalledWith({ tab: "activity" });
+  });
+
+  it("lists every event's sentence as is, unknown types included", async () => {
+    await show({ tab: "activity" });
+    expect(api.listPrdEvents).toHaveBeenCalledWith("p1", { types: [], cursor: null });
+    expect(rows().map((row) => row.querySelector(".nd-act-text").textContent)).toEqual([
+      "Aksh Patel moved work status from Not started to In progress",
+      "Hannah Okafor commented",
+      "Hannah Okafor saved v6",
+      "Something new happened",
+    ]);
+    // More pages to come, so the created line waits for the last one.
+    expect(text()).not.toContain("The PRD was created");
+  });
+
+  it("opens a saved version, or the editor's comments", async () => {
+    await show({ tab: "activity" });
+    await click(buttonNamed("View version"));
+    expect(onNavigate).toHaveBeenCalledWith({ tab: "history", versionId: "v6" });
+    await click(buttonNamed("View comment"));
+    expect(onOpenEditor).toHaveBeenCalledWith({ railTab: "comments" });
+  });
+
+  it("filters by kind, sending that chip's event types", async () => {
+    await show({ tab: "activity" });
+    api.listPrdEvents.mockResolvedValueOnce({
+      items: [event("e9", "approved", "Ken Tanaka approved v6")],
+      next_cursor: null,
+    });
+    await click(buttonNamed("Reviews"));
+    expect(api.listPrdEvents).toHaveBeenLastCalledWith("p1", {
+      types: ["submitted", "approved", "changes_requested", "round_approved", "superseded"],
+      cursor: null,
+    });
+    expect(rows().map((row) => row.textContent)).toEqual([expect.stringContaining("Ken Tanaka approved v6")]);
+    expect(buttonNamed("Reviews").getAttribute("aria-pressed")).toBe("true");
+    // Only the full feed ends with the created line.
+    expect(text()).not.toContain("The PRD was created");
+  });
+
+  it("loads older activity, then ends with when the PRD was created", async () => {
+    await show({ tab: "activity" });
+    api.listPrdEvents.mockResolvedValueOnce({
+      items: [event("e5", "member_added", "Aksh Patel added Ken Tanaka as a viewer")],
+      next_cursor: null,
+    });
+    await click(buttonNamed("Show older activity"));
+    expect(api.listPrdEvents).toHaveBeenLastCalledWith("p1", { types: [], cursor: "older" });
+    expect(rows()).toHaveLength(6);
+    expect(rows().at(-1).textContent).toContain("The PRD was created");
+    expect(buttonNamed("Show older activity")).toBeUndefined();
+  });
+
+  it("offers a retry when the feed can't load", async () => {
+    api.listPrdEvents.mockRejectedValueOnce(new Error("Server down."));
+    await show({ tab: "activity" });
+    expect(host.querySelector("[role=alert]").textContent).toContain("Couldn’t load the activity. Server down.");
+    await click(buttonNamed("Try again"));
+    expect(rows()).toHaveLength(4);
   });
 });
