@@ -99,3 +99,40 @@ export function sortMembers(members) {
       (ROLE_ORDER[a.role] ?? 9) - (ROLE_ORDER[b.role] ?? 9) || (a.name ?? "").localeCompare(b.name ?? ""),
   );
 }
+
+// Activity feed (E13). The chips above the feed, each a set of event types
+// sent as ?type=. "All" sends none, so it also shows types added later.
+export const ACTIVITY_FILTERS = [
+  { id: "all", label: "All", types: [] },
+  { id: "edits", label: "Edits", types: ["version_saved", "ai_applied"] },
+  {
+    id: "people",
+    label: "People",
+    types: ["member_added", "member_role_changed", "member_removed", "team_added"],
+  },
+  { id: "comments", label: "Comments", types: ["comment_added", "mentioned"] },
+  {
+    id: "reviews",
+    label: "Reviews",
+    types: ["submitted", "approved", "changes_requested", "round_approved", "superseded"],
+  },
+  { id: "work", label: "Work status", types: ["work_status_changed"] },
+];
+
+// Which chip an event belongs to, for its icon. Types we don't know yet get
+// "other" and still show with their summary.
+export function activityKind(type) {
+  return ACTIVITY_FILTERS.find((filter) => filter.id !== "all" && filter.types.includes(type))?.id ?? "other";
+}
+
+// Where an event can take you: a saved version opens in History, a comment
+// opens the editor's Comments tab. null when there's nothing to open.
+export function activityLink(event) {
+  if (event?.version_id && (event.type === "version_saved" || event.type === "ai_applied")) {
+    return { kind: "version", versionId: event.version_id, label: "View version" };
+  }
+  if (event?.comment_id && (event.type === "comment_added" || event.type === "mentioned")) {
+    return { kind: "comment", label: "View comment" };
+  }
+  return null;
+}
