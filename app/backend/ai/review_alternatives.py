@@ -54,7 +54,7 @@ logger = logging.getLogger("nautilus.ai")
 
 # Recorded on generation_record (trigger chat_request). Bump when the
 # instruction, layout or schema changes. (System prompts are Om's area.)
-PROMPT_VERSION = "prd-review-alternatives-v1"
+PROMPT_VERSION = "prd-review-alternatives-v2"
 OPTION_COUNT = 2
 MAX_TITLE_CHARS = 80
 MAX_TRADEOFFS = 4
@@ -99,7 +99,24 @@ the language of the document.
 
 def response_schema() -> dict:
     """Guides the model; each merged document is validated against the full
-    shared rules."""
+    shared rules.
+
+    No minItems/maxItems anywhere: two copies of E12's section schema with
+    array counts made Gemini reject it with 400 "too many states for
+    serving". checked_options enforces the option, tradeoff and section
+    counts, and validate_document the content rules."""
+    return without_array_counts(_schema())
+
+
+def without_array_counts(node):
+    if isinstance(node, dict):
+        return {k: without_array_counts(v) for k, v in node.items() if k not in ("minItems", "maxItems")}
+    if isinstance(node, list):
+        return [without_array_counts(v) for v in node]
+    return node
+
+
+def _schema() -> dict:
     sections = review_suggestion.response_schema()["properties"]["sections"]
     option = {
         "type": "object",
