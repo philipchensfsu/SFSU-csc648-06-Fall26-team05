@@ -981,7 +981,8 @@ what that person could see in Nautilus. Linking is a "Connect Discord" section i
 1. The user clicks "Connect Discord": call `POST /api/integrations/discord/link-code` and show the code with a
    countdown and the instruction "Run `/link K7QX-M2PA-9DZR` in Discord".
 2. They run it in Discord. The bot links the account; poll `GET /api/integrations/discord/link` every few seconds
-   (or offer a "Done" button that checks it) until `linked` is `true`.
+   (or offer a "Done" button that checks it) until `linked` is `true`. Stop polling at the code's `expires_at`
+   and offer "Get a new code", so a settings page left open doesn't keep calling the API.
 3. Linked: show "Connected to Discord" and an "Unlink" button (`DELETE`).
 
 | Route | Body | Response | Errors |
