@@ -30,13 +30,14 @@ def reply(*options):
     return GeminiResult(data={"options": list(options)}, model="fake", prompt_tokens=1, output_tokens=1)
 
 
-def test_the_schema_asks_for_exactly_two_complete_options():
+def test_the_schema_asks_for_complete_options_without_array_counts():
+    # Gemini answers 400 "too many states for serving" when this schema has
+    # minItems/maxItems, so checked_options enforces the counts instead.
     schema = review_alternatives.response_schema()
+    assert "minItems" not in json.dumps(schema) and "maxItems" not in json.dumps(schema)
     options = schema["properties"]["options"]
-    assert (options["minItems"], options["maxItems"]) == (2, 2)
     item = options["items"]
     assert set(item["required"]) == {"title", "explanation", "tradeoffs", "sections"}
-    assert item["properties"]["tradeoffs"]["maxItems"] == review_alternatives.MAX_TRADEOFFS
     assert item["properties"]["sections"]["items"]["properties"]["attrs"]["properties"]["type"]["enum"] \
         == list(section_types())
 
@@ -70,6 +71,12 @@ def test_each_option_becomes_a_complete_document_with_only_its_changes():
     ((option("A", section("goals", "x"), tradeoffs=[" "]), option("B", section("goals", "y"))), "tradeoffs"),
     ((option("  ", section("goals", "x")), option("B", section("goals", "y"))), "title"),
     ((option("A", section("goals", "x")),), "options"),
+    # The counts the schema can't carry (Gemini rejects array counts here).
+    ((option("A", section("goals", "x")), option("B", section("goals", "y")), option("C", section("goals", "z"))),
+     "options"),
+    ((option("A", section("goals", "x"), tradeoffs=["t"] * (review_alternatives.MAX_TRADEOFFS + 1)),
+      option("B", section("goals", "y"))), "tradeoffs"),
+    ((option("A"), option("B", section("goals", "y"))), "Review suggestion reply"),  # shared section checks
 ])
 def test_one_bad_option_fails_the_whole_reply(options, why, caplog):
     with caplog.at_level(logging.WARNING, logger="nautilus.ai"), pytest.raises(AIError) as info:

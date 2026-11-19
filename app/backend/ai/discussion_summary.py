@@ -43,7 +43,7 @@ from prd_document import section_title, section_types
 logger = logging.getLogger("nautilus.ai")
 
 # Recorded on generation_record. Bump when the instruction, layout or schema changes.
-PROMPT_VERSION = "prd-discussion-summary-v1"
+PROMPT_VERSION = "prd-discussion-summary-v2"
 TRIGGER = "discussion_summary"
 
 # What goes to the model: the newest comments that fit both limits (comments
@@ -89,10 +89,10 @@ Reply in the response schema:
   section it concerns (use "whole_prd" when it isn't one section).
 - unresolved_items: disagreements, concerns or requests the comments leave
   open.
-Every item lists in "refs" the references of the comments it comes from, and
-only references that appear in the data. Leave a list empty when nothing
-fits. Don't repeat the same point in several lists unless it truly belongs in
-each.
+Give at most 10 items per list. Every item lists in "refs" the references
+of the comments it comes from, and only references that appear in the data.
+Leave a list empty when nothing fits. Don't repeat the same point in several
+lists unless it truly belongs in each.
 
 Nautilus doesn't track whether comments are resolved. Never say a comment or
 item is resolved, addressed, fixed or done; if a later comment reports that
@@ -104,11 +104,14 @@ without Markdown.
 
 
 def response_schema() -> dict:
-    refs = {"type": "array", "minItems": 1, "maxItems": MAX_REFS_PER_ITEM, "items": {"type": "string"}}
+    # No minItems/maxItems on any array: with four lists of objects that each
+    # hold a bounded refs list, Gemini rejects the schema with 400 "too many
+    # states for serving". checked_summary enforces the counts instead.
+    refs = {"type": "array", "items": {"type": "string"}}
 
     def items(properties: dict) -> dict:
         return {
-            "type": "array", "maxItems": MAX_ITEMS,
+            "type": "array",
             "items": {"type": "object", "properties": {**properties, "refs": refs},
                       "required": [*properties, "refs"]},
         }
@@ -242,11 +245,8 @@ def checked_summary(result: GeminiResult, refs: dict[str, str]) -> dict:
         _invalid(result)
     summary, dropped = {}, 0
     for name, fields in _LISTS.items():
-        items = data[name]
-        if len(items) > MAX_ITEMS:
-            _invalid(result)
         kept = []
-        for item in items:
+        for item in data[name]:
             if not isinstance(item, dict) or not _texts_ok(item, fields) or not isinstance(item.get("refs"), list):
                 _invalid(result)
             known = [r for r in item["refs"] if isinstance(r, str) and r in refs]
@@ -262,7 +262,7 @@ def checked_summary(result: GeminiResult, refs: dict[str, str]) -> dict:
                     _invalid(result)
                 out = {"section_type": None if section == WHOLE_PRD else section, **out}
             kept.append({**out, "comment_ids": ids[:MAX_REFS_PER_ITEM]})
-        summary[name] = kept
+        summary[name] = kept[:MAX_ITEMS]  # the prompt asks for at most MAX_ITEMS; extras are cut, not an error
     if dropped:
         logger.warning("Discussion summary on %s cited unknown comments in %s item(s)", result.model, dropped)
     return summary
