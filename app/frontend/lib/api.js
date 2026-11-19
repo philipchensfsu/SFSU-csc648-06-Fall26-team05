@@ -88,6 +88,25 @@ export const api = {
   // on the PRD keep their role. Resolves to { added, skipped, members }.
   addTeamToPrd: (prdId, teamId, role) =>
     request(`/prds/${prdId}/members/teams`, { method: "POST", body: JSON.stringify({ team_id: teamId, role }) }),
+  // Up to three teams the AI suggests adding, each with a reason (feature
+  // 08b). A preview: nothing changes until it's decided below. Resolves to
+  // { recommendation: { id, teams: [TeamPick] }, base_revision, generation_record_id }.
+  recommendTeams: (prdId, revision) =>
+    request(`/prds/${prdId}/members/team-recommendations`, {
+      method: "POST",
+      body: JSON.stringify({ revision }),
+    }),
+  // Adds the picked teams ([{ teamId, role }]) in one step, or rejects them all
+  // with an empty list. Resolves to { status, results, members }.
+  decideTeamRecommendation: (prdId, recommendationId, teams) =>
+    request(`/prds/${prdId}/members/team-recommendations/${recommendationId}/decision`, {
+      method: "PUT",
+      body: JSON.stringify(
+        teams.length
+          ? { decision: "accepted", teams: teams.map(({ teamId, role }) => ({ team_id: teamId, role })) }
+          : { decision: "rejected" },
+      ),
+    }),
 
   // Answer-only PRD chat. `history` is the recent turns for this PRD only;
   // the backend caps it and never treats it as instructions. Resolves to
