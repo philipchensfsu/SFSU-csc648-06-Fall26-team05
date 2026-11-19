@@ -304,7 +304,7 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
       {detail && canShare ? (
         <ShareDialog
           open={sharing}
-          prd={{ id: prdId, title }}
+          prd={{ id: prdId, title, revision: detail?.revision }}
           organizationId={organizationId}
           userId={userId}
           onChanged={() => {
