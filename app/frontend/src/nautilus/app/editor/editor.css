@@ -1626,6 +1626,45 @@
   background: #F4F8F9;
   color: #557479;
 }
+/* @mentions: the picker under the comment box, and names in posted comments. */
+.ne-mention {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: #E1F1F3;
+  color: #13545D;
+  font-weight: 600;
+}
+.ne-mention-list {
+  margin: -4px 0 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid #C3DADE;
+  border-radius: 10px;
+  background: #FFFFFF;
+  box-shadow: 0 8px 20px -14px rgba(16, 44, 51, 0.35);
+}
+.ne-mention-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  color: #102C33;
+  font-size: 14px;
+  cursor: pointer;
+}
+.ne-mention-option.is-active {
+  background: #EDF5F6;
+}
+.ne-mention-name {
+  font-weight: 600;
+}
+.ne-mention-role {
+  margin-left: auto;
+  color: #557479;
+  font-size: 12px;
+  text-transform: capitalize;
+}
 .ne-comment-actions {
   display: flex;
   justify-content: flex-end;
