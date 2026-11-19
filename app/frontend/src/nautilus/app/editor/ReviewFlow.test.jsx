@@ -85,6 +85,9 @@ async function show(props) {
         onOpenAnswers={vi.fn()}
         onExit={vi.fn()}
         onHome={vi.fn()}
+        // These tests are about the Review panel, so it starts open; the
+        // editor itself opens with the side panel closed.
+        initialRailTab="review"
         {...props}
       />,
     );
@@ -97,6 +100,9 @@ const buttonNamed = (name) => buttonsNamed(name)[0];
 const lastButtonNamed = (name) => buttonsNamed(name).at(-1);
 const openDialog = () => host.querySelector("dialog[open]");
 const click = (button) => act(async () => button.click());
+// The Review button carries a count when there are assumptions to confirm.
+const reviewButton = () =>
+  [...host.querySelectorAll(".ne-bar button")].find((button) => button.textContent.trim().startsWith("Review"));
 
 function typeInto(field, value) {
   const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
@@ -394,8 +400,21 @@ describe("opening the editor on a side tab", () => {
     expect(host.querySelector(".ne-comments").hidden).toBe(false);
   });
 
-  it("starts on Review otherwise", async () => {
-    await show({ detail: { ...owner, currentVersion: { id: "v1" } } });
-    expect(host.querySelector(".ne-comments").hidden).toBe(true);
+  it("starts with the side panel closed otherwise, so the document gets the page", async () => {
+    await show({ detail: { ...owner, currentVersion: { id: "v1" } }, initialRailTab: null });
+    expect(host.querySelector(".ne-panel")).toBeNull();
+    expect(host.querySelector(".ne-panel-rail")).not.toBeNull();
+    expect(reviewButton().getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("opens Review from the top bar, and a reviewer's decision opens it too", async () => {
+    await show({ detail: reviewer, initialRailTab: null });
+    expect(host.textContent).not.toContain("Your review");
+    await click(reviewButton());
+    expect(host.textContent).toContain("Your review");
+    await click(host.querySelector('[aria-label="Close Review"]'));
+    expect(host.textContent).not.toContain("Your review");
+    await click(buttonNamed("Approve"));
+    expect(host.textContent).toContain("Your review");
   });
 });

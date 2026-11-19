@@ -88,9 +88,9 @@ function Prototype({
   const [aiProposal, setAiProposal] = useState(null);
   // Where the details screen is: { tab: "overview" | "activity" | "history", versionId?, compare? }.
   const [detailsView, setDetailsView] = useState({ tab: "overview" });
-  // The editor's side tab to open on ("review" unless something asked for
-  // another, like an activity line's "View comment").
-  const [editorRailTab, setEditorRailTab] = useState("review");
+  // The editor's side panel to open on: closed (null) unless something asked
+  // for a view, like an activity line's "View comment".
+  const [editorRailTab, setEditorRailTab] = useState(null);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
 
@@ -265,7 +265,7 @@ function Prototype({
     go("interview", row.id);
   }
 
-  function openPrd(prd, { railTab = "review" } = {}) {
+  function openPrd(prd, { railTab = null } = {}) {
     setEditorRailTab(railTab);
     // A PRD opened from search may not be in the list yet.
     setPrds((current) => (current.some((p) => p.id === prd.id) ? current : [prd, ...current]));

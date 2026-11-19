@@ -19,6 +19,23 @@ function Svg({ size = 16, strokeWidth = 1.8, children }) {
   );
 }
 
+export function IconArrowUp() {
+  return (
+    <Svg size={15} strokeWidth={2}>
+      <path d="M12 19V5M5 12l7-7 7 7" />
+    </Svg>
+  );
+}
+
+// Nautilus's AI: a four-point sparkle.
+export function IconSparkle({ size = 16 }) {
+  return (
+    <Svg size={size}>
+      <path d="M12 3l1.9 5.6 5.6 1.9-5.6 1.9L12 18l-1.9-5.6-5.6-1.9 5.6-1.9z" />
+    </Svg>
+  );
+}
+
 export function IconBack() {
   return (
     <Svg size={14} strokeWidth={2}>

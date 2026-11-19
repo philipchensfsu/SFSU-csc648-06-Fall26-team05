@@ -33,14 +33,24 @@ async function show(props) {
   root = createRoot(host);
   await act(async () => {
     root.render(
-      <EditorPage prd={prd} onSave={vi.fn()} onReload={vi.fn()} onOpenAnswers={vi.fn()} onExit={vi.fn()} onHome={vi.fn()} {...props} />,
+      // Review starts open: several tests confirm an assumption from it.
+      <EditorPage
+        prd={prd}
+        onSave={vi.fn()}
+        onReload={vi.fn()}
+        onOpenAnswers={vi.fn()}
+        onExit={vi.fn()}
+        onHome={vi.fn()}
+        initialRailTab="review"
+        {...props}
+      />,
     );
   });
 }
 
 const buttonNamed = (name) =>
   [...host.querySelectorAll("button")].find((button) => button.textContent.trim() === name);
-const askAiTab = () => [...host.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === "Ask AI");
+
 
 afterEach(async () => {
   await act(async () => root.unmount());
@@ -85,9 +95,10 @@ describe("EditorPage access", () => {
     expect(buttonNamed("Share")).toBeDefined();
   });
 
-  it("keeps Ask AI for viewers (Decision 5)", async () => {
+  it("keeps Ask Nautilus for viewers (Decision 5)", async () => {
     await show({ detail: viewer });
-    expect(askAiTab()).toBeDefined();
+    await act(async () => buttonNamed("Ask Nautilus").click());
+    expect(host.querySelector(".ne-panel .ne-chat")).not.toBeNull();
   });
 
   it("stays read-only and offers a retry when the detail can't be read", async () => {
