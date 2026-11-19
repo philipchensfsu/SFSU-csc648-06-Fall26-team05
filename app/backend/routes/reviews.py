@@ -23,6 +23,17 @@ class ReviewerOut(BaseModel):
     comment_id: Optional[UUID]
 
 
+class RemovedReviewerOut(BaseModel):
+    user_id: Optional[UUID]
+    name: Optional[str]
+    department: Optional[str]
+    # removed / replaced by an owner; reviewer_deactivated / reviewer_removed when they lost access.
+    reason: Literal["removed", "replaced", "reviewer_deactivated", "reviewer_removed"]
+    replaced_by: Optional[UUID]
+    removed_by: Optional[UUID]  # null: the system
+    removed_at: datetime
+
+
 class ReviewRoundOut(BaseModel):
     id: UUID
     prd_id: UUID
@@ -35,6 +46,7 @@ class ReviewRoundOut(BaseModel):
     submitted_at: datetime
     completed_at: Optional[datetime]
     reviewers: list[ReviewerOut]
+    removed_reviewers: list[RemovedReviewerOut]
 
 
 class ReviewSubmitIn(RequestModel):
@@ -68,7 +80,9 @@ REVIEW_ERRORS = {
 ROUND_COLUMNS = ("id, prd_id, round_no, version_id, state, owner_review_allowed, submitted_by, submitted_at, "
                  "completed_at, version:prd_version(version_no), "
                  "slots:review_slot(reviewer_id, reviewer_name, department_name, state, decided_at, comment_id, "
-                 "comment:prd_comment(body))")
+                 "comment:prd_comment(body)), "
+                 "removals:review_slot_removal(reviewer_id, reviewer_name, department_name, reason, replaced_by, "
+                 "removed_by, removed_at)")
 
 
 def round_item(row):
@@ -78,7 +92,12 @@ def round_item(row):
     reviewers.sort(key=lambda r: ((r["name"] or "").lower(), r["user_id"]))
     item = {k: row[k] for k in ("id", "prd_id", "round_no", "version_id", "state", "owner_review_allowed",
                                 "submitted_by", "submitted_at", "completed_at")}
-    return {**item, "version_no": (row["version"] or {}).get("version_no"), "reviewers": reviewers}
+    removed = sorted(({"user_id": r["reviewer_id"], "name": r["reviewer_name"], "department": r["department_name"],
+                       "reason": r["reason"], "replaced_by": r["replaced_by"], "removed_by": r["removed_by"],
+                       "removed_at": r["removed_at"]} for r in row.get("removals") or []),
+                     key=lambda r: r["removed_at"])
+    return {**item, "version_no": (row["version"] or {}).get("version_no"), "reviewers": reviewers,
+            "removed_reviewers": removed}
 
 
 @router.get("/api/prds/{prd_id}/reviews", response_model=Page[ReviewRoundOut])

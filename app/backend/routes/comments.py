@@ -19,6 +19,11 @@ class CommentAuthor(BaseModel):
     department: Optional[str]
 
 
+class CommentMention(BaseModel):
+    id: UUID
+    name: Optional[str]  # their name when they were mentioned
+
+
 class CommentOut(BaseModel):
     id: UUID
     prd_id: UUID
@@ -27,6 +32,7 @@ class CommentOut(BaseModel):
     section_type: Optional[str]
     author: CommentAuthor
     body: str
+    mentions: list[CommentMention]
     created_at: datetime
 
 
@@ -34,6 +40,8 @@ class CommentIn(RequestModel):
     version_id: UUID
     section_type: Optional[str] = None
     body: str = Field(..., min_length=1, max_length=5000)
+    # People to notify; each must be able to view the PRD.
+    mentions: list[UUID] = Field(default_factory=list, max_length=20)
 
 
 # Errors raised by add_prd_comment (P0001 with a fixed message).
@@ -43,10 +51,12 @@ COMMENT_ERRORS = {
     "stale_version": (409, "The PRD has a newer version. Refresh, then post your comment.", "stale_version"),
     "invalid_section": (422, "section_type must be null or one of the PRD's nine section types.", "validation_error"),
     "invalid_body": (422, "A comment needs text, up to 5,000 characters.", "validation_error"),
+    "too_many_mentions": (422, "A comment can mention at most 20 people.", "validation_error"),
+    "mention_without_access": (422, "You can only mention people who can see this PRD.", "mention_without_access"),
 }
 
 COMMENT_COLUMNS = ("id, prd_id, version_id, section_type, author_id, author_name, department_name, body, created_at, "
-                   "version:prd_version(version_no)")
+                   "version:prd_version(version_no), mentions:prd_comment_mention(user_id, user_name)")
 
 
 def comment_item(row):
@@ -54,7 +64,9 @@ def comment_item(row):
         "id": row["id"], "prd_id": row["prd_id"], "version_id": row["version_id"],
         "version_no": (row["version"] or {}).get("version_no"), "section_type": row["section_type"],
         "author": {"id": row["author_id"], "name": row["author_name"], "department": row["department_name"]},
-        "body": row["body"], "created_at": row["created_at"],
+        "body": row["body"],
+        "mentions": [{"id": m["user_id"], "name": m["user_name"]} for m in row.get("mentions") or []],
+        "created_at": row["created_at"],
     }
 
 
@@ -79,6 +91,7 @@ def add_comment(prd_id: UUID, payload: CommentIn, auth=Depends(get_current_user)
     comment_id = call_function(client, "add_prd_comment", {
         "target_prd": str(prd_id), "target_version": str(payload.version_id),
         "target_section": payload.section_type, "comment_body": payload.body,
+        "mentioned": [str(user_id) for user_id in payload.mentions],
     }, COMMENT_ERRORS)
     row = client.table("prd_comment").select(COMMENT_COLUMNS).eq("id", comment_id).execute().data[0]
     return comment_item(row)

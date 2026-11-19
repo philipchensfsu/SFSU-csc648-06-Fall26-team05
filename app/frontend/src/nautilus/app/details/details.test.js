@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  ACTIVITY_FILTERS,
+  activityKind,
+  activityLink,
   canMoveWorkStatus,
   contributors,
   originLabel,
@@ -96,5 +99,38 @@ describe("members", () => {
       { name: "Kim", role: "owner" },
     ]);
     expect(sorted.map((member) => member.name)).toEqual(["Kim", "Al", "Bea", "Zed"]);
+  });
+});
+
+describe("activity", () => {
+  it("puts each known event type under exactly one chip", () => {
+    const types = ACTIVITY_FILTERS.flatMap((filter) => filter.types);
+    expect(new Set(types).size).toBe(types.length);
+    expect(ACTIVITY_FILTERS[0]).toEqual({ id: "all", label: "All", types: [] });
+  });
+
+  it("gives an event the kind of its chip, and 'other' for types it doesn't know", () => {
+    expect(activityKind("version_saved")).toBe("edits");
+    expect(activityKind("team_added")).toBe("people");
+    expect(activityKind("mentioned")).toBe("comments");
+    expect(activityKind("round_approved")).toBe("reviews");
+    expect(activityKind("work_status_changed")).toBe("work");
+    expect(activityKind("something_new")).toBe("other");
+  });
+
+  it("links saves to their version and comments to the comments", () => {
+    expect(activityLink({ type: "version_saved", version_id: "v3" })).toEqual({
+      kind: "version",
+      versionId: "v3",
+      label: "View version",
+    });
+    expect(activityLink({ type: "ai_applied", version_id: "v4" })?.versionId).toBe("v4");
+    expect(activityLink({ type: "comment_added", comment_id: "c1", version_id: "v3" })).toEqual({
+      kind: "comment",
+      label: "View comment",
+    });
+    // A review step carries a version too, but has nothing of its own to open.
+    expect(activityLink({ type: "approved", version_id: "v3", round_id: "r1" })).toBeNull();
+    expect(activityLink({ type: "version_saved", version_id: null })).toBeNull();
   });
 });

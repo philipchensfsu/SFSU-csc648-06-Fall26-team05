@@ -42,6 +42,14 @@ differ from the saved PRD) still covers the earlier changes. A proposal from
 review feedback stays one (owner-only, its comment ids kept); a section edit
 becomes an ai_revision. The adjusted proposal replaces the old one, which is
 marked rejected.
+
+Adjusting one of a call's options (alternatives, feature 09: previous_option
+names it) works the same way, with one difference in order: once the model's
+adjustment has passed its checks, that option is rejected and its siblings
+superseded under their row locks (ai_retire_alternatives) before the
+adjustment is staged. From then on no option of the set can be accepted,
+even if staging then fails, and an option accepted first makes the
+adjustment fail with 409 proposal_unavailable instead.
 """
 
 from __future__ import annotations
@@ -119,15 +127,17 @@ class PendingProposal:
     document: dict
     section_types: tuple[str, ...]
     feedback_ids: tuple[str, ...]
+    generation_record_id: str = ""
+    option: int | None = None  # set when it's one of a call's options
 
 
-def load_pending(service_client, *, actor_id, prd_id: str, generation_record_id: str, revision: int) -> PendingProposal:
+def load_pending(service_client, *, actor_id, prd_id: str, generation_record_id: str, revision: int,
+                 option: int | None = None) -> PendingProposal:
     """The requester's own pending, unexpired proposal for this PRD, made from
-    `revision`. Anything else is unavailable (409), as for acceptance."""
-    rows = (service_client.table("ai_proposal")
-            .select("id, prd_id, requester_id, kind, base_revision, status, expires_at, content")
-            .eq("generation_record_id", generation_record_id).execute().data)
-    row = rows[0] if rows else None
+    `revision`. Anything else is unavailable (409), as for acceptance.
+    option names one of a call's options (None for every other proposal)."""
+    row = records.load_proposal(service_client, generation_record_id, option,
+                                "id, prd_id, requester_id, kind, base_revision, status, expires_at, content")
     if (row is None or row["requester_id"] != str(actor_id) or row["prd_id"] != str(prd_id)
             or row["status"] != "pending" or row["kind"] not in ADJUSTABLE_KINDS
             or _parse_time(row["expires_at"]) <= datetime.now(timezone.utc)):
@@ -137,7 +147,8 @@ def load_pending(service_client, *, actor_id, prd_id: str, generation_record_id:
     content = row["content"]
     types = content.get("section_types") or ([content["section_type"]] if content.get("section_type") else [])
     return PendingProposal(id=row["id"], kind=row["kind"], document=content["content_json"],
-                           section_types=tuple(types), feedback_ids=tuple(content.get("feedback_ids") or ()))
+                           section_types=tuple(types), feedback_ids=tuple(content.get("feedback_ids") or ()),
+                           generation_record_id=str(generation_record_id), option=row.get("option_no"))
 
 
 def _parse_time(value: str) -> datetime:
@@ -147,6 +158,7 @@ def _parse_time(value: str) -> datetime:
 
 def propose_revision(user_client, service_client, *, actor_id, prd_id: str, revision: int, instruction: str,
                      session_messages: list[dict], previous_generation_record_id: str | None = None,
+                     previous_option: int | None = None,
                      budget: usage_gate.RequestBudget | None = None,
                      modules: chat.ChatModules | None = None,
                      call_model: Callable[..., GeminiResult] | None = None) -> dict:
@@ -168,10 +180,13 @@ def propose_revision(user_client, service_client, *, actor_id, prd_id: str, revi
     if current_revision != revision:
         raise ApiError(*chat.STALE_REVISION)
     document = _saved_document(user_client, prd_id)
+    if previous_option is not None and previous_generation_record_id is None:
+        raise ApiError(422, "previous_option needs previous_generation_record_id.", "validation_error")
     pending = None
     if previous_generation_record_id is not None:
         pending = load_pending(service_client, actor_id=actor_id, prd_id=prd_id,
-                               generation_record_id=str(previous_generation_record_id), revision=revision)
+                               generation_record_id=str(previous_generation_record_id), revision=revision,
+                               option=previous_option)
         if pending.kind == "review_suggestion":
             review_suggestion._require_owner(user_client, prd_id)  # E12 stays owner-only
     prompt_version = ADJUST_PROMPT_VERSION if pending else PROMPT_VERSION
@@ -229,6 +244,16 @@ def propose_revision(user_client, service_client, *, actor_id, prd_id: str, revi
         changed_types = [t for t in section_types() if t in changed and by_type.get(t) != saved_by_type.get(t)]
         proposal = {"section_types": changed_types, "sections": [by_type[t] for t in changed_types],
                     "content_json": merged}
+        if pending and pending.option is not None:
+            # One option of a set: retire the whole set first, so no sibling
+            # can be accepted once this adjustment exists.
+            try:
+                records.retire_alternatives(service_client, actor_id=actor_id, prd_id=prd_id,
+                                            generation_record_id=pending.generation_record_id,
+                                            option=pending.option)
+            except ApiError as exc:
+                _record_failure(service_client, actor_id, prd_id, revision, calls, exc.code, prompt_version)
+                raise
         kind = "review_suggestion" if pending and pending.kind == "review_suggestion" else PROPOSAL_KIND
         content = {**proposal, "feedback_ids": list(pending.feedback_ids)} if kind == "review_suggestion" else proposal
         # The database rechecks edit access and the revision under the PRD lock.
@@ -238,7 +263,7 @@ def propose_revision(user_client, service_client, *, actor_id, prd_id: str, revi
             output_tokens=calls.output_tokens or None, proposal_kind=kind, proposal_content=content)
     if record.outcome != "staged":
         raise ApiError(*chat.STALE_REVISION)
-    if pending:
+    if pending and pending.option is None:
         _retire(service_client, actor_id, pending.id)
     return _response("proposal", explanation, proposal, revision, record)
 
