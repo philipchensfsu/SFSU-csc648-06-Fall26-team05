@@ -6,7 +6,7 @@ import { api } from "../../../../lib/api";
 import CommentsPanel from "./CommentsPanel";
 
 vi.mock("../../../../lib/api", () => ({
-  api: { listPrdComments: vi.fn(), addPrdComment: vi.fn(), listPrdMembers: vi.fn() },
+  api: { listPrdComments: vi.fn(), addPrdComment: vi.fn(), listPrdMembers: vi.fn(), summarizeDiscussion: vi.fn() },
 }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -222,6 +222,127 @@ describe("CommentsPanel", () => {
       await act(async () => submit().click());
       expect(host.textContent).toContain("Someone you mentioned can’t see this PRD any more");
       expect(box().value).toBe("@Ken Tanaka ");
+    });
+  });
+
+  describe("discussion summary", () => {
+    const summary = (extra = {}) => ({
+      version_id: VERSION,
+      version_no: 3,
+      comment_count: 2,
+      summarized_comment_count: 2,
+      summary: {
+        themes: [{ title: "Budget", summary: "Reviewers want the costs spelled out.", comment_ids: ["a", "b"] }],
+        open_questions: [{ question: "Who signs off on the budget?", comment_ids: ["b"] }],
+        requested_changes: [{ section_type: "goals", change: "Add a budget goal.", comment_ids: ["a"] }],
+        unresolved_items: [],
+      },
+      generation_record_id: "gen-1",
+      ...extra,
+    });
+    const button = (label) => [...host.querySelectorAll("button")].find((b) => b.textContent === label);
+    const summaryBox = () => host.querySelector(".ne-summary");
+
+    beforeEach(() => {
+      api.listPrdComments.mockResolvedValue({ items: [comment("a"), comment("b")], next_cursor: null });
+      api.summarizeDiscussion.mockResolvedValue(summary());
+    });
+
+    it("offers it only once there are comments", async () => {
+      api.listPrdComments.mockResolvedValue({ items: [], next_cursor: null });
+      await show();
+      expect(button("Summarize discussion")).toBeUndefined();
+    });
+
+    it("summarizes the current version and shows each group as text", async () => {
+      await show();
+      await act(async () => button("Summarize discussion").click());
+      expect(api.summarizeDiscussion).toHaveBeenCalledWith("prd-1", { versionId: VERSION });
+      const text = summaryBox().textContent;
+      expect(text).toContain("AI summary · 2 comments on version 3.");
+      expect(text).toContain("Budget: Reviewers want the costs spelled out.");
+      expect(text).toContain("Who signs off on the budget?");
+      expect(text).toContain("Goals: Add a budget goal.");
+      expect(text).not.toContain("Unresolved");
+    });
+
+    it("never renders the summary as markup", async () => {
+      api.summarizeDiscussion.mockResolvedValue(
+        summary({ summary: { themes: [{ title: "<b>x</b>", summary: "<img src=x>", comment_ids: ["a"] }] } }),
+      );
+      await show();
+      await act(async () => button("Summarize discussion").click());
+      expect(summaryBox().querySelector("img, b")).toBeNull();
+      expect(summaryBox().textContent).toContain("<b>x</b>: <img src=x>");
+    });
+
+    it("highlights the comments an item came from, and clears them on Hide", async () => {
+      await show();
+      await act(async () => button("Summarize discussion").click());
+      await act(async () => button("Show the 2 comments").click());
+      const highlighted = () => [...host.querySelectorAll(".ne-comment.is-highlighted")].map((c) => c.dataset.commentId);
+      expect(highlighted()).toEqual(["a", "b"]);
+      expect(document.activeElement.dataset.commentId).toBe("a");
+
+      await act(async () => button("Hide").click());
+      expect(highlighted()).toEqual([]);
+      expect(summaryBox()).toBeNull();
+      expect(button("Summarize discussion")).toBeDefined();
+    });
+
+    it("says when only the newest comments were read", async () => {
+      api.summarizeDiscussion.mockResolvedValue(summary({ comment_count: 140, summarized_comment_count: 100 }));
+      await show();
+      await act(async () => button("Summarize discussion").click());
+      expect(summaryBox().textContent).toContain("The newest 100 of 140 comments on version 3.");
+    });
+
+    it("says when the current version has nothing to summarize", async () => {
+      api.summarizeDiscussion.mockResolvedValue(
+        summary({
+          comment_count: 0,
+          summarized_comment_count: 0,
+          generation_record_id: null,
+          summary: { themes: [], open_questions: [], requested_changes: [], unresolved_items: [] },
+        }),
+      );
+      await show();
+      await act(async () => button("Summarize discussion").click());
+      expect(summaryBox().textContent).toContain("nothing to summarize");
+    });
+
+    it("notices a comment posted after the summary", async () => {
+      await show();
+      await act(async () => button("Summarize discussion").click());
+      expect(summaryBox().textContent).not.toContain("since this summary");
+      await type("One more thought");
+      await act(async () => submit().click());
+      expect(summaryBox().textContent).toContain("There are new comments or a new version since this summary.");
+    });
+
+    it("shows an AI error and tries again", async () => {
+      api.summarizeDiscussion.mockRejectedValueOnce(
+        Object.assign(new Error("Slow down"), { status: 429, code: "ai_cooldown", retryAfter: 4 }),
+      );
+      await show();
+      await act(async () => button("Summarize discussion").click());
+      expect(summaryBox().querySelector('[role="alert"]').textContent).toBe(
+        "Just a moment between AI requests. Try again in 4s.",
+      );
+      await act(async () => button("Try again").click());
+      expect(summaryBox().querySelector('[role="alert"]')).toBeNull();
+      expect(summaryBox().textContent).toContain("Who signs off on the budget?");
+    });
+
+    it("drops an answer that arrives after Hide", async () => {
+      let finish;
+      api.summarizeDiscussion.mockReturnValueOnce(new Promise((resolve) => (finish = resolve)));
+      await show();
+      await act(async () => button("Summarize discussion").click());
+      expect(summaryBox().textContent).toContain("Reading the comments…");
+      await act(async () => button("Hide").click());
+      await act(async () => finish(summary()));
+      expect(summaryBox()).toBeNull();
     });
   });
 });

@@ -1727,3 +1727,84 @@
   font-weight: 400;
   cursor: default;
 }
+/* The discussion summary (feature 05) and the comments it points to. */
+.ne-summary-open {
+  align-self: flex-start;
+}
+.ne-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 12px 14px;
+  border: 1px solid #C3DADE;
+  border-radius: 10px;
+  background: #F7FBFC;
+}
+.ne-summary[aria-busy="true"] .ne-summary-group {
+  opacity: 0.6;
+}
+.ne-summary-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ne-summary-head .ne-link-btn {
+  margin-left: auto;
+  font-size: 13px;
+}
+.ne-summary-title {
+  margin: 0;
+  color: #102C33;
+  font-size: 14px;
+  font-weight: 650;
+}
+.ne-summary-scope,
+.ne-summary-note {
+  margin: 0;
+  color: #557479;
+  font-size: 12px;
+}
+.ne-summary-note {
+  color: #8A5A00;
+}
+.ne-summary-group-title {
+  margin: 0 0 6px;
+  color: #557479;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.ne-summary-items {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Plain text from the AI: React escapes it. */
+.ne-summary-text {
+  margin: 0;
+  color: #102C33;
+  font-size: 13.5px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ne-summary-link {
+  font-size: 12.5px;
+}
+.ne-comment.is-highlighted {
+  border-color: #1D6F7A;
+  box-shadow: inset 3px 0 0 #1D6F7A;
+}
+.ne-comment:focus {
+  outline: none;
+}
+.ne-comment:focus-visible {
+  outline: 2px solid #1D6F7A;
+  outline-offset: 2px;
+}

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../../../../lib/api";
 import { PRD_SECTIONS } from "../questions";
 import { formatDay, initialsOf } from "../format";
+import DiscussionSummary from "./DiscussionSummary";
 import { MAX_MENTIONS, insertMention, matchPeople, mentionIds, mentionQuery, splitMentions } from "./mentions";
 
 const SECTION_LABELS = Object.fromEntries(PRD_SECTIONS.map((section) => [section.id, section.label]));
@@ -24,14 +25,19 @@ function describeError(error) {
 // One comment. `body` is plain text from the API, so React escapes it and the
 // CSS keeps its line breaks; it is never set as HTML.
 // With `onToggle`, it can be picked for the AI to address (only comments on
-// the current version can be).
-function Comment({ comment, currentVersionId, onToggle, picked = false, pickDisabled = false }) {
+// the current version can be). `highlighted` marks it as one the discussion
+// summary pointed to.
+function Comment({ comment, currentVersionId, onToggle, picked = false, pickDisabled = false, highlighted = false }) {
   const author = comment.author ?? {};
   const section = SECTION_LABELS[comment.section_type];
   // Older comments say which version they were left on, as the design's "v2".
   const olderVersion = currentVersionId && comment.version_id !== currentVersionId;
   return (
-    <article className={`ne-comment${picked ? " is-picked" : ""}`}>
+    <article
+      className={`ne-comment${picked ? " is-picked" : ""}${highlighted ? " is-highlighted" : ""}`}
+      data-comment-id={comment.id}
+      tabIndex={-1}
+    >
       {onToggle ? (
         olderVersion ? (
           <p className="ne-comment-pick is-off">On an older version</p>
@@ -109,6 +115,8 @@ export default function CommentsPanel({ prd, currentVersionId, onSuggest, onRefr
   const [query, setQuery] = useState(null);
   const [active, setActive] = useState(0);
   const [picks, setPicks] = useState([]);
+  // Comments the discussion summary pointed to.
+  const [highlighted, setHighlighted] = useState(() => new Set());
   const mounted = useRef(true);
   const list = useRef(null);
   const box = useRef(null);
@@ -218,6 +226,17 @@ export default function CommentsPanel({ prd, currentVersionId, onSuggest, onRefr
     }
   }
 
+  // From the discussion summary: highlight those comments and bring the first
+  // into view, focused so keyboard and screen reader users land on it.
+  function showComments(ids) {
+    setHighlighted(new Set(ids));
+    if (!ids.length) return;
+    const first = list.current?.querySelector(`[data-comment-id="${ids[0]}"]`);
+    // Optional calls: jsdom has no scrollIntoView.
+    first?.scrollIntoView?.({ block: "nearest" });
+    first?.focus({ preventScroll: true });
+  }
+
   function toggle(commentId) {
     setPicked((current) => {
       const next = new Set(current);
@@ -276,6 +295,15 @@ export default function CommentsPanel({ prd, currentVersionId, onSuggest, onRefr
         </p>
       ) : null}
 
+      {comments?.length ? (
+        <DiscussionSummary
+          prdId={prd.id}
+          comments={comments}
+          currentVersionId={currentVersionId}
+          onShowComments={showComments}
+        />
+      ) : null}
+
       {loadError ? (
         <p className="nw-error" role="alert">
           {loadError}
@@ -292,6 +320,7 @@ export default function CommentsPanel({ prd, currentVersionId, onSuggest, onRefr
               onToggle={picking ? () => toggle(comment.id) : undefined}
               picked={picked.has(comment.id)}
               pickDisabled={picked.size >= MAX_FEEDBACK || suggesting}
+              highlighted={highlighted.has(comment.id)}
             />
           ))}
         </div>
