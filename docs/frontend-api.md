@@ -411,7 +411,7 @@ Numbers and recent activity across **the PRDs you can see**: your own PRDs, or e
   an owning team. Both lists are sorted by `total`, largest first.
 - **`activity`** is the newest events across those PRDs, in the [activity feed's](#activity-e13) `Event` shape
   plus the PRD's id and title.
-- **No "overdue" yet:** it needs dates, which wait for the milestone decision.
+- **No "overdue":** PRDs have no target dates or milestones, and none are planned.
 
 ## Intake answers
 
