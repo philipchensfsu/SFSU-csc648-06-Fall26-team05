@@ -30,6 +30,9 @@ class PRDUpdate(RequestModel):
     # generation_record_id accepts an AI proposal (A05).
     description: Optional[str] = None
     generation_record_id: Optional[UUID] = None
+    # S03 save only: which option to accept when the AI call staged
+    # alternatives (feature 09). Needs generation_record_id.
+    option: Optional[int] = Field(default=None, ge=1, le=3)
     # S03 save only: the reviewers an owner confirmed in the edit modal when
     # saving edits to an approved PRD (E09, Decision 9).
     confirmed_reviewer_ids: Optional[list[UUID]] = Field(default=None, max_length=50)
@@ -40,7 +43,7 @@ class PRDUpdate(RequestModel):
 # Until that cutover, PUT keeps the legacy update. Set PRD_SAVE_V2=true to
 # switch.
 LEGACY_ONLY_FIELDS = ("content_text", "status")
-SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id", "confirmed_reviewer_ids")
+SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id", "confirmed_reviewer_ids", "option")
 
 
 def prd_save_v2_enabled() -> bool:
@@ -107,6 +110,10 @@ def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict
         # transaction (ai/acceptance.py and save_prd).
         fields["origin"] = "ai_generated"
         fields["generation_record_id"] = payload.generation_record_id
+        if payload.option is not None:
+            fields["option"] = payload.option
+    elif payload.option is not None:
+        raise ApiError(422, "option needs generation_record_id", code="validation_error")
     if payload.confirmed_reviewer_ids is not None:
         fields["confirmed_reviewer_ids"] = payload.confirmed_reviewer_ids
     saved = prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)

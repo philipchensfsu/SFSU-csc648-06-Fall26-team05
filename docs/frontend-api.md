@@ -146,7 +146,7 @@ the same `PUT /api/prds/{id}` goes through the S03 save. It's on in the local Co
 ([local-development.md](local-development.md)) and off in production until the hosted rollout.
 
 - **Body:** `{ "revision": int, "title"?, "description"?: string | null, "content_json"?: v2 document,
-  "generation_record_id"?: uuid, "confirmed_reviewer_ids"?: [uuid] }`. Only the fields you send change;
+  "generation_record_id"?: uuid, "option"?: 1 | 2, "confirmed_reviewer_ids"?: [uuid] }`. Only the fields you send change;
   `description: null` clears it. `confirmed_reviewer_ids` (1–50) is only for edits to an approved PRD (E09,
   below).
 - **Response:** 200 `PRD`, now including `description`, with the new `revision`. The server derives `content_text`
@@ -169,6 +169,9 @@ the same `PUT /api/prds/{id}` goes through the S03 save. It's on in the local Co
     document carries an `ai_generated` mark the server didn't add); 422 `unsupported_proposal` (this kind of AI
     proposal can't be accepted through the save yet: discard it). Whole drafts from Generate, section edits
     and review suggestions are accepted.
+  - **Alternatives** ([feature 09](#alternative-proposals-from-review-feedback-feature-09)): also send `option`, the
+    number of the option the person chose. Without it: 422 `option_required`. `option` without
+    `generation_record_id` is 422 `validation_error`.
 
 **Saving during or after a review (E09, Decision 9).** Title, description and content edits interact with
 [reviews](#reviews):
@@ -736,6 +739,8 @@ accept or discard the whole proposal.
   review comments stays one, so only owners can adjust it (403 `owner_required`), and its comment ids are kept. A
   section edit (`/ai-edit`) can be adjusted too and comes back as a revision. A whole generated draft can't
   (`proposal_unavailable`).
+- **Adjusting one of a set of alternatives** ([feature 09](#alternative-proposals-from-review-feedback-feature-09)):
+  also send `"previous_option": <its number>`. Without it: 422 `option_required`.
 - **Needs** the `20261102120000_ai_revision_proposals` migration (a new proposal kind, `ai_revision`).
 
 ## Revision suggestions from review feedback (E12)
@@ -816,6 +821,76 @@ and no review state changes. Every request is a fresh summary (nothing is cached
 - Errors: 404 (you can't see the PRD, or the version); 422 `validation_error` (bad `version_id` or an unknown
   field); plus the shared AI codes (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`,
   `ai_provider_error`, `ai_invalid_output`, `ai_unavailable`, `ai_budget_exhausted`).
+
+## Alternative proposals from review feedback (feature 09)
+
+**Proposed contract (draft PR, not on `develop` yet).** `POST /api/prds/{id}/review-alternatives` is E12 with two
+options instead of one. It asks the AI for two different ways to address chosen review comments, in **one** AI
+request. The person picks one, previews it like an E12 suggestion and accepts it through the normal save. **Nothing
+is saved, and nothing about the review changes** until then.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int, "feedback_ids": [uuid] (1–20), "instruction"?: "≤ 2000 chars" }` (the same body as E12) | 200 `{ base_revision, generation_record_id, options: [Option, Option] }` | **Owners only**, as for E12 (403 `owner_required`) |
+
+`Option` is `{ option: int, title, explanation, tradeoffs: [string] (1–4), proposal: { section_types, sections,
+content_json } }`. `option` is 1 or 2 today. The save and `previous_option` accept 1–3, so take the number from
+the response rather than hard-coding it. `proposal` has the same shape as an E12 proposal:
+- `sections`: only the sections this option changes;
+- `content_json`: the complete saved document with those sections replaced, ready for the existing preview or diff.
+
+```json
+{
+  "base_revision": 7,
+  "generation_record_id": "5b0c…",
+  "options": [
+    { "option": 1, "title": "Tighten the goal",
+      "explanation": "Makes the goal measurable and adds the budget risk Finance raised.",
+      "tradeoffs": ["Quick to review.", "Leaves scope as it is."],
+      "proposal": { "section_types": ["goals", "risks"], "sections": [ … ], "content_json": { "type": "doc", … } } },
+    { "option": 2, "title": "Phase the release",
+      "explanation": "Moves reviews to phase two so the first release fits the budget.",
+      "tradeoffs": ["Addresses the budget risk directly.", "Bigger change for reviewers to re-read."],
+      "proposal": { "section_types": ["goals", "non_goals", "risks"], "sections": [ … ], "content_json": { … } } }
+  ]
+}
+```
+
+- **One request, one record.** `generation_record_id` identifies the AI request: it's counted once against the
+  cooldown and usage limits, whichever option is used. An option is `generation_record_id` + `option`; there's no
+  separate id per option.
+- **Show both, let the person pick one.** Render `title`, `explanation` and `tradeoffs` as plain text. Comparing
+  options is just switching the existing preview between their `content_json`s. Always compare an option with the
+  **saved** PRD, not with the other option.
+- **Accept** by saving that option's `proposal.content_json` with `generation_record_id`, **`option`** and
+  `revision` = `base_revision` (see the S03 save). The rules are E12's: unchanged or with that option's sections
+  edited; other sections, the title and the description must not change (422 `proposal_scope`). Sections accepted
+  unchanged get the AI highlight. During a review it continues the round like any other save (E09).
+- **Accepting one option retires the other** in the same save. The other then gets 409 `proposal_unavailable`, so
+  close the options view after a successful accept. Resending the same acceptance after a lost response returns
+  the saved PRD. Sending the other option after that is still 409, never a false success.
+- **Both accepted at the same moment** (two tabs, or two owners): one wins. The other usually gets 409
+  `stale_revision`, because the winner's save moved the revision, and sometimes 409 `proposal_unavailable`. Treat
+  both the same: close the options view and reload the PRD.
+- **Request adjustments** on the chosen option uses `/ai-revisions` with `previous_generation_record_id` and
+  **`previous_option`** (see [AI revisions from the chat](#ai-revisions-from-the-chat)). The answer is a single
+  proposal (no `option`) that builds on that option and keeps its comment ids. **Once the AI has produced a valid
+  adjustment, neither option of the set can be accepted** (409 `proposal_unavailable`): show the adjusted proposal
+  instead. This happens just before the adjustment is stored, so in the rare case that storing it then fails, both
+  options are already gone: ask again. If the adjustment request fails earlier (for example `ai_invalid_output`),
+  the options stay usable.
+  If the other option was accepted first, the adjustment gets 409 `proposal_unavailable`.
+- **Discarding** needs no call: options expire with the proposal lifetime (30 minutes today).
+- **An `instruction` is scope-checked** first, exactly as for E12 (422 `out_of_scope` / `clarification_needed`,
+  show `detail` as-is).
+- **Button flag:** the same as E12, `capabilities.can_request_review_suggestions`. The two can sit side by side
+  ("Suggest a fix" / "Show two options"), or the options view can replace the single suggestion. That's a UI choice.
+- **Errors:** E12's (404; 403 `owner_required`; 409 `stale_revision`; 409 `document_not_v2`; 422
+  `invalid_feedback`, `feedback_not_current`, `validation_error`; the shared AI codes). Both options come from one
+  reply, so if either is malformed (or they're identical) the whole request is 502 `ai_invalid_output`: offer to
+  try again.
+- **Needs** the `20261118224047_review_alternatives` migration (options on staged proposals, and a save that names
+  the option).
 
 ## Owning team and priority (A08)
 
