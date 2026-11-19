@@ -226,6 +226,8 @@ function EditorPage({
   onOpenAnswers,
   // The PRD's details page (overview and version history). Not during an AI preview.
   onOpenDetails,
+  // The side tab to start on: "review" (default), "ai" or "comments".
+  initialRailTab = "review",
   onExit,
   onHome,
 }) {
@@ -254,7 +256,7 @@ function EditorPage({
   const returnFocus = useRef(null);
   const ids = useId();
 
-  const [railTab, setRailTab] = useState("review");
+  const [railTab, setRailTab] = useState(initialRailTab);
   const [accepting, setAccepting] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [submitting, setSubmitting] = useState(false);

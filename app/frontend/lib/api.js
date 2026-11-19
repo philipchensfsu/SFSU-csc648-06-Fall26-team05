@@ -197,6 +197,15 @@ export const api = {
       }),
     }),
 
+  // A PRD's activity feed (E13): one event per change, newest first, paged
+  // with next_cursor. types narrows it to those event types (repeated ?type=).
+  listPrdEvents: (prdId, { types = [], limit = 25, cursor } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    for (const type of types) params.append("type", type);
+    if (cursor) params.set("cursor", cursor);
+    return request(`/prds/${prdId}/events?${params}`);
+  },
+
   // Revision history (read-only): newest first, paged with next_cursor.
   listVersions: (prdId, { limit = 25, cursor } = {}) => {
     const params = new URLSearchParams({ limit: String(limit) });
