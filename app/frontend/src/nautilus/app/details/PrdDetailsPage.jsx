@@ -11,6 +11,7 @@ import { ShareDialog } from "../editor/ShareDialog";
 import { editedWhen, formatDate, formatDayTime, initialsOf } from "../format";
 import { IconPencil, IconPeople } from "../icons";
 import { Avatar, StatusChip } from "../ui";
+import { ActivityTab, RecentActivityCard } from "./Activity";
 import HistoryList from "./HistoryList";
 import { VersionComparison, VersionReader } from "./VersionView";
 import {
@@ -46,10 +47,11 @@ function withChanges(detail, row) {
 // Props:
 //   prd             the list row it was opened from: id and title for the
 //                   first paint
-//   view            { tab: "overview" | "history", versionId?, compare? }
+//   view            { tab: "overview" | "activity" | "history", versionId?, compare? }
 //   organizationId, userId
 //   onNavigate(view)   moves between the tabs, a version and a comparison
-//   onOpenEditor()  the PRD in the editor
+//   onOpenEditor(options)  the PRD in the editor; { railTab: "comments" }
+//                   opens it on the Comments tab
 //   onHome()        back to the dashboard
 export default function PrdDetailsPage({ prd, view, organizationId, userId, onNavigate, onOpenEditor, onHome }) {
   const prdId = prd.id;
@@ -140,12 +142,12 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
     };
   }, [title]);
 
-  const tab = view?.tab === "history" ? "history" : "overview";
+  const tab = ["activity", "history"].includes(view?.tab) ? view.tab : "overview";
   const versionId = tab === "history" ? (view?.versionId ?? null) : null;
   const compare = Boolean(versionId && view?.compare);
   const currentVersion = detail?.current_version ?? null;
 
-  let place = tab === "history" ? "History" : "Details";
+  let place = { history: "History", activity: "Activity" }[tab] ?? "Details";
   if (versionId) {
     const known = versions.items.find((item) => item.id === versionId);
     const number = known ? ` ${known.version_no}` : "";
@@ -160,7 +162,7 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
         onHome={onHome}
         crumbs={[
           { label: "Dashboard", onClick: onHome },
-          versionId || tab === "history"
+          versionId || tab !== "overview"
             ? { label: title, onClick: () => onNavigate({ tab: "overview" }) }
             : { label: title },
           ...(versionId ? [{ label: "History", onClick: () => onNavigate({ tab: "history" }) }] : []),
@@ -175,7 +177,7 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
                 Share
               </button>
             ) : null}
-            <button type="button" className="nw-btn nw-btn-primary ne-btn-38" onClick={onOpenEditor}>
+            <button type="button" className="nw-btn nw-btn-primary ne-btn-38" onClick={() => onOpenEditor()}>
               <IconPencil size={15} />
               Open editor
             </button>
@@ -231,6 +233,14 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
               </button>
               <button
                 type="button"
+                className={`nd-tab${tab === "activity" ? " is-active" : ""}`}
+                aria-current={tab === "activity" ? "page" : undefined}
+                onClick={() => onNavigate({ tab: "activity" })}
+              >
+                Activity
+              </button>
+              <button
+                type="button"
                 className={`nd-tab${tab === "history" ? " is-active" : ""}`}
                 aria-current={tab === "history" ? "page" : undefined}
                 onClick={() => onNavigate({ tab: "history" })}
@@ -254,7 +264,17 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
             onShare={() => setSharing(true)}
             onOpenHistory={() => onNavigate({ tab: "history" })}
             onOpenVersion={(id) => onNavigate({ tab: "history", versionId: id })}
-            onOpenEditor={onOpenEditor}
+            onOpenActivity={() => onNavigate({ tab: "activity" })}
+            onOpenEditor={() => onOpenEditor()}
+          />
+        ) : null}
+
+        {tab === "activity" ? (
+          <ActivityTab
+            prdId={prdId}
+            createdAt={detail?.created_at ?? null}
+            onOpenVersion={(id) => onNavigate({ tab: "history", versionId: id })}
+            onOpenComments={() => onOpenEditor({ railTab: "comments" })}
           />
         ) : null}
 
@@ -381,6 +401,7 @@ function Overview({
   onShare,
   onOpenHistory,
   onOpenVersion,
+  onOpenActivity,
   onOpenEditor,
 }) {
   const ids = useId();
@@ -448,6 +469,8 @@ function Overview({
         )}
 
         <WorkStatusCard detail={detail} setDetail={setDetail} />
+
+        <RecentActivityCard prdId={detail.id} onSeeAll={onOpenActivity} />
 
         <section className="ne-card" aria-labelledby={`${ids}-versions`}>
           <div className="ne-card-head">
