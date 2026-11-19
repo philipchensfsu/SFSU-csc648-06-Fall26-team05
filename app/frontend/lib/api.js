@@ -180,11 +180,17 @@ export const api = {
     return request(`/prds/${prdId}/comments?${params}`);
   },
   // versionId is the PRD's current version; sectionType is one of the nine
-  // section types, or null for the whole PRD. body is plain text.
-  addPrdComment: (prdId, { versionId, sectionType = null, body }) =>
+  // section types, or null for the whole PRD. body is plain text. mentions is
+  // the user ids of people @mentioned in it (up to 20, all able to see the PRD).
+  addPrdComment: (prdId, { versionId, sectionType = null, body, mentions = [] }) =>
     request(`/prds/${prdId}/comments`, {
       method: "POST",
-      body: JSON.stringify({ version_id: versionId, section_type: sectionType, body }),
+      body: JSON.stringify({
+        version_id: versionId,
+        section_type: sectionType,
+        body,
+        ...(mentions.length ? { mentions } : {}),
+      }),
     }),
 
   // Revision history (read-only): newest first, paged with next_cursor.
