@@ -2,6 +2,7 @@ import Logo from "./Logo";
 import { initialsOf } from "./format";
 import { Avatar, MenuButton } from "./ui";
 import {
+  IconChart,
   IconDoc,
   IconFolder,
   IconGrid,
@@ -118,6 +119,13 @@ function Sidebar({
             onClick={() => onNavigate({ page: "projects" })}
           >
             Projects
+          </NavItem>
+          <NavItem
+            icon={<IconChart />}
+            current={page === "reports"}
+            onClick={() => onNavigate({ page: "reports" })}
+          >
+            Reports
           </NavItem>
           <NavItem
             icon={<IconSearch />}

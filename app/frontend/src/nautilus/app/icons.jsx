@@ -50,6 +50,15 @@ export function IconFolder(props) {
   );
 }
 
+export function IconChart(props) {
+  return (
+    <Svg {...props}>
+      <path d="M4 20h16" />
+      <path d="M7 16v-5M12 16V6M17 16v-8" />
+    </Svg>
+  );
+}
+
 export function IconSearch(props) {
   return (
     <Svg {...props}>

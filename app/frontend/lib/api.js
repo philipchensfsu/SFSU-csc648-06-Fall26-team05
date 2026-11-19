@@ -138,6 +138,16 @@ export const api = {
   // needs_my_approval or waiting_for_approval.
   listPrdsInView: (view) => request(`/prds?view=${encodeURIComponent(view)}`),
 
+  // Feature 10: counts and recent activity across the PRDs you can see. The
+  // filters are optional and combine; activityLimit is 1–50.
+  getProgressReport: ({ teamId, projectId, ownerId, activityLimit = 20 } = {}) => {
+    const params = new URLSearchParams({ activity_limit: String(activityLimit) });
+    if (teamId) params.set("team_id", teamId);
+    if (projectId) params.set("project_id", projectId);
+    if (ownerId) params.set("owner_id", ownerId);
+    return request(`/reports/progress?${params}`);
+  },
+
   // Org admins only. Send just the fields that change; null clears one.
   updateMember: (orgId, userId, changes) =>
     request(`/organizations/${orgId}/members/${userId}`, { method: "PATCH", body: JSON.stringify(changes) }),

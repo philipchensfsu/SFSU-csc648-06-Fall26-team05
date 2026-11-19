@@ -1,0 +1,165 @@
+/* The Reports page (feature 10). Colors, borders and radii follow workspace.css. */
+.nw-report-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+}
+.nw-report-filter {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.nw-report-filter .nw-select {
+  min-width: 180px;
+  max-width: 100%;
+}
+.nw-report-filter-label {
+  color: #557479;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.nw-report-filter .nw-select:focus-visible {
+  outline: 2px solid #1D6F7A;
+  outline-offset: 2px;
+}
+.nw-report-note,
+.nw-report-none {
+  color: #557479;
+  font-size: 14px;
+}
+
+.nw-report {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  transition: opacity 120ms ease;
+}
+.nw-report.is-updating {
+  opacity: 0.6;
+}
+
+.nw-report-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(220px, 100%), 1fr));
+  gap: 16px;
+}
+.nw-report-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px 20px;
+  border: 1px solid #DCEBEE;
+  border-radius: 14px;
+  background: #FFFFFF;
+}
+.nw-report-card-title {
+  color: #557479;
+  font-family: 'Geist Mono', ui-monospace, monospace;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+.nw-report-big {
+  color: #102C33;
+  font-size: 40px;
+  font-weight: 650;
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+.nw-report-counts {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.nw-report-counts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 14px;
+}
+.nw-report-counts dt {
+  min-width: 0;
+  color: #3E5A60;
+  overflow-wrap: anywhere;
+}
+.nw-report-counts dd {
+  margin: 0;
+  color: #102C33;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.nw-report-counts > .is-zero dt,
+.nw-report-counts > .is-zero dd {
+  color: #557479;
+  font-weight: 400;
+}
+
+.nw-report-table td {
+  font-variant-numeric: tabular-nums;
+}
+.nw-report-table .nw-report-name {
+  padding: 14px 16px 14px 20px;
+  border-bottom: 1px solid #EAF3F5;
+  color: #102C33;
+  font-weight: 600;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+.nw-report-table tbody tr:last-child .nw-report-name {
+  border-bottom: 0;
+}
+
+.nw-report-activity {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid #DCEBEE;
+  border-radius: 14px;
+  background: #FFFFFF;
+  overflow: hidden;
+}
+.nw-report-activity li {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 18px;
+  border-bottom: 1px solid #EAF3F5;
+}
+.nw-report-activity li:last-child {
+  border-bottom: 0;
+}
+.nw-report-activity-text {
+  color: #102C33;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.nw-report-activity-meta {
+  color: #557479;
+  font-size: 13px;
+}
+.nw-report-prd {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #1D6F7A;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  overflow-wrap: anywhere;
+}
+.nw-report-prd:hover {
+  color: #155E68;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nw-report {
+    transition: none;
+  }
+}
