@@ -530,6 +530,26 @@
   flex: 1 1 220px;
   min-width: 0;
 }
+/* "A person" / "A whole team" reuses the comparison's .nc-toggle, which is
+   hidden on wide screens there; here it always shows. */
+.nc-toggle.ne-share-mode {
+  display: inline-flex;
+  align-self: flex-start;
+}
+.ne-share-mode .nc-toggle-btn:disabled {
+  cursor: default;
+}
+.ne-share-result {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #E3F5EC;
+  color: #0E6139;
+  font-size: 13px;
+}
+.ne-share-result strong {
+  font-weight: 600;
+}
 .ne-alert-action {
   padding: 0;
   border: 0;
