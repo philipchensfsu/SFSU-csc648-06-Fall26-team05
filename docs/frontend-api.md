@@ -973,6 +973,31 @@ about a PRD you can no longer see are hidden from the list and the unread count.
   an AI proposal, `ai_applied` (the same plus `generation_record_id`). Neither creates a notification, so they never
   appear in the inbox.
 
+## Discord (feature 04)
+
+People link their Discord account so the Nautilus bot can answer for them in Discord. The bot only ever shows
+what that person could see in Nautilus. Linking is a "Connect Discord" section in the user's settings:
+
+1. The user clicks "Connect Discord": call `POST /api/integrations/discord/link-code` and show the code with a
+   countdown and the instruction "Run `/link K7QX-M2PA-9DZR` in Discord".
+2. They run it in Discord. The bot links the account; poll `GET /api/integrations/discord/link` every few seconds
+   (or offer a "Done" button that checks it) until `linked` is `true`.
+3. Linked: show "Connected to Discord" and an "Unlink" button (`DELETE`).
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `POST /api/integrations/discord/link-code` | | 200 `{ code: "K7QX-M2PA-9DZR", expires_at }` | 401 |
+| `GET /api/integrations/discord/link` | | 200 `{ linked, discord_user_id: string \| null, linked_at: … \| null }` | 401 |
+| `DELETE /api/integrations/discord/link` | | 204 (also when not linked) | 401 |
+
+- **Codes** last **10 minutes** and work once. Asking for a new code replaces the previous one. This response is the
+  only time the code is shown, so don't store it.
+- **One Discord account per Nautilus account**, and the other way round. Linking again (with a new code) replaces the
+  old link; linking a Discord account that was linked to someone else moves it.
+- `discord_user_id` is Discord's numeric user id (a string; it doesn't fit in a JavaScript number). There's no
+  Discord username: show "Connected to Discord".
+- Linking grants nothing: access is checked each time the bot asks for something, as that person.
+
 ## Coming in open PRs
 
 Not on `develop` yet. Shapes can still change in review; each PR updates its entry here.
