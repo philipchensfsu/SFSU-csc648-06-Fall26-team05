@@ -823,6 +823,7 @@ and no review state changes. Every request is a fresh summary (nothing is cached
 - **`comment_ids`** point at comments on that version ([Comments](#comments)); every item has at least one. Use them
   to jump to the comment. The server drops any reference the AI made up, and leaves out an item that's left with
   none.
+- **Each list has at most 10 items** (and each item at most 20 `comment_ids`). Extra items are cut, not an error.
 - **`section_type`** in `requested_changes` is one of the nine section types, or `null` for the whole PRD.
 - **Comment resolution isn't tracked**, so nothing here means "resolved". `unresolved_items` are points the comments
   themselves leave open; the AI is told never to call anything resolved.

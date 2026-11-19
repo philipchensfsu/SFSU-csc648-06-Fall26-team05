@@ -25,8 +25,7 @@ def test_the_schema_requires_all_four_lists_with_references():
     assert schema["required"] == ["themes", "open_questions", "requested_changes", "unresolved_items"]
     for name in schema["required"]:
         lst = schema["properties"][name]
-        assert lst["maxItems"] == ds.MAX_ITEMS
-        assert "refs" in lst["items"]["required"] and lst["items"]["properties"]["refs"]["minItems"] == 1
+        assert "refs" in lst["items"]["required"]
     sections = schema["properties"]["requested_changes"]["items"]["properties"]["section_type"]["enum"]
     assert sections == [*section_types(), "whole_prd"]
 
@@ -93,13 +92,38 @@ def test_a_repeated_reference_is_kept_once_and_isnt_reported_as_unknown(caplog):
      "unresolved_items": []},
     {"themes": [], "open_questions": [], "requested_changes": [{"section_type": "budget", "change": "x",
                                                                 "refs": ["C1"]}], "unresolved_items": []},
-    {"themes": [], "open_questions": [], "requested_changes": [],
-     "unresolved_items": [{"item": "x", "refs": ["C1"]}] * (ds.MAX_ITEMS + 1)},
 ])
 def test_a_reply_of_the_wrong_shape_is_invalid_output(data):
     with pytest.raises(AIError) as info:
         ds.checked_summary(GeminiResult(data=data, model="fake", prompt_tokens=0, output_tokens=0), REFS)
     assert (info.value.status_code, info.value.code) == (502, "ai_invalid_output")
+
+
+def test_the_schema_has_no_array_counts_gemini_cant_serve():
+    # Gemini answers 400 "too many states for serving" for this schema when
+    # its arrays carry minItems/maxItems, so the counts are checked in code.
+    def arrays(node):
+        if isinstance(node, dict):
+            if node.get("type") == "array":
+                yield node
+            for value in node.values():
+                yield from arrays(value)
+    found = list(arrays(ds.response_schema()))
+    assert len(found) == 8 and not any("minItems" in a or "maxItems" in a for a in found)
+    assert f"at most {ds.MAX_ITEMS} items per list" in ds.SYSTEM_INSTRUCTION
+
+
+def test_lists_longer_than_the_limit_are_cut_not_refused():
+    many = [{"item": f"point {i}", "refs": ["C1"]} for i in range(ds.MAX_ITEMS + 5)]
+    out = ds.checked_summary(reply(unresolved_items=many), REFS)
+    assert [i["item"] for i in out["unresolved_items"]] == [f"point {i}" for i in range(ds.MAX_ITEMS)]
+
+
+def test_items_without_known_references_dont_count_toward_the_limit():
+    unknown = [{"item": "ghost", "refs": ["C99"]}] * 3
+    known = [{"item": f"point {i}", "refs": ["C1"]} for i in range(ds.MAX_ITEMS)]
+    out = ds.checked_summary(reply(themes=[], unresolved_items=unknown + known), REFS)
+    assert len(out["unresolved_items"]) == ds.MAX_ITEMS and out["unresolved_items"][0]["item"] == "point 0"
 
 
 def test_an_empty_answer_has_every_list_and_no_record():
