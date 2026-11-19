@@ -1318,6 +1318,7 @@ function EditorPage({
               currentVersionId={detail?.currentVersion?.id ?? null}
               onSuggest={canSuggest ? requestFeedbackProposal : undefined}
               onRefresh={onRetryDetail}
+              userId={userId}
               id={`${ids}-panel-comments`}
               labelledBy={`${ids}-tab-comments`}
               hidden={railTab !== "comments"}

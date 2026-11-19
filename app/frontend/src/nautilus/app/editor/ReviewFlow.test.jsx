@@ -383,7 +383,7 @@ describe("commenting when someone saved first", () => {
     expect(host.querySelector(".ne-comment-box").value).toBe("Ship it");
     expect(host.querySelector(".ne-comments").hidden).toBe(false); // still on the Comments tab
     await click(buttonNamed("Comment"));
-    expect(api.addPrdComment).toHaveBeenLastCalledWith("p1", { versionId: "v2", body: "Ship it" });
+    expect(api.addPrdComment).toHaveBeenLastCalledWith("p1", { versionId: "v2", body: "Ship it", mentions: [] });
     expect(host.textContent).toContain("Ship it");
   });
 });
