@@ -43,6 +43,8 @@ const PROPOSAL_REAPPROVAL = "ai-proposal";
 
 // A review is tied to one saved version, so these mean the page is out of date.
 const STALE_REVIEW_CODES = new Set(["stale_revision", "stale_version", "round_not_current"]);
+// A reviewer change refused because the round changed since it was loaded.
+const ROSTER_STALE_CODES = new Set(["round_not_open", "reviewer_already_decided", "already_a_reviewer", "last_reviewer"]);
 
 // The side panel's width, as a share of the page. Remembered in the browser.
 const PANEL_KEY = "nautilus.editor.panelWidth";
@@ -239,6 +241,9 @@ function EditorPage({
   onAdjustProposal,
   onSubmitReview,
   onDecideReview,
+  // Owners and org admins: (userId, newUserId) and (userId) on the open round.
+  onReplaceReviewer,
+  onRemoveReviewer,
   onReload,
   onOpenAnswers,
   // The PRD's details page (overview and version history). Not during an AI preview.
@@ -600,6 +605,27 @@ function EditorPage({
       setProblem(CONFLICT);
     }
   }
+
+  // The round moved on under the page (closed, or that reviewer decided): the
+  // error is shown and the round is read again so the buttons match it.
+  async function changeReviewer(action) {
+    try {
+      await action();
+    } catch (error) {
+      if (ROSTER_STALE_CODES.has(error?.code) || error?.status === 404) onRetryDetail?.();
+      throw error;
+    }
+  }
+
+  const manageReviewers =
+    detail?.capabilities?.can_assign === true && onReplaceReviewer && onRemoveReviewer
+      ? {
+          organizationId,
+          owners: detail?.owners ?? [],
+          onReplace: (reviewerId, newId) => changeReviewer(() => onReplaceReviewer(reviewerId, newId)),
+          onRemove: (reviewerId) => changeReviewer(() => onRemoveReviewer(reviewerId)),
+        }
+      : null;
 
   function jumpToReview(choice) {
     // The review card lives in the side panel's Review view.
@@ -1418,7 +1444,7 @@ function EditorPage({
               onDecide={decideReview}
             />
           ) : null}
-          <ApprovalsCard approval={detail?.approval} userId={userId} />
+          <ApprovalsCard approval={detail?.approval} userId={userId} manage={manageReviewers} />
           <section className="ne-card" aria-labelledby={`${ids}-confirm`}>
             <div className="ne-card-head">
               <h2 id={`${ids}-confirm`} ref={confirmHeading} tabIndex={-1} className="ne-card-title">
