@@ -60,6 +60,7 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
   const [members, setMembers] = useState(null);
   const [teams, setTeams] = useState(null);
   const [versions, setVersions] = useState({ ...EMPTY_VERSIONS, loading: true });
+  const [rounds, setRounds] = useState([]);
   const [sharing, setSharing] = useState(false);
   const latest = useRef(0);
 
@@ -104,11 +105,21 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
     [prdId],
   );
 
+  // Review rounds, so the history can show who was taken off a round. Extra
+  // detail only: if they can't load, the history shows without them.
+  const fetchRounds = useCallback(() => {
+    Promise.resolve()
+      .then(() => api.listReviews(prdId))
+      .then((page) => setRounds(page?.items ?? []))
+      .catch(() => setRounds([]));
+  }, [prdId]);
+
   useEffect(() => {
     fetchDetail();
     fetchMembers();
     fetchVersions();
-  }, [fetchDetail, fetchMembers, fetchVersions]);
+    fetchRounds();
+  }, [fetchDetail, fetchMembers, fetchVersions, fetchRounds]);
 
   function retryDetail() {
     setLoadError("");
@@ -281,6 +292,7 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
         {tab === "history" && !versionId ? (
           <HistoryList
             versions={versions}
+            rounds={rounds}
             currentVersionId={currentVersion?.id ?? null}
             onView={(id) => onNavigate({ tab: "history", versionId: id })}
             onCompare={(id) => onNavigate({ tab: "history", versionId: id, compare: true })}

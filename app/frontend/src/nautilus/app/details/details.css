@@ -335,6 +335,18 @@
   color: #3E5A60;
   font-size: 12px;
 }
+.nd-removed {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: #3E5A60;
+}
+.nd-removed ul {
+  margin-top: 2px;
+  padding-left: 16px;
+  list-style: disc;
+}
 .nd-version-actions {
   flex: 1 1 220px;
   display: flex;
