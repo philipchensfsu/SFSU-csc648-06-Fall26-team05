@@ -232,6 +232,34 @@ body:has(.nautilus-page.theme-dark){background:#0D2328}
 :where(.nautilus-page) .cb::after,:where(.nautilus-page) .cb-ring::after{content:"";position:absolute;left:22%;top:16%;width:28%;height:28%;border-radius:50%;background:rgba(255,255,255,.9)}
 @media (hover:none){:where(.nautilus-page) .cb-layer{display:none}}
 
+/* ===== fish food: the tin at the top of the hero, the pinch in hand, flakes sinking (see SeaPage) ===== */
+:where(.nautilus-page) .food-tin{position:absolute;z-index:4;top:14px;right:max(24px,calc((100% - 1200px) / 2 + 24px));display:inline-flex;align-items:center;justify-content:center;width:52px;height:60px;padding:0;border:0;border-radius:14px;background:transparent;cursor:pointer;box-sizing:border-box;transform-origin:50% 90%;animation:tinHi 9s ease-in-out 4s infinite}
+:where(.nautilus-page) .food-tin:hover,:where(.nautilus-page) .food-tin:focus-visible,:where(.nautilus-page) .food-tin.holding{animation:none}
+@keyframes tinHi{0%,86%,100%{transform:rotate(0)}89%{transform:rotate(-9deg)}92%{transform:rotate(7deg)}95%{transform:rotate(-4deg)}}
+:where(.nautilus-page) .food-tin svg{display:block;overflow:visible;transform-origin:50% 90%;transition:transform .35s cubic-bezier(.3,1.5,.5,1)}
+:where(.nautilus-page) .tin-lid{transform-box:fill-box;transform-origin:0% 100%;transition:transform .35s cubic-bezier(.3,1.4,.5,1)}
+:where(.nautilus-page) .tin-food{opacity:0;transition:opacity .2s}
+:where(.nautilus-page) .food-tip{position:absolute;right:calc(100% + 4px);top:50%;transform:translate(4px,-50%);padding:6px 10px;border-radius:8px;background:var(--ink);color:var(--bg);font-size:12.5px;font-weight:500;line-height:1.2;white-space:nowrap;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s}
+:where(.nautilus-page) .tip-hold,:where(.nautilus-page) .tip-touch{display:none}
+/* hover only where there is a real hover (a tapped tin would otherwise stay tipped on a phone) */
+@media (hover:hover){:where(.nautilus-page) .food-tin:hover svg{transform:rotate(-8deg)}:where(.nautilus-page) .food-tin:hover .food-tip{opacity:1;transform:translate(0,-50%)}}
+:where(.nautilus-page) .food-tin:focus-visible .food-tip{opacity:1;transform:translate(0,-50%)}
+/* holding a pinch: the lid is off, the tin leans over, the hint says what to do next */
+:where(.nautilus-page) .food-tin.holding svg{transform:rotate(-12deg)}
+:where(.nautilus-page) .food-tin.holding .tin-lid{transform:translate(-3px,-5px) rotate(-32deg)}
+:where(.nautilus-page) .food-tin.holding .tin-food{opacity:1}
+:where(.nautilus-page) .food-tin.holding .food-tip{opacity:1;transform:translate(0,-50%)}
+:where(.nautilus-page) .food-tin.holding .tip-idle{display:none}
+:where(.nautilus-page) .food-tin.holding:not(.touch) .tip-hold,:where(.nautilus-page) .food-tin.touch .tip-touch{display:inline}
+:where(.nautilus-page) .food-layer{position:fixed;inset:0;pointer-events:none;z-index:79;overflow:hidden}
+:where(.nautilus-page) .food-pinch{position:absolute;left:0;top:0;opacity:0;will-change:transform}
+:where(.nautilus-page) .food-flake{position:absolute;display:block;width:5px;height:4px;margin:-2px 0 0 -2.5px;border-radius:1px 2px 1px 2px}
+:where(.nautilus-page) .food-drop{left:0;top:0;opacity:0;will-change:transform,opacity}
+:where(.nautilus-page) .fk0{fill:#E8913A;background:#E8913A}
+:where(.nautilus-page) .fk1{fill:#D2553D;background:#D2553D}
+:where(.nautilus-page) .fk2{fill:#F2C46D;background:#F2C46D}
+@media (max-width:760px){:where(.nautilus-page) .food-tin{top:8px;right:14px}}
+
 /* ===== backgrounds ===== */
 :where(.nautilus-page) .gridbg{background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:64px 64px;-webkit-mask-image:radial-gradient(ellipse 70% 55% at 50% 0%,#000 25%,transparent 75%);mask-image:radial-gradient(ellipse 70% 55% at 50% 0%,#000 25%,transparent 75%)}
 :where(.nautilus-page) .spot-clip{position:absolute;inset:0;overflow:hidden;pointer-events:none}
@@ -742,6 +770,7 @@ body:has(.nautilus-page.theme-dark){background:#0D2328}
   :where(.nautilus-page) .type{clip-path:none!important}
   :where(.nautilus-page) .fill,:where(.nautilus-page) .tabbar{width:100%!important}
   :where(.nautilus-page) .d-cur{display:none!important}
+  :where(.nautilus-page) .food-tin,:where(.nautilus-page) .food-layer{display:none!important}
   :where(.nautilus-page) .eel-b{transform:none!important}
   :where(.nautilus-page) .hl{background-size:100% .3em!important}
 }

@@ -5,6 +5,7 @@ import { Component } from 'react';
 //   - sea creatures: each roams its own patch of the page, rests, turns, and reacts to the cursor
 //   - cursor bubbles and the hero spotlight
 //   - sections far off screen go idle (their CSS loops pause, their creatures stop being stepped)
+//   - fish food: a tin hands the cursor a pinch of flakes that fish come and eat (see "fish food" below)
 //   - scroll-driven effects switch on only when the page really scrolls (state.motion -> .motion / .still)
 // A page extends this class and renders its root element with ref={v.rootRef} (see LandingPage, AboutPage).
 // With prefers-reduced-motion, nothing moves: no creatures, no cursor bubbles, CSS animations off.
@@ -81,24 +82,26 @@ export default class SeaPage extends Component {
   // cursor gets close. None of it depends on scrolling.
   seaKinds() {
     return {
-      fish: { speed: [18, 28], acc: 18, slow: 80, far: 200, vert: 0.45, rest: 0.18, restT: [1, 2.6], art: 1, flip: 5, tilt: 16, shy: 110 },
-      linefish: { speed: [16, 24], acc: 16, slow: 60, far: 180, vert: 0.3, rest: 0.25, restT: [1, 2.4], art: 1, flip: 5, tilt: 12, shy: 100 },
+      // eat: comes for fish food; mouthX / mouthY: where its mouth is, from its centre / from its top, as
+      // fractions of its size (facing right)
+      fish: { speed: [18, 28], acc: 18, slow: 80, far: 200, vert: 0.45, rest: 0.18, restT: [1, 2.6], art: 1, flip: 5, tilt: 16, shy: 110, eat: 1 },
+      linefish: { speed: [16, 24], acc: 16, slow: 60, far: 180, vert: 0.3, rest: 0.25, restT: [1, 2.4], art: 1, flip: 5, tilt: 12, shy: 100, eat: 1 },
       crab: { speed: [14, 22], acc: 60, slow: 30, far: 140, rest: 0.7, restT: [0.8, 2.8], line: 1, lean: 4, shy: 90 },
       jelly: { speed: [7, 11], acc: 5, slow: 70, far: 160, rest: 0.3, restT: [1.5, 3.5], jelly: 1, lean: 8 },
-      turtle: { speed: [11, 16], acc: 5, slow: 100, far: 320, vert: 0.25, rest: 0.08, restT: [1.5, 3], art: -1, flip: 2.2, tilt: 6 },
+      turtle: { speed: [11, 16], acc: 5, slow: 100, far: 320, vert: 0.25, rest: 0.08, restT: [1.5, 3], art: -1, flip: 2.2, tilt: 6, eat: 1, mouthY: 0.5 },
       octo: { speed: [8, 12], acc: 14, slow: 50, far: 100, rest: 0.35, restT: [1.2, 3], jet: 22, lean: 14, shy: 120 },
-      seahorse: { speed: [6, 10], acc: 5, slow: 50, far: 120, rest: 0.35, restT: [1.5, 3.5], art: -1, flip: 3, tilt: 5 },
+      seahorse: { speed: [6, 10], acc: 5, slow: 50, far: 120, rest: 0.35, restT: [1.5, 3.5], art: -1, flip: 3, tilt: 5, eat: 1, mouthX: 0.3, mouthY: 0.28 },
       star: { speed: [11, 18], acc: 18, slow: 40, far: 120, rest: 0.6, restT: [1.2, 3.2], line: 1, roll: 1, shy: 90 },
       whale: { speed: [20, 30], acc: 7, slow: 150, far: 320, vert: 0.3, rest: 0.12, restT: [1.5, 3], art: -1, flip: 1.8, tilt: 8, whale: 1 },
       // a school swims as one: a shared destination, each fish keeping its own place
-      school: { speed: [20, 28], acc: 44, slow: 70, far: 170, rest: 0, restT: [0, 0], art: 1, flip: 6, tilt: 14, shy: 95, school: 1 },
+      school: { speed: [20, 28], acc: 44, slow: 70, far: 170, rest: 0, restT: [0, 0], art: 1, flip: 6, tilt: 14, shy: 95, school: 1, eat: 1 },
       manta: { speed: [12, 17], acc: 5, slow: 110, far: 300, vert: 0.25, rest: 0.05, restT: [1.5, 3], art: 1, flip: 1.8, tilt: 6, shy: 120 },
       // these three react to the cursor instead of fleeing it
-      puffer: { speed: [9, 14], acc: 10, slow: 60, far: 140, vert: 0.5, rest: 0.3, restT: [1.5, 3.5], art: 1, flip: 4, tilt: 6, near: 100, puff: 1 },
-      angler: { speed: [7, 11], acc: 5, slow: 60, far: 160, vert: 0.4, rest: 0.35, restT: [2, 4], art: 1, flip: 2.5, tilt: 5, near: 130, angler: 1 },
+      puffer: { speed: [9, 14], acc: 10, slow: 60, far: 140, vert: 0.5, rest: 0.3, restT: [1.5, 3.5], art: 1, flip: 4, tilt: 6, near: 100, puff: 1, eat: 1 },
+      angler: { speed: [7, 11], acc: 5, slow: 60, far: 160, vert: 0.4, rest: 0.35, restT: [2, 4], art: 1, flip: 2.5, tilt: 5, near: 130, angler: 1, eat: 1, mouthY: 0.6 },
       dolphin: { speed: [28, 38], acc: 28, slow: 90, far: 260, rest: 0, restT: [0, 0], art: 1, flip: 4, tilt: 12, near: 170, dolphin: 1, surf: 150 },
       // the namesake: cruises in pushes, like the octopus, and puffs bubbles from its funnel on each one
-      nautilus: { speed: [10, 15], acc: 9, slow: 80, far: 240, vert: 0.4, rest: 0.22, restT: [1.4, 3], art: 1, flip: 2.6, tilt: 8, jet: 20, jetBub: 1, shy: 120 },
+      nautilus: { speed: [10, 15], acc: 9, slow: 80, far: 240, vert: 0.4, rest: 0.22, restT: [1.4, 3], art: 1, flip: 2.6, tilt: 8, jet: 20, jetBub: 1, shy: 120, eat: 1, mouthY: 0.62 },
       // walks the line, and pulls into its shell instead of running
       hermit: { speed: [7, 11], acc: 40, slow: 26, far: 110, rest: 0.6, restT: [1.2, 3], line: 1, art: 1, flip: 5, tilt: 0, shy: 100, duck: 1 },
       // paddles forward; flicks backwards when startled, and now and then for no reason at all
@@ -393,6 +396,8 @@ export default class SeaPage extends Component {
   }
 
   seaCursor(c, k, now) {
+    // a hand holding fish food is something to swim up to, not away from
+    if (k.eat && this.food && this.food.holding) return;
     const r = c.zone.__r || c.zone.getBoundingClientRect();
     if (r.bottom < -100 || r.top > (window.innerHeight || 0) + 100) return;
     const cx = r.left + c.x + c.w / 2;
@@ -474,6 +479,10 @@ export default class SeaPage extends Component {
       return;
     }
     if (ptrOn && (k.shy || k.near || k.whale)) this.seaCursor(c, k, now);
+    if (k.eat) {
+      if (this.food && this.food.on) this.seaFeed(c, k, now);
+      else if (c.feeding) this.seaFull(c);
+    }
     if (c.boost > 0) c.boost = Math.max(0, c.boost - dt / 1.6);
     if (k.flick) {
       c.flickT -= dt;
@@ -528,11 +537,12 @@ export default class SeaPage extends Component {
 
   seaSwim(c, k, dt, now) {
     let sp = c.cruise * (1 + 2.4 * c.boost);
-    const acc = k.acc * (1 + 3 * c.boost);
+    // going for food, a creature turns and speeds up more sharply than when it cruises
+    const acc = k.acc * (1 + 3 * c.boost) * (c.feeding ? 1.6 : 1);
     if (k.puff && now < c.puffUntil) sp *= 0.3;
     let ax;
     let ay;
-    if (k.school) {
+    if (k.school && !c.feeding) {
       // keep a loose place in the school; the school spreads out when startled
       const g = c.group;
       const s = 1 + 2.4 * g.spread;
@@ -555,11 +565,12 @@ export default class SeaPage extends Component {
       const dx = c.gx - c.x;
       const dy = c.gy - c.y;
       const dist = Math.hypot(dx, dy);
-      if (dist < k.slow * 0.35) {
+      if (!c.feeding && dist < k.slow * 0.35) {
         if (!c.boost && Math.random() < k.rest) c.idle = k.restT[0] + Math.random() * (k.restT[1] - k.restT[0]);
         else this.seaPick(c);
       }
-      const want = sp * Math.min(1, dist / k.slow);
+      // going for food: quick, and it only eases off in the last few pixels
+      const want = c.feeding ? Math.max(sp, k.speed[1]) * 1.5 * Math.min(1, dist / 28) : sp * Math.min(1, dist / k.slow);
       const n = dist || 1;
       ax = (dx / n) * want - c.vx;
       ay = (dy / n) * want - c.vy;
@@ -846,6 +857,356 @@ export default class SeaPage extends Component {
       { opacity: 0.55, transform: at(y + 4, 1.15), offset: 0.35 },
       { opacity: 0, transform: at(y + 16, 1.5) }
     ], { duration: 1700, easing: 'ease-out' });
+  }
+
+  // ---------- fish food ----------
+  // The tin at the top of the hero hands the cursor a pinch of flakes. Fish that can reach it swim up and nibble
+  // from it; a click sprinkles the pinch into the water, where the flakes sink slowly and the fish chase them
+  // down. From the keyboard the tin sprinkles straight from itself; on a touchscreen the pinch waits on the tin
+  // and the next tap sprinkles it. Nothing here runs until the tin is used. With reduced motion the tin is hidden.
+
+  // refs for the tin and the flakes (rendered by shared/FishFood.jsx), made once
+  getFood() {
+    if (!this.foodDefs) {
+      const els = (this.foodEls = { pinch: [], pool: [] });
+      this.foodDefs = {
+        tinRef: (el) => { els.tin = el; },
+        pinchRef: (el) => { els.box = el; },
+        pinch: Array.from({ length: 8 }, (_, i) => ({ ref: (el) => { els.pinch[i] = el; } })),
+        pool: Array.from({ length: 48 }, (_, i) => ({ ref: (el) => { els.pool[i] = el; } })),
+        onTin: (e) => this.foodTin(e)
+      };
+    }
+    return this.foodDefs;
+  }
+
+  foodState() {
+    if (!this.food) {
+      this.food = { holding: false, on: false, left: 0, touch: false, px: null, py: null, fx: null, fy: null, flakes: [], raf: 0, t: 0 };
+      this.foodLoop = (now) => this.foodFrame(now);
+    }
+    return this.food;
+  }
+
+  // the page's listeners: where the pointer is, a click to sprinkle, Esc to put the food back
+  foodListen() {
+    this.onFoodPtr = (e) => { this.foodPtrType = e.pointerType; };
+    this.onFoodMove = (e) => {
+      const F = this.food;
+      if (!F || !F.holding || e.pointerType === 'touch') return;
+      F.px = e.clientX;
+      F.py = e.clientY;
+    };
+    this.onFoodClick = (e) => {
+      const F = this.food;
+      if (!F || !F.holding || e.button !== 0) return;
+      const t = e.target;
+      const els = this.foodEls || {};
+      if (t && els.tin && els.tin.contains(t)) return;
+      // links and buttons keep working; the pinch stays in hand
+      if (t && t.closest && t.closest('a[href], button, input, select, textarea, label, summary, [role="button"], [role="tab"]')) return;
+      this.foodDrop(e.clientX, e.clientY);
+    };
+    this.onFoodKey = (e) => {
+      if (e.key === 'Escape' && this.food && this.food.holding) this.foodEnd();
+    };
+    this.onFoodLeave = () => {
+      if (this.food) this.food.px = null;
+    };
+    window.addEventListener('pointerdown', this.onFoodPtr, { capture: true, passive: true });
+    window.addEventListener('pointermove', this.onFoodMove, { passive: true });
+    window.addEventListener('click', this.onFoodClick);
+    window.addEventListener('keydown', this.onFoodKey);
+    document.documentElement.addEventListener('mouseleave', this.onFoodLeave);
+  }
+
+  foodUnlisten() {
+    if (this.onFoodPtr) window.removeEventListener('pointerdown', this.onFoodPtr, { capture: true });
+    if (this.onFoodMove) window.removeEventListener('pointermove', this.onFoodMove);
+    if (this.onFoodClick) window.removeEventListener('click', this.onFoodClick);
+    if (this.onFoodKey) window.removeEventListener('keydown', this.onFoodKey);
+    if (this.onFoodLeave) document.documentElement.removeEventListener('mouseleave', this.onFoodLeave);
+    if (this.food && this.food.raf) cancelAnimationFrame(this.food.raf);
+    if (this.food) this.food.raf = 0;
+  }
+
+  // the tin: pick up a pinch, put it back, or (from the keyboard) sprinkle from the tin
+  foodTin(e) {
+    if (this.reduce) return;
+    const F = this.foodState();
+    if (F.holding) {
+      this.foodEnd();
+      return;
+    }
+    if (e && e.detail === 0) {
+      this.foodPour();
+      return;
+    }
+    F.holding = true;
+    F.left = this.foodEls.pinch.length;
+    F.touch = this.foodPtrType === 'touch';
+    F.px = F.touch || !e ? null : e.clientX;
+    F.py = F.touch || !e ? null : e.clientY;
+    this.foodEls.pinch.forEach((el) => { if (el) el.style.opacity = ''; });
+    // the open tin and the hint live on the tin itself; React re-renders the page root's class
+    // (when the page settles or a resize turns motion on or off), so nothing is added there
+    this.foodEls.tin.classList.add('holding');
+    if (F.touch) this.foodEls.tin.classList.add('touch');
+    if (this.root && !F.touch) this.root.style.cursor = 'grabbing';
+    // the pinch takes the cursor bubble's place until it is gone
+    if (this.ring) this.ring.style.opacity = '0';
+    this.foodRun();
+  }
+
+  // all of the pinch into the water at (x, y), in window coordinates
+  foodDrop(x, y) {
+    const F = this.food;
+    for (let i = 0; i < F.left; i++) {
+      this.foodFlake(x + (Math.random() - 0.5) * 14, y + 8 + (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 70, 15 + Math.random() * 45);
+    }
+    F.left = 0;
+    this.foodEnd();
+  }
+
+  // the keyboard's way: the tin tips and shakes a pinch out over the water
+  foodPour() {
+    const tin = this.foodEls && this.foodEls.tin;
+    if (!tin) return;
+    const r = tin.getBoundingClientRect();
+    const svg = tin.querySelector('svg');
+    if (svg && svg.animate) {
+      svg.animate([
+        { transform: 'rotate(0deg)' },
+        { transform: 'rotate(-38deg)', offset: 0.25 },
+        { transform: 'rotate(-30deg)', offset: 0.45 },
+        { transform: 'rotate(-38deg)', offset: 0.65 },
+        { transform: 'rotate(0deg)' }
+      ], { duration: 900, easing: 'ease-in-out' });
+    }
+    for (let i = 0; i < 8; i++) {
+      this.foodFlake(r.left + r.width * 0.2, r.top + r.height * 0.35, -(25 + Math.random() * 55), 20 + Math.random() * 40, 0.12 + i * 0.05);
+    }
+    this.foodRun();
+  }
+
+  // one flake into the water: position and speed in window coordinates, px/s; kept in page coordinates
+  foodFlake(x, y, vx, vy, wait = 0) {
+    const F = this.foodState();
+    const pool = (this.foodEls && this.foodEls.pool) || [];
+    if (F.flakes.length !== pool.length) F.flakes = pool.map((el) => ({ el, on: false, age: 0 }));
+    let f = null;
+    for (let i = 0; i < F.flakes.length; i++) {
+      const g = F.flakes[i];
+      if (!g.on) {
+        f = g;
+        break;
+      }
+      if (!f || g.age > f.age) f = g;
+    }
+    if (!f || !f.el) return;
+    Object.assign(f, {
+      on: true, age: -wait, life: 7 + Math.random() * 2,
+      x: x + window.scrollX, y: y + window.scrollY, vx, vy,
+      rot: Math.random() * 360, vr: (Math.random() - 0.5) * 140, ph: Math.random() * 6.28, sink: 22 + Math.random() * 12,
+      cx: x, cy: y
+    });
+    f.el.style.opacity = '0';
+    this.foodRun();
+  }
+
+  foodRun() {
+    const F = this.foodState();
+    F.on = true;
+    if (!F.raf) {
+      F.t = 0;
+      F.raf = requestAnimationFrame(this.foodLoop);
+    }
+    this.seaWake();
+  }
+
+  // one frame: the pinch follows the pointer (or waits on the tin), flakes sink, wobble and fade
+  foodFrame(now) {
+    const F = this.food;
+    const dt = F.t ? Math.min(0.05, (now - F.t) / 1000) : 0;
+    F.t = now;
+    const box = this.foodEls && this.foodEls.box;
+    if (F.holding) {
+      let x = null;
+      let y = null;
+      if (!F.touch && F.px != null) {
+        x = F.px + 2;
+        y = F.py + 15;
+      } else if (F.touch && this.foodEls.tin) {
+        const r = this.foodEls.tin.getBoundingClientRect();
+        x = r.left + r.width / 2;
+        y = r.top - 2;
+      }
+      F.fx = x;
+      F.fy = y;
+      if (box) {
+        if (x == null) box.style.opacity = '0';
+        else {
+          box.style.opacity = '1';
+          box.style.transform = 'translate(' + x.toFixed(1) + 'px,' + y.toFixed(1) + 'px)';
+        }
+      }
+    } else if (box) box.style.opacity = '0';
+
+    const sx = window.scrollX;
+    const sy = window.scrollY;
+    let live = 0;
+    for (let i = 0; i < F.flakes.length; i++) {
+      const f = F.flakes[i];
+      if (!f.on) continue;
+      f.age += dt;
+      if (f.age < 0) {
+        live++;
+        continue;
+      }
+      if (f.age >= f.life) {
+        f.on = false;
+        f.el.style.opacity = '0';
+        continue;
+      }
+      live++;
+      f.vx *= Math.exp(-1.6 * dt);
+      f.vy += (f.sink - f.vy) * Math.min(1, dt * 1.2);
+      f.x += f.vx * dt;
+      f.y += f.vy * dt;
+      f.rot += f.vr * dt;
+      f.cx = f.x - sx + Math.sin(f.age * 2.1 + f.ph) * 7;
+      f.cy = f.y - sy;
+      f.el.style.opacity = Math.max(0, Math.min(1, (f.life - f.age) / 1.2, f.age / 0.12)).toFixed(2);
+      f.el.style.transform = 'translate(' + f.cx.toFixed(1) + 'px,' + f.cy.toFixed(1) + 'px) rotate(' + f.rot.toFixed(0) + 'deg)';
+    }
+    F.on = F.holding || live > 0;
+    F.raf = F.on ? requestAnimationFrame(this.foodLoop) : 0;
+  }
+
+  // a fish that can reach some food goes for the nearest bit, mouth first
+  seaFeed(c, k, now) {
+    const F = this.food;
+    if (now < (c.fedT || 0)) {
+      c.feeding = false;
+      return;
+    }
+    const z = c.zone;
+    if (z.__ff !== this.seaF) {
+      z.__ff = this.seaF;
+      z.__fr = z.getBoundingClientRect();
+    }
+    const r = z.__fr;
+    const mX = k.mouthX ?? 0.42;
+    const mY = k.mouthY ?? 0.55;
+    const face = c.face >= 0 ? 1 : -1;
+    const mx = r.left + c.x + c.w * (0.5 + face * mX);
+    const my = r.top + c.y + c.h * mY;
+    const reach = (x, y) => x > r.left - 30 && x < r.right + 30 && y > r.top - 30 && y < r.bottom + 30;
+    let best = null;
+    let bd = 1000; // food anywhere in its stretch of water
+    let tx = 0;
+    let ty = 0;
+    if (F.holding && F.left > 0 && F.fx != null && reach(F.fx, F.fy)) {
+      const d = Math.hypot(F.fx - mx, F.fy - my);
+      if (d < bd) {
+        bd = d;
+        best = F;
+        tx = F.fx;
+        ty = F.fy;
+      }
+    }
+    for (let i = 0; i < F.flakes.length; i++) {
+      const f = F.flakes[i];
+      if (!f.on || f.age < 0.15 || !reach(f.cx, f.cy)) continue;
+      const d = Math.hypot(f.cx - mx, f.cy - my);
+      if (d < bd) {
+        bd = d;
+        best = f;
+        tx = f.cx;
+        ty = f.cy;
+      }
+    }
+    if (!best) {
+      if (c.feeding) this.seaFull(c);
+      return;
+    }
+    if (bd < 10 + c.w * 0.12) {
+      this.foodEat(c, best, tx, ty, now);
+      return;
+    }
+    c.feeding = true;
+    c.idle = 0;
+    c.boost = Math.max(c.boost, 0.6);
+    const lx = tx - r.left;
+    const ly = ty - r.top;
+    const cx = c.x + c.w / 2;
+    let want = face;
+    if (Math.abs(lx - cx) > c.w * 0.35) want = lx > cx ? 1 : -1;
+    c.gx = Math.max(0, Math.min(c.mx, lx - c.w * (0.5 + want * mX)));
+    c.gy = Math.max(0, Math.min(c.my, ly - c.h * mY));
+  }
+
+  // nothing left in reach: back to roaming (a school fish rejoins its school by itself)
+  seaFull(c) {
+    c.feeding = false;
+    if (!c.k.school) this.seaPick(c);
+  }
+
+  foodEat(c, tgt, x, y, now) {
+    const F = this.food;
+    c.feeding = false;
+    if (tgt === F) {
+      if (F.left <= 0) return;
+      F.left -= 1;
+      this.foodPop(this.foodEls.pinch[F.left]);
+      // a nibble, then a quick dart back, so the others get a turn
+      c.fedT = now + 1000 + Math.random() * 700;
+      const back = c.face >= 0 ? -1 : 1;
+      c.gx = Math.max(0, Math.min(c.mx, c.x + back * (50 + Math.random() * 60)));
+      c.gy = Math.max(0, Math.min(c.my, c.y + (Math.random() - 0.5) * 50));
+      c.boost = 0.7;
+      if (F.left === 0) this.foodEnd();
+    } else {
+      tgt.on = false;
+      this.foodPop(tgt.el);
+      c.fedT = now + 260;
+    }
+    this.foodGulp(c);
+    this.spawn(x, y - 3, true);
+    this.spawn(x, y - 3, true);
+  }
+
+  foodPop(el) {
+    if (!el) return;
+    const tr = el.style.transform || '';
+    el.style.opacity = '0';
+    if (el.animate) el.animate([{ opacity: 1, transform: tr + ' scale(1)' }, { opacity: 0, transform: tr + ' scale(.2)' }], { duration: 180, easing: 'ease-in' });
+  }
+
+  // the fish gulps: a quick squash of the whole drawing
+  foodGulp(c) {
+    const svg = c.gulpEl || (c.gulpEl = c.el.querySelector('svg'));
+    if (!svg || !svg.animate) return;
+    svg.animate([
+      { transform: 'scale(1)' },
+      { transform: 'scale(1.16,.86)', offset: 0.35 },
+      { transform: 'scale(.95,1.06)', offset: 0.7 },
+      { transform: 'scale(1)' }
+    ], { duration: 380, easing: 'ease-out' });
+  }
+
+  // the pinch is gone (eaten, sprinkled or put back): the tin closes and the cursor bubble comes back
+  foodEnd() {
+    const F = this.food;
+    if (!F) return;
+    F.holding = false;
+    F.left = 0;
+    F.fx = null;
+    F.fy = null;
+    const tin = this.foodEls && this.foodEls.tin;
+    if (tin) tin.classList.remove('holding', 'touch');
+    if (this.root) this.root.style.cursor = '';
+    this.ringShown = false;
   }
 
   // Scroll effects run only when the page genuinely scrolls in a normal
