@@ -6,7 +6,7 @@ import { api } from "../../../../lib/api";
 import CommentsPanel from "./CommentsPanel";
 
 vi.mock("../../../../lib/api", () => ({
-  api: { listPrdComments: vi.fn(), addPrdComment: vi.fn() },
+  api: { listPrdComments: vi.fn(), addPrdComment: vi.fn(), listPrdMembers: vi.fn() },
 }));
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -40,6 +40,7 @@ async function show({ currentVersionId = VERSION } = {}) {
         prd={{ id: "prd-1" }}
         currentVersionId={currentVersionId}
         onRefresh={onRefresh}
+        userId="nadia"
         id="panel"
         labelledBy="tab"
         hidden={false}
@@ -58,8 +59,18 @@ const type = (text) =>
     field.dispatchEvent(new Event("input", { bubbles: true }));
   });
 
+const ken = { user_id: "ken", name: "Ken Tanaka", email: "ken@example.com", role: "editor" };
+const kemi = { user_id: "kemi", name: "Kemi Osei", email: "kemi@example.com", role: "viewer" };
+const nadia = { user_id: "nadia", name: "Nadia Haddad", email: "nadia@example.com", role: "owner" };
+
+const options = () => [...host.querySelectorAll('[role="option"]')];
+const optionNames = () => options().map((option) => option.querySelector(".ne-mention-name").textContent);
+const key = (name) =>
+  act(async () => box().dispatchEvent(new KeyboardEvent("keydown", { key: name, bubbles: true, cancelable: true })));
+
 beforeEach(() => {
   vi.resetAllMocks();
+  api.listPrdMembers.mockResolvedValue([nadia, ken, kemi]);
   api.listPrdComments.mockResolvedValue({ items: [comment("a")], next_cursor: null });
   api.addPrdComment.mockImplementation((_prdId, { body }) =>
     Promise.resolve(comment("new", { body, author: { id: "u2", name: "Om Pandya", department: null } })),
@@ -86,6 +97,7 @@ describe("CommentsPanel", () => {
     expect(api.addPrdComment).toHaveBeenCalledWith("prd-1", {
       versionId: VERSION,
       body: "Looks good to me",
+      mentions: [],
     });
     expect(host.textContent).toContain("Looks good to me");
     expect(box().value).toBe("");
@@ -126,5 +138,90 @@ describe("CommentsPanel", () => {
     await show();
     expect(host.textContent).toContain("Goals");
     expect(host.textContent).toContain("v1");
+  });
+
+  describe("@mentions", () => {
+    it("opens a list of the PRD's people on @, without you, filtered as you type", async () => {
+      await show();
+      expect(api.listPrdMembers).not.toHaveBeenCalled();
+      await type("Can @");
+      expect(api.listPrdMembers).toHaveBeenCalledOnce();
+      expect(optionNames()).toEqual(["Ken Tanaka", "Kemi Osei"]);
+      expect(box().getAttribute("aria-expanded")).toBe("true");
+      await type("Can @tan");
+      expect(optionNames()).toEqual(["Ken Tanaka"]);
+      await type("Can @zz");
+      expect(options()).toHaveLength(0);
+      expect(api.listPrdMembers).toHaveBeenCalledOnce();
+    });
+
+    it("picks with the keyboard and posts the mention's id", async () => {
+      await show();
+      await type("Can @ke");
+      await key("ArrowDown");
+      expect(options()[1].getAttribute("aria-selected")).toBe("true");
+      await key("Enter");
+      expect(box().value).toBe("Can @Kemi Osei ");
+      expect(options()).toHaveLength(0);
+      await type("Can @Kemi Osei check the budget?");
+      await act(async () => submit().click());
+      expect(api.addPrdComment).toHaveBeenCalledWith("prd-1", {
+        versionId: VERSION,
+        body: "Can @Kemi Osei check the budget?",
+        mentions: ["kemi"],
+      });
+    });
+
+    it("picks with the mouse", async () => {
+      await show();
+      await type("@k");
+      await act(async () =>
+        options()[0].dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true })),
+      );
+      expect(box().value).toBe("@Ken Tanaka ");
+    });
+
+    it("doesn't send a mention whose name was deleted from the text", async () => {
+      await show();
+      await type("@ke");
+      await key("Enter");
+      await type("Never mind");
+      await act(async () => submit().click());
+      expect(api.addPrdComment).toHaveBeenCalledWith("prd-1", expect.objectContaining({ mentions: [] }));
+    });
+
+    it("closes the list on Escape without picking", async () => {
+      await show();
+      await type("@ke");
+      await key("Escape");
+      expect(options()).toHaveLength(0);
+      expect(box().value).toBe("@ke");
+    });
+
+    it("highlights mentioned names in posted comments", async () => {
+      api.listPrdComments.mockResolvedValue({
+        items: [comment("m", { body: "Can @Ken Tanaka check this?", mentions: [{ id: "ken", name: "Ken Tanaka" }] })],
+        next_cursor: null,
+      });
+      await show();
+      const mention = host.querySelector(".ne-mention");
+      expect(mention.textContent).toBe("@Ken Tanaka");
+      expect(host.querySelector(".ne-comment-body").textContent).toBe("Can @Ken Tanaka check this?");
+    });
+
+    it("keeps the draft and explains a mention of someone without access", async () => {
+      api.addPrdComment.mockRejectedValue(
+        Object.assign(new Error("You can only mention people who can see this PRD."), {
+          status: 422,
+          code: "mention_without_access",
+        }),
+      );
+      await show();
+      await type("@ke");
+      await key("Enter");
+      await act(async () => submit().click());
+      expect(host.textContent).toContain("Someone you mentioned can’t see this PRD any more");
+      expect(box().value).toBe("@Ken Tanaka ");
+    });
   });
 });

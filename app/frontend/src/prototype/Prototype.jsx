@@ -86,8 +86,11 @@ function Prototype({
   // no longer open is dropped (editor/chatLog.js).
   const openPrdIdRef = useRef(null);
   const [aiProposal, setAiProposal] = useState(null);
-  // Where the details screen is: { tab: "overview" | "history", versionId?, compare? }.
+  // Where the details screen is: { tab: "overview" | "activity" | "history", versionId?, compare? }.
   const [detailsView, setDetailsView] = useState({ tab: "overview" });
+  // The editor's side tab to open on ("review" unless something asked for
+  // another, like an activity line's "View comment").
+  const [editorRailTab, setEditorRailTab] = useState("review");
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
 
@@ -262,7 +265,8 @@ function Prototype({
     go("interview", row.id);
   }
 
-  function openPrd(prd) {
+  function openPrd(prd, { railTab = "review" } = {}) {
+    setEditorRailTab(railTab);
     // A PRD opened from search may not be in the list yet.
     setPrds((current) => (current.some((p) => p.id === prd.id) ? current : [prd, ...current]));
     // Back to a generation still running or a draft still waiting, as the
@@ -726,7 +730,7 @@ function Prototype({
             setDetailsView(next);
             window.scrollTo(0, 0);
           }}
-          onOpenEditor={() => openPrd(activePrd)}
+          onOpenEditor={(options) => openPrd(activePrd, options)}
           onHome={() => showHome({ page: "dashboard" })}
         />
       </Suspense>
@@ -741,6 +745,7 @@ function Prototype({
         <EditorPage
           key={`${activePrd.id}:${editorVersion}`}
           prd={activePrd}
+          initialRailTab={editorRailTab}
           detail={prdDetail?.id === activePrd.id ? prdDetail : null}
           onRetryDetail={() => loadDetail(activePrd.id)}
           organizationId={organization?.organization_id}

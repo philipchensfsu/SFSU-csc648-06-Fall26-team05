@@ -146,7 +146,7 @@ the same `PUT /api/prds/{id}` goes through the S03 save. It's on in the local Co
 ([local-development.md](local-development.md)) and off in production until the hosted rollout.
 
 - **Body:** `{ "revision": int, "title"?, "description"?: string | null, "content_json"?: v2 document,
-  "generation_record_id"?: uuid, "confirmed_reviewer_ids"?: [uuid] }`. Only the fields you send change;
+  "generation_record_id"?: uuid, "option"?: 1 | 2, "confirmed_reviewer_ids"?: [uuid] }`. Only the fields you send change;
   `description: null` clears it. `confirmed_reviewer_ids` (1–50) is only for edits to an approved PRD (E09,
   below).
 - **Response:** 200 `PRD`, now including `description`, with the new `revision`. The server derives `content_text`
@@ -169,6 +169,9 @@ the same `PUT /api/prds/{id}` goes through the S03 save. It's on in the local Co
     document carries an `ai_generated` mark the server didn't add); 422 `unsupported_proposal` (this kind of AI
     proposal can't be accepted through the save yet: discard it). Whole drafts from Generate, section edits
     and review suggestions are accepted.
+  - **Alternatives** ([feature 09](#alternative-proposals-from-review-feedback-feature-09)): also send `option`, the
+    number of the option the person chose. Without it: 422 `option_required`. `option` without
+    `generation_record_id` is 422 `validation_error`.
 
 **Saving during or after a review (E09, Decision 9).** Title, description and content edits interact with
 [reviews](#reviews):
@@ -262,11 +265,79 @@ PRD can see who's on it and can leave it. A PRD always keeps at least one owner.
 - Removing a reviewer who hasn't decided on the open round (and isn't an org admin, so can't see the PRD any more)
   drops their review slot, as [deactivating a reviewer](#managing-members-admins) does.
 
+### AI-recommended teams (feature 08(b))
+
+**Proposed contract (PR #166; builds on #159, which is on `develop`).** The AI suggests up to three of the
+organization's teams to add to a PRD, each with a reason. Nothing changes until an owner or org admin picks which
+ones to add, each as editors or viewers. Picked teams are added exactly like **Adding a team** above: a snapshot,
+nobody already on the PRD changes role, one `team_added` event per team. This is separate from the single
+[owning team and priority](#owning-team-and-priority-a08) suggestion, which is unchanged.
+
+| Method and path | Body | Response | Who |
+|---|---|---|---|
+| `POST /api/prds/{id}/members/team-recommendations` | `{ "revision": int }` | 200 `{ recommendation: { id, teams: [TeamPick] }, base_revision, generation_record_id }`. A preview: nothing on the PRD changes | Owners and org admins |
+| `PUT /api/prds/{id}/members/team-recommendations/{recommendation_id}/decision` | `{ "decision": "accepted", "teams": [ { "team_id", "role": "editor" \| "viewer" } ] }` (1–3 of the recommended teams) or `{ "decision": "rejected" }` | 200 `{ status, results: [ { team_id, role, added: PRDMember[], skipped: PRDMember[] } ], members: PRDMember[] }` (`results` is empty for a rejection) | Owners and org admins, checked again here |
+
+`TeamPick` is `{ team_id, name, department, reason, active_members, new_members }`. `new_members` is how many of
+its active members aren't on the PRD yet; only teams that would add someone are offered.
+
+```json
+{
+  "recommendation": {
+    "id": "8f1e…",
+    "teams": [
+      { "team_id": "2c4a…", "name": "Platform", "department": "Engineering", "active_members": 4, "new_members": 4,
+        "reason": "The PRD moves checkout to the new payments service that Platform runs." },
+      { "team_id": "71b0…", "name": "Growth", "department": "Product", "active_members": 3, "new_members": 2,
+        "reason": "The success metrics are conversion targets Growth tracks." }
+    ]
+  },
+  "base_revision": 7,
+  "generation_record_id": "c93d…"
+}
+```
+
+- **Show** each team with its `reason` (plain text) and "adds N people" from `new_members`, with a checkbox and an
+  editor/viewer choice per team. Viewer is the safer default. Accept sends only the checked teams; "Not now" rejects.
+- **Accepting** adds the checked teams in one step: all of them or none. Editors are added first, so someone in two
+  checked teams gets the higher role. People already on the PRD are in `skipped` with their role unchanged (never
+  downgraded). Show "Added 5, 2 already on it", and refresh the people list from `members`.
+- **Decided once:** a second decision (or another owner deciding at the same time) gets 409
+  `recommendation_unavailable`. Ask for a new recommendation instead.
+- **Rechecked at accept time:** the caller must still be an owner or an org admin and an active member of the
+  PRD's org (403 `forbidden`; 404 if they've left the org and can no longer see the PRD). Each team must still be an
+  active team of the PRD's org (422 `team_not_found`: a team was archived since; nothing was added). People who
+  left the org since the recommendation aren't added. Any failure adds nobody and leaves the recommendation open.
+- **Content edits don't invalidate it.** A recommendation stays acceptable after the PRD is saved (membership isn't
+  content). It keeps the revision it was made from as `base_revision`. When that's lower than the PRD's current
+  `revision` (from the PRD you already have loaded), show a note such as "Suggested before the latest edits
+  (version {base_revision})" and still allow accepting. Asking again gives a fresh one for the current version.
+- **Not listed anywhere else:** the recommendation lives in the POST response. If the panel is closed or the page
+  reloads, it's just not shown; ask again. An undecided one changes nothing.
+- **Errors on request, in the order they're checked:** 404; 403 `forbidden` (editors, viewers); 409
+  `stale_revision` (the `revision` sent isn't the PRD's current one: reload); 422 `needs_content` (save something
+  first); 422 `no_eligible_teams` (every team member is already on the PRD, or there are no teams). Only then come
+  the shared AI codes (`ai_disabled`, `ai_cooldown`, `ai_busy`, then `ai_invalid_output`, `ai_provider_error`, …).
+  So with AI switched off, a PRD with no content still gets `needs_content`, not `ai_disabled`. None of these use
+  AI quota.
+- **A save while the AI is working** doesn't fail the request. The recommendation comes back with the
+  `base_revision` whose content the AI read, which is now older than the PRD's `revision`, so show the "Suggested
+  before the latest edits" note above.
+- **Errors on decide:** 404; 403 `forbidden`; 409 `recommendation_unavailable`; 422 `team_not_recommended` (a team
+  that wasn't in this recommendation); 422 `team_not_found`; 422 `validation_error` (accepting without teams,
+  rejecting with teams, a team twice, or `owner` as the role).
+- **Button flag:** `capabilities.can_assign` (owner or org admin, the same rule as adding people or a team). There's
+  no separate AI flag: when AI is off, the request returns `ai_disabled` once the checks above pass.
+- **Usage records:** each request is one `generation_record` with trigger `classification` (the same AI usage
+  bucket as the owning-team suggestion) and prompt version `prd-team-recommend-v1`, which is how the two are told
+  apart. The saved recommendation points at its record through `generation_record_id`.
+- **Needs** #159 (`add_team_to_prd`, on `develop`) and the `20261118220955_team_recommendations` migration.
+
 ### Comments
 
 Flat comments on a PRD's saved version. Anyone who can view the PRD (owners, editors, viewers, org admins) can read
 and post them. New comments go on the PRD's **current** version; older comments stay readable and carry their
-`version_no` for a "v2" label. No replies, edits, deletes or mentions. Comments never change the PRD, its revision or
+`version_no` for a "v2" label. Comments can @mention people. No replies, edits or deletes. Comments never change the PRD, its revision or
 its review.
 
 `Comment`:
@@ -275,14 +346,14 @@ its review.
 {
   "id": "uuid", "prd_id": "uuid", "version_id": "uuid", "version_no": 3, "section_type": "goals | null",
   "author": { "id": "uuid | null", "name": "string | null", "department": "string | null" },
-  "body": "plain text", "created_at": "…"
+  "body": "plain text", "mentions": [{ "id": "uuid", "name": "string | null" }], "created_at": "…"
 }
 ```
 
 | Route | Body | Response | Errors |
 |---|---|---|---|
 | `GET /api/prds/{id}/comments?version_id=&limit=25&cursor=` | | 200 `{ "items": Comment[], "next_cursor": "string \| null" }`, **oldest first**; without `version_id`, every version's comments | 404 if you can't see the PRD; 400 `invalid_cursor` |
-| `POST /api/prds/{id}/comments` | `{ "version_id": "uuid", "section_type": null \| "<section type>", "body": "1–5,000 chars" }` | 201 `Comment` | 404; 409 `no_saved_version` (the PRD has never been saved: disable the comment box); 409 `stale_version` (someone saved since: reload, keep the draft, post again); 422 `validation_error` (blank or too-long body, unknown section) |
+| `POST /api/prds/{id}/comments` | `{ "version_id": "uuid", "section_type": null \| "<section type>", "body": "1–5,000 chars", "mentions"?: ["user_id", …] }` | 201 `Comment` | 404; 409 `no_saved_version` (the PRD has never been saved: disable the comment box); 409 `stale_version` (someone saved since: reload, keep the draft, post again); 422 `validation_error` (blank or too-long body, unknown section, more than 20 mentions); 422 `mention_without_access` (someone mentioned can't see the PRD: nothing is posted) |
 
 - Send the `current_version.id` from `GET /api/prds/{id}` as `version_id`.
 - `section_type` is one of the nine section types in [`prd-document-format.md`](prd-document-format.md), or `null`
@@ -291,7 +362,14 @@ its review.
 - `author.name` and `author.department` are frozen when the comment is posted, so later renames or department
   moves don't change them.
 - Posting notifies the PRD's owners and editors (`comment_added`, with `comment_id` and `version_id` set). Inbox
-  `payload`: `{ section_type }`.
+  `payload`: `{ section_type }`, plus `mentioned_user_ids` when the comment mentions anyone.
+- **Mentions:** send the ids of the people mentioned in `mentions` (up to 20; duplicates are ignored). Only people
+  who can see the PRD can be mentioned: offer the PRD's people (`GET /api/prds/{id}/members`); org admins can also be
+  mentioned. Anyone else rejects the comment with 422 `mention_without_access`; mentioning never gives access.
+  - Each mentioned person gets one `mentioned` notification straight away (never batched), **instead of** the
+    `comment_added` one. Mentioning yourself notifies no one.
+  - `mentions[].name` is frozen when the comment is posted, like `author.name`. The body is still plain text: put
+    "@Name" in it for display and highlight it by matching `mentions` names.
 
 ### Reviews
 
@@ -308,7 +386,10 @@ requests changes; when everyone has approved, the PRD becomes `final`.
   "submitted_by": "uuid | null", "submitted_at": "…", "completed_at": "… | null",
   "reviewers": [{ "user_id": "uuid", "name": "string | null", "department": "string | null",
                   "state": "pending | approved | changes_requested", "decided_at": "… | null",
-                  "explanation": "string | null", "comment_id": "uuid | null" }]
+                  "explanation": "string | null", "comment_id": "uuid | null" }],
+  "removed_reviewers": [{ "user_id": "uuid | null", "name": "string | null", "department": "string | null",
+                          "reason": "removed | replaced | reviewer_deactivated | reviewer_removed",
+                          "replaced_by": "uuid | null", "removed_by": "uuid | null", "removed_at": "…" }]
 }
 ```
 
@@ -316,6 +397,8 @@ requests changes; when everyone has approved, the PRD becomes `final`.
 |---|---|---|---|
 | `POST /api/prds/{id}/reviews` | `{ "revision": int, "version_id": "uuid", "reviewer_ids": ["uuid", …] }` (1–50) | 201 `{ "round": ReviewRound, "revision": int, "status": "in_review" }` | 404; 403 not an owner or org admin; 409 `stale_revision`, `stale_version`, `no_saved_version`, `review_in_progress`; 422 `empty_prd`, `not_in_organization`, `owner_cannot_review`, `validation_error` (no reviewers) |
 | `GET /api/prds/{id}/reviews?limit=25&cursor=` | | 200 `{ "items": ReviewRound[], "next_cursor": … }`, newest first, superseded rounds included | 404; 400 `invalid_cursor` |
+| `POST /api/prds/{id}/reviews/{round_id}/reviewers/{user_id}/replace` | `{ "reviewer_id": "uuid" }` | 200 `{ "round": ReviewRound, "revision": int, "status": … }` | 404 can't see the PRD, the round, or that reviewer on it; 403 not an owner or org admin; 409 `round_not_open`, `reviewer_already_decided`, `already_a_reviewer`; 422 `not_in_organization`, `owner_cannot_review` |
+| `DELETE /api/prds/{id}/reviews/{round_id}/reviewers/{user_id}` | | 200 `{ "round": ReviewRound, "revision": int, "status": "in_review" \| "final" }` | as replace, plus 409 `last_reviewer` (replace them instead) |
 | `PUT /api/prds/{id}/reviews/{round_id}/decision` | `{ "version_id": "uuid", "decision": "approved" \| "changes_requested", "explanation"?: "string", "section_type"?: null \| "<section type>" }` | 200 `{ "round": ReviewRound, "revision": int, "status": "in_review" \| "final" }` | 404 can't see the PRD or round; 403 not a reviewer on it, or `owner_cannot_review`; 409 `stale_version` (the PRD changed since submission), `round_not_current`, `decision_already_made`; 422 `validation_error` (no explanation for changes, over 5,000 characters, unknown section) |
 
 - Send the `revision` and `current_version.id` of the PRD you loaded (`GET /api/prds/{id}`).
@@ -331,9 +414,17 @@ requests changes; when everyone has approved, the PRD becomes `final`.
   (`GET .../reviews`). Reviewers who left are dropped; if none remain, or the PRD is emptied, it goes back to `draft`.
   Edits to an approved PRD are owner-only and go through a modal to confirm the reviewers. Request and response
   details: [Saving during or after a review](#prds).
-- The reviewer list is frozen when the round starts. Names and departments are as of submission. The one exception
-  for now: a reviewer who loses access (deactivated, or removed from the PRD) before deciding is dropped from the
-  round, and its `reviewers` no longer list them. Decisions already made stay.
+- The reviewer list is set when the round starts. Names and departments are as of submission. It changes only for
+  reviewers who **haven't decided yet**; decisions already made always stay:
+  - **Owners and org admins replace or remove them** on an open round (`in_review` or `changes_requested`). A
+    replacement starts pending (added as a viewer if needed, same rules as submitting). The last reviewer can only be
+    replaced. If removing someone leaves only approvals on an `in_review` round, the round is approved and the PRD
+    becomes `final`.
+  - **A reviewer who loses access** (deactivated, or removed from the PRD) is dropped automatically, as before.
+  - Either way they move to `removed_reviewers` with the `reason`, so show them as history. `removed_by` is `null`
+    when the system dropped them.
+  - A replace or remove sends a `reviewer_changed` notification to the removed and the added reviewer
+    (`payload`: `{ round_no, removed_reviewer_id, added_reviewer_id }`).
 - **Deciding:** send the round's `version_id`. **Requesting changes needs an `explanation`**; it's saved as a comment
   on that version (optionally on one section) and shown as the reviewer's `explanation`. An approval can carry an
   optional note the same way.
@@ -375,7 +466,8 @@ Anyone who can view the PRD can read it. Events are never edited or deleted.
   and the name is kept.
 - **`type`** filters the feed; repeat it for several (`?type=approved&type=changes_requested`). Types: `created`,
   `version_saved`, `ai_applied`, `member_added`, `member_role_changed`, `member_removed`, `comment_added`,
-  `team_added`, `submitted`, `approved`, `changes_requested`, `round_approved`, `superseded`,
+  `team_added`, `mentioned`, `submitted`, `approved`, `changes_requested`, `round_approved`, `superseded`,
+  `reviewer_changed`,
   `work_status_changed`. Show any
   other type you don't recognise with its `summary`; new types will be added. Nothing records `created` yet, so
   the feed has no "created the PRD" line: show the PRD's own `created_at` for that.
@@ -411,7 +503,7 @@ Numbers and recent activity across **the PRDs you can see**: your own PRDs, or e
   an owning team. Both lists are sorted by `total`, largest first.
 - **`activity`** is the newest events across those PRDs, in the [activity feed's](#activity-e13) `Event` shape
   plus the PRD's id and title.
-- **No "overdue" yet:** it needs dates, which wait for the milestone decision.
+- **No "overdue":** PRDs have no target dates or milestones, and none are planned.
 
 ## Intake answers
 
@@ -661,6 +753,8 @@ accept or discard the whole proposal.
   review comments stays one, so only owners can adjust it (403 `owner_required`), and its comment ids are kept. A
   section edit (`/ai-edit`) can be adjusted too and comes back as a revision. A whole generated draft can't
   (`proposal_unavailable`).
+- **Adjusting one of a set of alternatives** ([feature 09](#alternative-proposals-from-review-feedback-feature-09)):
+  also send `"previous_option": <its number>`. Without it: 422 `option_required`.
 - **Needs** the `20261102120000_ai_revision_proposals` migration (a new proposal kind, `ai_revision`).
 
 ## Revision suggestions from review feedback (E12)
@@ -729,6 +823,7 @@ and no review state changes. Every request is a fresh summary (nothing is cached
 - **`comment_ids`** point at comments on that version ([Comments](#comments)); every item has at least one. Use them
   to jump to the comment. The server drops any reference the AI made up, and leaves out an item that's left with
   none.
+- **Each list has at most 10 items** (and each item at most 20 `comment_ids`). Extra items are cut, not an error.
 - **`section_type`** in `requested_changes` is one of the nine section types, or `null` for the whole PRD.
 - **Comment resolution isn't tracked**, so nothing here means "resolved". `unresolved_items` are points the comments
   themselves leave open; the AI is told never to call anything resolved.
@@ -741,6 +836,76 @@ and no review state changes. Every request is a fresh summary (nothing is cached
 - Errors: 404 (you can't see the PRD, or the version); 422 `validation_error` (bad `version_id` or an unknown
   field); plus the shared AI codes (`ai_cooldown`, `ai_busy`, `ai_disabled`, `ai_provider_rate_limited`,
   `ai_provider_error`, `ai_invalid_output`, `ai_unavailable`, `ai_budget_exhausted`).
+
+## Alternative proposals from review feedback (feature 09)
+
+**Proposed contract (draft PR, not on `develop` yet).** `POST /api/prds/{id}/review-alternatives` is E12 with two
+options instead of one. It asks the AI for two different ways to address chosen review comments, in **one** AI
+request. The person picks one, previews it like an E12 suggestion and accepts it through the normal save. **Nothing
+is saved, and nothing about the review changes** until then.
+
+| Body | Response | Who |
+|---|---|---|
+| `{ "revision": int, "feedback_ids": [uuid] (1–20), "instruction"?: "≤ 2000 chars" }` (the same body as E12) | 200 `{ base_revision, generation_record_id, options: [Option, Option] }` | **Owners only**, as for E12 (403 `owner_required`) |
+
+`Option` is `{ option: int, title, explanation, tradeoffs: [string] (1–4), proposal: { section_types, sections,
+content_json } }`. `option` is 1 or 2 today. The save and `previous_option` accept 1–3, so take the number from
+the response rather than hard-coding it. `proposal` has the same shape as an E12 proposal:
+- `sections`: only the sections this option changes;
+- `content_json`: the complete saved document with those sections replaced, ready for the existing preview or diff.
+
+```json
+{
+  "base_revision": 7,
+  "generation_record_id": "5b0c…",
+  "options": [
+    { "option": 1, "title": "Tighten the goal",
+      "explanation": "Makes the goal measurable and adds the budget risk Finance raised.",
+      "tradeoffs": ["Quick to review.", "Leaves scope as it is."],
+      "proposal": { "section_types": ["goals", "risks"], "sections": [ … ], "content_json": { "type": "doc", … } } },
+    { "option": 2, "title": "Phase the release",
+      "explanation": "Moves reviews to phase two so the first release fits the budget.",
+      "tradeoffs": ["Addresses the budget risk directly.", "Bigger change for reviewers to re-read."],
+      "proposal": { "section_types": ["goals", "non_goals", "risks"], "sections": [ … ], "content_json": { … } } }
+  ]
+}
+```
+
+- **One request, one record.** `generation_record_id` identifies the AI request: it's counted once against the
+  cooldown and usage limits, whichever option is used. An option is `generation_record_id` + `option`; there's no
+  separate id per option.
+- **Show both, let the person pick one.** Render `title`, `explanation` and `tradeoffs` as plain text. Comparing
+  options is just switching the existing preview between their `content_json`s. Always compare an option with the
+  **saved** PRD, not with the other option.
+- **Accept** by saving that option's `proposal.content_json` with `generation_record_id`, **`option`** and
+  `revision` = `base_revision` (see the S03 save). The rules are E12's: unchanged or with that option's sections
+  edited; other sections, the title and the description must not change (422 `proposal_scope`). Sections accepted
+  unchanged get the AI highlight. During a review it continues the round like any other save (E09).
+- **Accepting one option retires the other** in the same save. The other then gets 409 `proposal_unavailable`, so
+  close the options view after a successful accept. Resending the same acceptance after a lost response returns
+  the saved PRD. Sending the other option after that is still 409, never a false success.
+- **Both accepted at the same moment** (two tabs, or two owners): one wins. The other usually gets 409
+  `stale_revision`, because the winner's save moved the revision, and sometimes 409 `proposal_unavailable`. Treat
+  both the same: close the options view and reload the PRD.
+- **Request adjustments** on the chosen option uses `/ai-revisions` with `previous_generation_record_id` and
+  **`previous_option`** (see [AI revisions from the chat](#ai-revisions-from-the-chat)). The answer is a single
+  proposal (no `option`) that builds on that option and keeps its comment ids. **Once the AI has produced a valid
+  adjustment, neither option of the set can be accepted** (409 `proposal_unavailable`): show the adjusted proposal
+  instead. This happens just before the adjustment is stored, so in the rare case that storing it then fails, both
+  options are already gone: ask again. If the adjustment request fails earlier (for example `ai_invalid_output`),
+  the options stay usable.
+  If the other option was accepted first, the adjustment gets 409 `proposal_unavailable`.
+- **Discarding** needs no call: options expire with the proposal lifetime (30 minutes today).
+- **An `instruction` is scope-checked** first, exactly as for E12 (422 `out_of_scope` / `clarification_needed`,
+  show `detail` as-is).
+- **Button flag:** the same as E12, `capabilities.can_request_review_suggestions`. The two can sit side by side
+  ("Suggest a fix" / "Show two options"), or the options view can replace the single suggestion. That's a UI choice.
+- **Errors:** E12's (404; 403 `owner_required`; 409 `stale_revision`; 409 `document_not_v2`; 422
+  `invalid_feedback`, `feedback_not_current`, `validation_error`; the shared AI codes). Both options come from one
+  reply, so if either is malformed (or they're identical) the whole request is 502 `ai_invalid_output`: offer to
+  try again.
+- **Needs** the `20261118224047_review_alternatives` migration (options on staged proposals, and a save that names
+  the option).
 
 ## Owning team and priority (A08)
 
@@ -763,7 +928,7 @@ The owning team grants no access. PRD responses add `owning_team_id` and `priori
 ## Notifications
 
 Each person's in-app inbox. Notifications are created by the actions themselves (for now: being invited to a PRD, alone or
-with your team, having your role changed, comments, review submissions and decisions). You never get one for your own action, and notifications
+with your team, having your role changed, comments, mentions, review submissions and decisions). You never get one for your own action, and notifications
 about a PRD you can no longer see are hidden from the list and the unread count.
 
 `Notification`:
@@ -787,14 +952,16 @@ about a PRD you can no longer see are hidden from the list and the unread count.
 - **`type`** is the event that caused it. Link to the PRD with `prd_id`; `version_id`, `round_id` and `comment_id`
   are set when the event has them. `actor_name` is the actor's name at the time (`null` for system or AI actions).
 - **`payload` by type:** `member_added`: `{ user_id, role }`; `member_role_changed`: `{ user_id, from, to }`;
-  `team_added`: `{ team_id, team_name, role, user_ids }` (the people added);
+  `team_added`: `{ team_id, team_name, role, user_ids }` (the people added); `mentioned`: `{ section_type, user_ids }`
+  (`comment_id` is the comment; never batched);
   `comment_added`: `{ section_type }`; `submitted`: `{ round_no, resubmitted }`; `approved`: `{ round_no }`;
   `changes_requested`: `{ round_no, section_type }`; `round_approved`: `{ round_no, reviewer_id }` (the last
-  approver; `null` when the round completed because a pending reviewer lost access, with `reason` and
-  `removed_reviewer_id`: see [Managing members](#managing-members-admins)); `superseded` (`round_id` is the
+  approver; `null` when the round completed because a pending reviewer lost access or an owner removed them, with
+  `reason` (`reviewer_dropped` for an owner's removal) and `removed_reviewer_id`: see [Managing members](#managing-members-admins)); `superseded` (`round_id` is the
   superseded round): after an edit `{ reviewer_ids, continued, version_no, changed, generation_record_id? }`, where
   `continued` is `false` when the PRD went back to draft, or, when the last pending reviewer lost access,
-  `{ round_no, reviewer_ids: [], continued: false, reason, removed_reviewer_id }`; `work_status_changed`:
+  `{ round_no, reviewer_ids: [], continued: false, reason, removed_reviewer_id }`; `reviewer_changed`: `{ round_no, removed_reviewer_id, added_reviewer_id }` (`added_reviewer_id` is `null` for a
+  removal); `work_status_changed`:
   `{ from, to, status }` (only `done` notifies, the owners).
 - **Comment batching:** several comments from one person on one PRD, starting within 10 minutes of the first, share
   one unread notification. `count` is how many comments it stands for ("Ed left 3 comments"), `comment_id` points at
@@ -815,7 +982,8 @@ what that person could see in Nautilus. Linking is a "Connect Discord" section i
 1. The user clicks "Connect Discord": call `POST /api/integrations/discord/link-code` and show the code with a
    countdown and the instruction "Run `/link K7QX-M2PA-9DZR` in Discord".
 2. They run it in Discord. The bot links the account; poll `GET /api/integrations/discord/link` every few seconds
-   (or offer a "Done" button that checks it) until `linked` is `true`.
+   (or offer a "Done" button that checks it) until `linked` is `true`. Stop polling at the code's `expires_at`
+   and offer "Get a new code", so a settings page left open doesn't keep calling the API.
 3. Linked: show "Connected to Discord" and an "Unlink" button (`DELETE`).
 
 | Route | Body | Response | Errors |

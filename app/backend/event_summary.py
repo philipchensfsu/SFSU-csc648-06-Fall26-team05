@@ -14,21 +14,29 @@ from prd_document import section_title
 EVENT_TYPES = (
     "created", "version_saved", "ai_applied",
     "member_added", "member_role_changed", "member_removed", "team_added",
-    "comment_added", "submitted", "approved", "changes_requested", "round_approved", "superseded",
-    "work_status_changed",
+    "comment_added", "mentioned", "submitted", "approved", "changes_requested", "round_approved", "superseded",
+    "reviewer_changed", "work_status_changed",
 )
 
 # Payload keys that hold another person's id, whose name the summary needs.
-PERSON_KEYS = ("user_id", "removed_reviewer_id")
+PERSON_KEYS = ("user_id", "removed_reviewer_id", "added_reviewer_id")
 
 SYSTEM_REASONS = {
     "reviewer_deactivated": "was deactivated",
     "reviewer_removed": "was removed from the PRD",
+    "reviewer_dropped": "was taken off the review",
 }
 
 
+# Payload keys that hold a list of people (mentioned, team_added).
+PEOPLE_LIST_KEYS = ("user_ids",)
+
+
 def people_in(payload: dict) -> set[str]:
-    return {payload[key] for key in PERSON_KEYS if payload.get(key)}
+    people = {payload[key] for key in PERSON_KEYS if payload.get(key)}
+    for key in PEOPLE_LIST_KEYS:
+        people.update(payload.get(key) or [])
+    return people
 
 
 def summarize(event: dict, names: dict) -> str:
@@ -112,6 +120,19 @@ def _commented(actor, payload, name):
     return f"{actor} commented on {section}" if section else f"{actor} commented"
 
 
+def _listed(names: list[str]) -> str:
+    if len(names) > 3:
+        names = names[:2] + [f"{len(names) - 2} others"]
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
+def _mentioned(actor, payload, name):
+    people = _listed([name(user_id) for user_id in payload.get("user_ids") or []] or ["someone"])
+    section = _section(payload.get("section_type"))
+    where = f" in a comment on {section}" if section else " in a comment"
+    return f"{actor} mentioned {people}{where}"
+
+
 def _submitted(actor, payload, name):
     verb = "resubmitted" if payload.get("resubmitted") else "submitted"
     return f"{actor} {verb} the PRD for review ({_round(payload)})"
@@ -153,6 +174,13 @@ def _superseded(actor, payload, name):
     return f"{saved}; the review restarted{decisions}"
 
 
+def _reviewer_changed(actor, payload, name):
+    removed = name(payload.get("removed_reviewer_id"))
+    if payload.get("added_reviewer_id"):
+        return f"{actor} replaced {removed} with {name(payload['added_reviewer_id'])} as a reviewer ({_round(payload)})"
+    return f"{actor} removed {removed} as a reviewer ({_round(payload)})"
+
+
 def _work_status(actor, payload, name):
     return f"{actor} changed work status from {_status(payload.get('from'))} to {_status(payload.get('to'))}"
 
@@ -169,10 +197,12 @@ SUMMARIES = {
     "member_removed": _member_removed,
     "team_added": _team_added,
     "comment_added": _commented,
+    "mentioned": _mentioned,
     "submitted": _submitted,
     "approved": _approved,
     "changes_requested": _changes_requested,
     "round_approved": _round_approved,
     "superseded": _superseded,
+    "reviewer_changed": _reviewer_changed,
     "work_status_changed": _work_status,
 }

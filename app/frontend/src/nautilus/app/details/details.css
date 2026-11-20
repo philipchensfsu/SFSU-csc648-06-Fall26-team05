@@ -346,6 +346,116 @@
   align-self: flex-start;
 }
 
+/* Activity (E13): the tab's feed and the Overview's recent card */
+.nd-activity {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.nd-activity-intro {
+  margin: -6px 0 0;
+}
+.nd-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.nd-chip {
+  padding: 5px 12px;
+  border: 1px solid #C3DADE;
+  border-radius: 999px;
+  background: #FFFFFF;
+  color: #33555B;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.nd-chip:hover {
+  border-color: #1D6F7A;
+}
+.nd-chip.is-active {
+  border-color: #102C33;
+  background: #102C33;
+  color: #FFFFFF;
+  font-weight: 600;
+}
+.nd-chip:focus-visible {
+  outline: 2px solid #1D6F7A;
+  outline-offset: 2px;
+}
+.nd-acts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.nd-act {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-top: 1px solid #EDF5F6;
+}
+.nd-act:first-child {
+  border-top: 0;
+}
+.nd-act-icon {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: #EDF5F6;
+  color: #557479;
+}
+.nd-act-edits {
+  background: #EAF1FB;
+  color: #2F5C99;
+}
+.nd-act-people {
+  background: #F3EDFA;
+  color: #6A4A93;
+}
+.nd-act-reviews {
+  background: #E3F5EC;
+  color: #0E6139;
+}
+.nd-act-work {
+  background: #FFF3DF;
+  color: #8A5A0B;
+}
+.nd-act-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+.nd-act-text {
+  margin: 0;
+  color: #102C33;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.nd-act-link {
+  flex: none;
+  font-size: 13px;
+}
+.nd-recent {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+.nd-recent .nd-act-text {
+  font-size: 13px;
+}
+
 /* One version */
 .nd-version-screen {
   display: flex;

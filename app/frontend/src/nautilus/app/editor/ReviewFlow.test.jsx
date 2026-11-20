@@ -383,7 +383,19 @@ describe("commenting when someone saved first", () => {
     expect(host.querySelector(".ne-comment-box").value).toBe("Ship it");
     expect(host.querySelector(".ne-comments").hidden).toBe(false); // still on the Comments tab
     await click(buttonNamed("Comment"));
-    expect(api.addPrdComment).toHaveBeenLastCalledWith("p1", { versionId: "v2", body: "Ship it" });
+    expect(api.addPrdComment).toHaveBeenLastCalledWith("p1", { versionId: "v2", body: "Ship it", mentions: [] });
     expect(host.textContent).toContain("Ship it");
+  });
+});
+
+describe("opening the editor on a side tab", () => {
+  it("starts on the Comments tab when asked, as an activity line's View comment does", async () => {
+    await show({ detail: { ...owner, currentVersion: { id: "v1" } }, initialRailTab: "comments" });
+    expect(host.querySelector(".ne-comments").hidden).toBe(false);
+  });
+
+  it("starts on Review otherwise", async () => {
+    await show({ detail: { ...owner, currentVersion: { id: "v1" } } });
+    expect(host.querySelector(".ne-comments").hidden).toBe(true);
   });
 });

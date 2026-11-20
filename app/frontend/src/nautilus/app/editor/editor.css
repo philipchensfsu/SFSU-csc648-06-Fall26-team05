@@ -530,6 +530,26 @@
   flex: 1 1 220px;
   min-width: 0;
 }
+/* "A person" / "A whole team" reuses the comparison's .nc-toggle, which is
+   hidden on wide screens there; here it always shows. */
+.nc-toggle.ne-share-mode {
+  display: inline-flex;
+  align-self: flex-start;
+}
+.ne-share-mode .nc-toggle-btn:disabled {
+  cursor: default;
+}
+.ne-share-result {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: #E3F5EC;
+  color: #0E6139;
+  font-size: 13px;
+}
+.ne-share-result strong {
+  font-weight: 600;
+}
 .ne-alert-action {
   padding: 0;
   border: 0;
@@ -585,27 +605,39 @@
 .ne-outline-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 4px;
 }
+/* Each section is a light, bordered button so the list reads as navigation
+   on the white page. Current adds a teal border and left bar, so it stays
+   distinct from hover. */
 .ne-outline-item {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
+  min-width: 0;
   padding: 6px 8px;
-  border: 0;
+  border: 1px solid #DCEBEE;
   border-radius: 7px;
-  background: transparent;
+  background: #F7FBFC;
   color: #3E5A60;
   font-size: 13.5px;
   text-align: left;
+  transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .ne-outline-item:hover {
-  background: #E9F3F5;
+  background: #EDF5F6;
+  border-color: #C3DADE;
   color: #102C33;
+}
+.ne-outline-item:focus-visible {
+  outline: 2px solid #1D6F7A;
+  outline-offset: 2px;
 }
 .ne-outline-item.is-current {
   background: #E3F6F8;
+  border-color: #1D6F7A;
+  box-shadow: inset 3px 0 0 #1D6F7A;
   color: #155E68;
   font-weight: 600;
 }
@@ -1469,7 +1501,8 @@
     animation: none;
   }
   .ne-meter-fill,
-  .ne-pfish {
+  .ne-pfish,
+  .ne-outline-item {
     transition: none;
   }
   .ne-pbubble {
@@ -1625,6 +1658,45 @@
 .ne-comment-box:disabled {
   background: #F4F8F9;
   color: #557479;
+}
+/* @mentions: the picker under the comment box, and names in posted comments. */
+.ne-mention {
+  padding: 0 3px;
+  border-radius: 4px;
+  background: #E1F1F3;
+  color: #13545D;
+  font-weight: 600;
+}
+.ne-mention-list {
+  margin: -4px 0 0;
+  padding: 4px;
+  list-style: none;
+  border: 1px solid #C3DADE;
+  border-radius: 10px;
+  background: #FFFFFF;
+  box-shadow: 0 8px 20px -14px rgba(16, 44, 51, 0.35);
+}
+.ne-mention-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 7px;
+  color: #102C33;
+  font-size: 14px;
+  cursor: pointer;
+}
+.ne-mention-option.is-active {
+  background: #EDF5F6;
+}
+.ne-mention-name {
+  font-weight: 600;
+}
+.ne-mention-role {
+  margin-left: auto;
+  color: #557479;
+  font-size: 12px;
+  text-transform: capitalize;
 }
 .ne-comment-actions {
   display: flex;

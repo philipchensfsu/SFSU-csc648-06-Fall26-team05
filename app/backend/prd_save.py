@@ -77,7 +77,7 @@ class SaveError(ApiError):
 
 def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title=UNSET, description=UNSET,
              content_json=UNSET, origin: str = "pm_edit", generation_record_id=None,
-             confirmed_reviewer_ids=None) -> dict:
+             confirmed_reviewer_ids=None, option: int | None = None) -> dict:
     """Saves the given fields of one PRD and returns the saved row.
 
     verified_user is auth["user"] from get_current_user: the actor comes from
@@ -88,6 +88,10 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
 
     confirmed_reviewer_ids is the reviewer list an owner confirmed in the edit
     modal; only an approved PRD takes one (E09, Decision 9).
+
+    option picks one of the options an AI call staged (alternatives); it
+    needs generation_record_id. Accepting it makes the other options
+    unavailable in the same transaction.
     """
     actor_id = verified_actor_id(verified_user)
     if isinstance(base_revision, bool) or not isinstance(base_revision, int) or base_revision < 1:
@@ -96,6 +100,10 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
         raise SaveError(422, "Unknown save origin", "validation_error")
     if (origin == "ai_generated") != (generation_record_id is not None):
         raise SaveError(422, "Only an AI save names a generation record, and it must", "validation_error")
+    if option is not None and (generation_record_id is None or isinstance(option, bool)
+                               or not isinstance(option, int) or not 1 <= option <= 3):
+        raise SaveError(422, "option names one of an AI call's options (1 to 3) and needs generation_record_id",
+                        "validation_error")
 
     reviewers = None
     if confirmed_reviewer_ids is not None:
@@ -131,7 +139,7 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
         accepted = acceptance.prepare(service_client, actor_id=actor_id, prd_id=prd_id,
                                       base_revision=base_revision, generation_record_id=generation_record_id,
                                       title=title, description=description, content_json=content_json,
-                                      unset=UNSET)
+                                      unset=UNSET, option=option)
         content_json = accepted.content_json
         apply_context_patch = accepted.apply_context_patch
         if content_json is not UNSET:
@@ -156,6 +164,7 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
         "p_generation_record_id": None if generation_record_id is None else str(generation_record_id),
         "p_apply_context_patch": apply_context_patch,
         "p_confirmed_reviewers": reviewers,
+        "p_option": option,
     }
     try:
         response = service_client.rpc("save_prd", params).execute()
