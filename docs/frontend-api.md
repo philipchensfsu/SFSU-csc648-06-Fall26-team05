@@ -503,7 +503,7 @@ Numbers and recent activity across **the PRDs you can see**: your own PRDs, or e
   an owning team. Both lists are sorted by `total`, largest first.
 - **`activity`** is the newest events across those PRDs, in the [activity feed's](#activity-e13) `Event` shape
   plus the PRD's id and title.
-- **No "overdue" yet:** it needs dates, which wait for the milestone decision.
+- **No "overdue":** PRDs have no target dates or milestones, and none are planned.
 
 ## Intake answers
 
@@ -982,7 +982,8 @@ what that person could see in Nautilus. Linking is a "Connect Discord" section i
 1. The user clicks "Connect Discord": call `POST /api/integrations/discord/link-code` and show the code with a
    countdown and the instruction "Run `/link K7QX-M2PA-9DZR` in Discord".
 2. They run it in Discord. The bot links the account; poll `GET /api/integrations/discord/link` every few seconds
-   (or offer a "Done" button that checks it) until `linked` is `true`.
+   (or offer a "Done" button that checks it) until `linked` is `true`. Stop polling at the code's `expires_at`
+   and offer "Get a new code", so a settings page left open doesn't keep calling the API.
 3. Linked: show "Connected to Discord" and an "Unlink" button (`DELETE`).
 
 | Route | Body | Response | Errors |
@@ -998,6 +999,28 @@ what that person could see in Nautilus. Linking is a "Connect Discord" section i
 - `discord_user_id` is Discord's numeric user id (a string; it doesn't fit in a JavaScript number). There's no
   Discord username: show "Connected to Discord".
 - Linking grants nothing: access is checked each time the bot asks for something, as that person.
+
+### Bot routes (for the Discord bot)
+
+For Marco's bot (`app/discord-bot/`), not the web app. Every request sends two headers:
+
+- **`X-Bot-Secret`:** the shared bot secret (`BOT_API_SECRET` on both sides). Wrong or missing: 401.
+- **`X-Discord-User-Id`:** the Discord user id of whoever ran the command (from the interaction, never typed by
+  a user). Not a Discord id: 422 `invalid_discord_user`.
+
+Apart from `/link`, every route answers **as the linked person**: exactly what they'd see in Nautilus, nothing
+more. Reply **ephemerally** (only the person who ran the command sees it), so PRD details never show to the rest of
+a channel.
+
+| Route | Body | Response | Errors |
+|---|---|---|---|
+| `POST /api/bot/link` | `{ "code": "K7QX-M2PA-9DZR" }` (any case; dashes and spaces optional) | 200 `{ linked: true, full_name }`: reply "Linked as {full_name}" | 404 `invalid_link_code` (unknown, used or expired: create a new one in Nautilus) |
+| `GET /api/bot/me` | | 200, the same as `GET /api/me`: `{ id, email, full_name, organization }` | 403 `discord_not_linked` |
+
+- **403 `discord_not_linked`** on any route: the Discord account isn't linked (or the person unlinked it, or the
+  account is gone). Reply with how to link: create a code in Nautilus settings, then `/link <code>`.
+- **503 `bot_not_configured`:** the server has no `BOT_API_SECRET` or `SUPABASE_JWT_SECRET`.
+- Linking a Discord account that's already linked moves it to the new person; linking again replaces the old link.
 
 ## Coming in open PRs
 

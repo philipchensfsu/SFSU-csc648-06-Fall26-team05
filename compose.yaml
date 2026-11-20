@@ -27,6 +27,11 @@ services:
       SUPABASE_URL: http://host.docker.internal:54321
       SUPABASE_ANON_KEY: *anon-key
       SUPABASE_SERVICE_ROLE_KEY: *service-role-key
+      # The Supabase CLI's public local JWT secret (the same on every machine),
+      # for signing Discord bot requests. Production uses the project's own.
+      SUPABASE_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      # Local only: the bot (app/discord-bot/) sends the same value.
+      BOT_API_SECRET: ${BOT_API_SECRET:-local-bot-secret}
       WATCHFILES_FORCE_POLLING: ${DOCKER_POLLING:-false}
       # The v2 save (S03) is on for this local stack, so the v2 editor works
       # against local Supabase. Production keeps it off until the hosted
