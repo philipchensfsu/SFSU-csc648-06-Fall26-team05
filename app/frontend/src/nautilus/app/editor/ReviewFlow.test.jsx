@@ -518,6 +518,36 @@ describe("managing reviewers on an open round", () => {
     expect(lastButtonNamed("Replace reviewer").disabled).toBe(true);
   });
 
+  it("offers an owner as the replacement only when the round lets owners review", async () => {
+    // Alice and Fay own the PRD; Ben and Erin are on the round.
+    api.getDirectory.mockResolvedValue({
+      organization: { id: "org", name: "Campus Apps" },
+      members: [...members, { user_id: "fay", name: "Fay Designer", email: "fay@example.com" }],
+    });
+    const detail = {
+      ...managing,
+      owners: [
+        { id: "alice", name: "Alice PM" },
+        { id: "fay", name: "Fay Designer" },
+      ],
+    };
+    const openReplace = () =>
+      click([...rowOf("Erin Engineer").querySelectorAll("button")].find((b) => b.textContent.startsWith("Replace")));
+
+    api.listReviews.mockResolvedValue({ items: [{ id: "r1", owner_review_allowed: false, reviewers: [] }] });
+    await show({ detail, userId: "alice", onReplaceReviewer: vi.fn(), onRemoveReviewer: vi.fn() });
+    await openReplace();
+    expect(openDialog().textContent).not.toContain("Fay Designer");
+    await act(async () => root.unmount());
+    host.remove();
+
+    api.listReviews.mockResolvedValue({ items: [{ id: "r1", owner_review_allowed: true, reviewers: [] }] });
+    await show({ detail, userId: "alice", onReplaceReviewer: vi.fn(), onRemoveReviewer: vi.fn() });
+    await openReplace();
+    expect(api.listReviews).toHaveBeenLastCalledWith("p1", { limit: 1 });
+    expect(openDialog().textContent).toContain("Fay Designer");
+  });
+
   it("sends the chosen replacement and closes the dialog", async () => {
     api.getDirectory.mockResolvedValue({
       organization: { id: "org", name: "Campus Apps" },

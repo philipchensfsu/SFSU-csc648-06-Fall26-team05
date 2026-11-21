@@ -626,6 +626,7 @@ function EditorPage({
     detail?.capabilities?.can_assign === true && onReplaceReviewer && onRemoveReviewer
       ? {
           organizationId,
+          prdId: prd.id,
           owners: detail?.owners ?? [],
           onReplace: (reviewerId, newId) => changeReviewer(() => onReplaceReviewer(reviewerId, newId)),
           onRemove: (reviewerId) => changeReviewer(() => onRemoveReviewer(reviewerId)),

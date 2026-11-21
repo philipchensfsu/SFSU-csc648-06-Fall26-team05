@@ -103,19 +103,27 @@ export const YourReviewCard = forwardRef(function YourReviewCard({ choice, block
 // Reviewers change only on an open round, and only those who haven't decided.
 const OPEN_ROUND_STATES = new Set(["in_review", "changes_requested"]);
 
-function ReplaceForm({ reviewer, reviewers, organizationId, owners, userId, busy, onReplace, onClose }) {
+function ReplaceForm({ reviewer, reviewers, organizationId, prdId, roundId, owners, userId, busy, onReplace, onClose }) {
   const [directory, setDirectory] = useState(null);
   const [loadError, setLoadError] = useState("");
   const [attempt, setAttempt] = useState(0);
   const [selected, setSelected] = useState(() => new Set());
   const [error, setError] = useState("");
 
+  // The round says whether owners may review it (owner_review_allowed, set
+  // when it started), which the PRD's approval summary doesn't carry. If the
+  // round can't be read, the usual rule applies and the API has the last word.
   useEffect(() => {
     let current = true;
-    api
-      .getDirectory(organizationId)
-      .then((org) => {
-        if (current) setDirectory(org);
+    const round = prdId
+      ? api
+          .listReviews(prdId, { limit: 1 })
+          .then((page) => page?.items?.find((item) => item.id === roundId) ?? null)
+          .catch(() => null)
+      : Promise.resolve(null);
+    Promise.all([api.getDirectory(organizationId), round])
+      .then(([org, openRound]) => {
+        if (current) setDirectory({ ...org, ownerReviewAllowed: openRound?.owner_review_allowed === true });
       })
       .catch((cause) => {
         if (current) setLoadError(cause?.message || "Try again.");
@@ -123,7 +131,7 @@ function ReplaceForm({ reviewer, reviewers, organizationId, owners, userId, busy
     return () => {
       current = false;
     };
-  }, [organizationId, attempt]);
+  }, [organizationId, prdId, roundId, attempt]);
 
   async function replace() {
     setError("");
@@ -161,9 +169,11 @@ function ReplaceForm({ reviewer, reviewers, organizationId, owners, userId, busy
     );
   }
 
-  // Anyone already on the round can't be added again.
+  // Anyone already on the round can't be added again. Owners can be picked
+  // only when the round allows owners to review.
   const onRound = new Set(reviewers.map((person) => person.user_id));
-  const candidates = reviewerCandidates(directory.members ?? [], owners).filter(
+  const members = directory.members ?? [];
+  const candidates = (directory.ownerReviewAllowed ? members : reviewerCandidates(members, owners)).filter(
     (person) => !onRound.has(person.user_id),
   );
 
@@ -199,7 +209,7 @@ function ReplaceForm({ reviewer, reviewers, organizationId, owners, userId, busy
 }
 
 // Where the current round stands, and what each reviewer said.
-// With `manage` ({ organizationId, owners, onReplace(userId, newId),
+// With `manage` ({ organizationId, prdId, owners, onReplace(userId, newId),
 // onRemove(userId) }), owners and org admins can replace or remove a reviewer
 // who hasn't decided yet while the round is open.
 export function ApprovalsCard({ approval, userId, manage = null }) {
@@ -351,6 +361,8 @@ export function ApprovalsCard({ approval, userId, manage = null }) {
               reviewer={replacing}
               reviewers={reviewers}
               organizationId={manage.organizationId}
+              prdId={manage.prdId}
+              roundId={approval.round_id}
               owners={manage.owners ?? []}
               userId={userId}
               busy={busyId !== null}
