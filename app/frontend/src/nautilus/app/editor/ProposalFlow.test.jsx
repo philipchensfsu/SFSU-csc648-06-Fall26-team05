@@ -70,6 +70,8 @@ async function show(props = {}) {
   handlers = {
     onRequestProposal: vi.fn(),
     onRequestFeedbackProposal: vi.fn().mockResolvedValue(),
+    onRequestFeedbackOptions: vi.fn().mockResolvedValue(),
+    onSelectOption: vi.fn(),
     onAcceptProposal: vi.fn().mockResolvedValue(),
     onDiscardProposal: vi.fn(),
     onAdjustProposal: vi.fn(),
@@ -299,8 +301,12 @@ describe("addressing review comments", () => {
   it("lets an owner pick current comments and ask for one proposal", async () => {
     await show({ detail: owner });
     await commentsTab();
-    await click(buttonNamed("Ask AI to address"));
-    expect(pick("Old note.")).toBeNull(); // older version: not pickable
+    // The card names the version and how many comments are on it.
+    expect(host.querySelector(".ne-ai-card").textContent).toContain("1 comment on the current version");
+    await click(buttonNamed("Address with AI"));
+    // While picking, only comments on the current version are listed.
+    expect(host.querySelector(".ne-comments").textContent).not.toContain("Old note.");
+    expect(host.querySelector(".ne-ai-card.is-picking").textContent).toContain("None picked yet");
     expect(buttonNamed("Propose changes").disabled).toBe(true);
     await click(pick("Add the stale-data risk."));
     await typeInto(host.querySelector(".ne-comments textarea"), "Keep the scope as it is.");
@@ -308,17 +314,63 @@ describe("addressing review comments", () => {
     expect(handlers.onRequestFeedbackProposal).toHaveBeenCalledWith(["c2"], "Keep the scope as it is.");
   });
 
+  it("asks for two options for the same picks", async () => {
+    await show({ detail: owner });
+    await commentsTab();
+    await click(buttonNamed("Address with AI"));
+    expect(buttonNamed("Show 2 options").disabled).toBe(true);
+    await click(pick("Add the stale-data risk."));
+    await click(buttonNamed("Show 2 options"));
+    expect(handlers.onRequestFeedbackOptions).toHaveBeenCalledWith(["c2"], null);
+    expect(handlers.onRequestFeedbackProposal).not.toHaveBeenCalled();
+  });
+
+  it("keeps the button, disabled with the reason, once every comment is on an older version", async () => {
+    // After a save: the owners' flag is off and no comment is on v3.
+    await show({
+      detail: {
+        ...owner,
+        currentVersion: { id: "v3", version_no: 3 },
+        capabilities: { can_edit: true, can_request_review_suggestions: false },
+      },
+    });
+    await commentsTab();
+    const button = buttonNamed("Address with AI");
+    expect(button.disabled).toBe(true);
+    const reason = host.querySelector(`#${button.getAttribute("aria-describedby")}`);
+    expect(reason.textContent).toContain("Nautilus can only address comments on the current version");
+    expect(host.querySelector(".ne-ai-card.is-blocked").textContent).toContain("No comments on version 3 yet");
+    expect(host.querySelector(".ne-comment-empty").textContent).toContain("No comments on version 3 yet.");
+    // The older comments are one tab away.
+    const earlierTab = host.querySelectorAll(".ne-comment-tab")[1];
+    expect(earlierTab.textContent).toBe("Earlier versions2");
+    await click(earlierTab);
+    expect(earlierTab.getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelector(".ne-comments").textContent).toContain("Add the stale-data risk.");
+    // The header says which version this is.
+    expect(host.querySelector(".ne-savestate").textContent).toContain("Version 3 · Saved");
+  });
+
+  it("isn't shown to someone who doesn't own the PRD", async () => {
+    await show({
+      prd: { ...prd, myRole: "editor" },
+      detail: { ...owner, currentVersion: { id: "v3", version_no: 3 }, capabilities: { can_edit: true } },
+    });
+    await commentsTab();
+    expect(buttonNamed("Address with AI")).toBeUndefined();
+  });
+
   it("isn't offered without the owners' flag", async () => {
     await show({ detail: { ...owner, capabilities: { can_edit: true, can_request_review_suggestions: false } } });
     await commentsTab();
-    expect(buttonNamed("Ask AI to address")).toBeUndefined();
+    expect(buttonNamed("Address with AI")).toBeUndefined();
   });
 
   it("keeps the picks and says why when it can't ask", async () => {
     await show({ detail: owner });
     handlers.onRequestFeedbackProposal.mockRejectedValue(apiError(422, "feedback_not_current"));
     await commentsTab();
-    await click(buttonNamed("Ask AI to address"));
+    await click(buttonNamed("Address with AI"));
     await click(pick("Add the stale-data risk."));
     await click(buttonNamed("Propose changes (1)"));
     expect(host.querySelector(".ne-comments").textContent).toContain("older version");
@@ -330,7 +382,7 @@ describe("addressing review comments", () => {
     await click(reviewButton());
     await click(host.querySelector('[aria-label="Confirm assumption: Students drive"]'));
     await commentsTab();
-    await click(buttonNamed("Ask AI to address"));
+    await click(buttonNamed("Address with AI"));
     await click(pick("Add the stale-data risk."));
     await click(buttonNamed("Propose changes (1)"));
     expect(handlers.onRequestFeedbackProposal).not.toHaveBeenCalled();
@@ -379,5 +431,95 @@ describe("requesting adjustments", () => {
     expect(buttonNamed("Discard").disabled).toBe(true);
     await act(async () => finish({ kind: "proposal", message: "Done." }));
     expect(buttonNamed("Accept changes").disabled).toBe(false);
+  });
+});
+
+describe("choosing between two options", () => {
+  const owner = {
+    capabilities: { can_edit: true, can_request_ai: true, can_request_review_suggestions: true },
+    owners: [{ id: "alice" }],
+    currentVersion: { id: "v2" },
+  };
+  const option = (number, title, text, tradeoffs) => ({
+    ...proposal,
+    generationRecordId: "rec-9",
+    proposedDocument: { type: "doc", content: [section("goals", text)] },
+    sectionTypes: ["goals"],
+    explanation: `Explains ${title}.`,
+    feedbackIds: ["c2", "c3"],
+    instruction: "Keep the scope.",
+    option: number,
+    title,
+    tradeoffs,
+  });
+  const options = [
+    option(1, "Tighten the goal", "40% join a group in week one.", ["Quick to review."]),
+    option(2, "Phase the release", "One campus first.", ["Bigger change for reviewers."]),
+  ];
+  const card = (title) => [...host.querySelectorAll(".no-card")].find((item) => item.textContent.includes(title));
+
+  it("shows both options and opens the first one's changes", async () => {
+    await show({ detail: owner, proposal: options[0], proposalOptions: options });
+    expect(host.querySelector(".ne-body")).toBeNull();
+    expect(host.textContent).toContain("2 ways to address the feedback");
+    expect(host.textContent).toContain("Based on 2 comments");
+    expect(host.textContent).toContain("Your note: Keep the scope.");
+    expect(card("Tighten the goal").textContent).toContain("Quick to review.");
+    expect(card("Phase the release").textContent).toContain("Bigger change for reviewers.");
+    expect(card("Tighten the goal").textContent).toContain("Goals");
+    // Only the open option shows what would change.
+    expect(card("Tighten the goal").querySelector(".nc-sections")).not.toBeNull();
+    expect(card("Phase the release").querySelector(".nc-sections")).toBeNull();
+    expect(card("Tighten the goal").querySelector("ins").textContent).toContain("40%");
+  });
+
+  it("opens another option, and applies the open one", async () => {
+    await show({ detail: owner, proposal: options[0], proposalOptions: options });
+    await click(card("Phase the release").querySelector("button"));
+    expect(handlers.onSelectOption).toHaveBeenCalledWith(2);
+    await click(buttonNamed("Apply option 1"));
+    expect(handlers.onAcceptProposal).toHaveBeenCalledWith();
+  });
+
+  it("says the review starts again when the PRD is in review", async () => {
+    await show({ detail: owner, proposal: options[0], proposalOptions: options });
+    expect(host.querySelector(".no-banner").textContent).not.toContain("review starts again");
+    await act(async () => root.unmount());
+    host.remove();
+    await show({ prd: { ...prd, status: "in_review" }, detail: owner, proposal: options[0], proposalOptions: options });
+    expect(host.querySelector(".no-banner").textContent).toContain("the review starts again with the same reviewers");
+  });
+
+  it("asks again with the same comments and note", async () => {
+    await show({ detail: owner, proposal: options[0], proposalOptions: options });
+    await click(buttonNamed("Ask again"));
+    expect(handlers.onRequestFeedbackOptions).toHaveBeenCalledWith(["c2", "c3"], "Keep the scope.");
+  });
+
+  it("shows why asking again failed, keeping the options", async () => {
+    await show({ detail: owner, proposal: options[0], proposalOptions: options });
+    handlers.onRequestFeedbackOptions.mockRejectedValue(apiError(429, "ai_cooldown", "Wait a moment, then try again."));
+    await click(buttonNamed("Ask again"));
+    expect(host.querySelector(".no [role=alert]").textContent).toContain("Just a moment between AI requests.");
+    expect(buttonNamed("Apply option 1").disabled).toBe(false);
+  });
+
+  it("adjusts the open option", async () => {
+    await show({ detail: owner, proposal: options[0], proposalOptions: options });
+    handlers.onAdjustProposal.mockResolvedValue({ kind: "proposal", message: "Adjusted." });
+    await click(buttonNamed("Request adjustments"));
+    expect(host.querySelector(".no-adjust").textContent).toContain("replaces both options");
+    await typeInto(host.querySelector(".no-adjust textarea"), "Keep SMS for week one");
+    await click(buttonNamed("Adjust option 1"));
+    expect(handlers.onAdjustProposal).toHaveBeenCalledWith("Keep SMS for week one", []);
+  });
+
+  it("explains an option that was used or expired, with a way back", async () => {
+    await show({ detail: owner, proposal: options[0], proposalOptions: options });
+    handlers.onAcceptProposal.mockRejectedValue(apiError(409, "proposal_unavailable"));
+    await click(buttonNamed("Apply option 1"));
+    expect(host.textContent).toContain("This proposal expired or was already used");
+    await click(buttonNamed("Back to the PRD"));
+    expect(handlers.onDiscardProposal).toHaveBeenCalled();
   });
 });
