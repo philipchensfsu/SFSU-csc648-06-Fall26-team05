@@ -197,6 +197,15 @@ export const api = {
       }),
     }),
 
+  // An AI summary of the comments on one saved version (feature 05): themes,
+  // open questions, requested changes and unresolved items. Read-only: nothing
+  // is saved. Without versionId, the PRD's current version.
+  summarizeDiscussion: (prdId, { versionId } = {}) =>
+    request(`/prds/${prdId}/discussion-summary`, {
+      method: "POST",
+      body: JSON.stringify(versionId ? { version_id: versionId } : {}),
+    }),
+
   // A PRD's activity feed (E13): one event per change, newest first, paged
   // with next_cursor. types narrows it to those event types (repeated ?type=).
   listPrdEvents: (prdId, { types = [], limit = 25, cursor } = {}) => {
