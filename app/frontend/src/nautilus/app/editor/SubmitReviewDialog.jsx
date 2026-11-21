@@ -1,11 +1,17 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "../../../../lib/api";
 import { initialsOf, reviewerCandidates } from "../format";
 import { Alert, Avatar, Modal } from "../ui";
 
-// Checkboxes for choosing reviewers. `selected` is a Set of user ids.
-export function ReviewerPicker({ candidates, selected, userId, disabled, onChange }) {
+// Checkboxes for choosing reviewers. `selected` is a Set of user ids. With
+// `single`, radio buttons for picking exactly one (a replacement reviewer).
+export function ReviewerPicker({ candidates, selected, userId, disabled, single = false, onChange }) {
+  const group = useId();
   function toggle(id) {
+    if (single) {
+      onChange(new Set([id]));
+      return;
+    }
     const next = new Set(selected);
     if (next.has(id)) next.delete(id);
     else next.add(id);
@@ -21,7 +27,8 @@ export function ReviewerPicker({ candidates, selected, userId, disabled, onChang
           <li key={person.user_id}>
             <label className="ne-reviewer">
               <input
-                type="checkbox"
+                type={single ? "radio" : "checkbox"}
+                name={single ? group : undefined}
                 checked={selected.has(person.user_id)}
                 disabled={disabled}
                 onChange={() => toggle(person.user_id)}

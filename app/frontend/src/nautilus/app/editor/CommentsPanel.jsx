@@ -95,7 +95,7 @@ function Comment({ comment, currentVersionId, onToggle, picked = false, pickDisa
 //                     full reload: that remounts the editor and loses the draft
 //   userId            the signed-in person, left out of the @mention list
 //                     (mentioning yourself notifies no one)
-//   id, labelledBy, hidden   tab panel wiring from EditorPage
+//   id, labelledBy, hidden   side panel wiring from EditorPage
 export default function CommentsPanel({ prd, currentVersionId, onSuggest, onRefresh, userId, id, labelledBy, hidden }) {
   const [comments, setComments] = useState(null);
   // Picking comments for the AI to address (owners, with onSuggest).
@@ -278,7 +278,7 @@ export default function CommentsPanel({ prd, currentVersionId, onSuggest, onRefr
   const listId = `${id}-mentions`;
   const pickable = (comments ?? []).some((comment) => comment.version_id === currentVersionId);
   return (
-    <section className="ne-card ne-comments" role="tabpanel" id={id} aria-labelledby={labelledBy} hidden={hidden}>
+    <section className="ne-card ne-comments" id={id} aria-labelledby={labelledBy} hidden={hidden}>
       <div className="ne-card-head">
         <h2 className="ne-card-title">Comments</h2>
         {comments?.length ? <span className="ne-card-count">{comments.length}</span> : null}

@@ -85,6 +85,9 @@ async function show(props) {
         onOpenAnswers={vi.fn()}
         onExit={vi.fn()}
         onHome={vi.fn()}
+        // These tests are about the Review panel, so it starts open; the
+        // editor itself opens with the side panel closed.
+        initialRailTab="review"
         {...props}
       />,
     );
@@ -97,6 +100,9 @@ const buttonNamed = (name) => buttonsNamed(name)[0];
 const lastButtonNamed = (name) => buttonsNamed(name).at(-1);
 const openDialog = () => host.querySelector("dialog[open]");
 const click = (button) => act(async () => button.click());
+// The Review button carries a count when there are assumptions to confirm.
+const reviewButton = () =>
+  [...host.querySelectorAll(".ne-bar button")].find((button) => button.textContent.trim().startsWith("Review"));
 
 function typeInto(field, value) {
   const set = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value").set;
@@ -394,8 +400,139 @@ describe("opening the editor on a side tab", () => {
     expect(host.querySelector(".ne-comments").hidden).toBe(false);
   });
 
-  it("starts on Review otherwise", async () => {
-    await show({ detail: { ...owner, currentVersion: { id: "v1" } } });
-    expect(host.querySelector(".ne-comments").hidden).toBe(true);
+  it("starts with the side panel closed otherwise, so the document gets the page", async () => {
+    await show({ detail: { ...owner, currentVersion: { id: "v1" } }, initialRailTab: null });
+    expect(host.querySelector(".ne-panel")).toBeNull();
+    expect(host.querySelector(".ne-panel-rail")).not.toBeNull();
+    expect(reviewButton().getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("opens Review from the top bar, and a reviewer's decision opens it too", async () => {
+    await show({ detail: reviewer, initialRailTab: null });
+    expect(host.textContent).not.toContain("Your review");
+    await click(reviewButton());
+    expect(host.textContent).toContain("Your review");
+    await click(host.querySelector('[aria-label="Close Review"]'));
+    expect(host.textContent).not.toContain("Your review");
+    await click(buttonNamed("Approve"));
+    expect(host.textContent).toContain("Your review");
+  });
+});
+
+describe("managing reviewers on an open round", () => {
+  // Alice owns the PRD; Ben approved, Erin hasn't decided.
+  const managing = {
+    ...reviewer,
+    capabilities: { can_edit: true, can_assign: true },
+  };
+  const rowOf = (name) => [...host.querySelectorAll(".ne-approval")].find((row) => row.textContent.includes(name));
+
+  function deferred() {
+    let resolve;
+    let reject;
+    const promise = new Promise((yes, no) => {
+      resolve = yes;
+      reject = no;
+    });
+    return { promise, resolve, reject };
+  }
+
+  it("offers Replace and Remove only on reviewers who haven't decided, and only to owners and admins", async () => {
+    await show({ detail: managing, userId: "alice", onReplaceReviewer: vi.fn(), onRemoveReviewer: vi.fn() });
+    expect(rowOf("Erin Engineer").textContent).toContain("Replace");
+    expect(rowOf("Erin Engineer").textContent).toContain("Remove");
+    expect(rowOf("Ben PM").querySelector("button")).toBeNull();
+    await act(async () => root.unmount());
+    host.remove();
+
+    await show({ detail: reviewer, userId: "ben", onReplaceReviewer: vi.fn(), onRemoveReviewer: vi.fn() });
+    expect(rowOf("Erin Engineer").querySelector("button")).toBeNull();
+  });
+
+  it("hides the buttons once the round is closed", async () => {
+    await show({
+      detail: { ...managing, approval: { ...managing.approval, state: "approved" } },
+      userId: "alice",
+      onReplaceReviewer: vi.fn(),
+      onRemoveReviewer: vi.fn(),
+    });
+    expect(rowOf("Erin Engineer").querySelector("button")).toBeNull();
+  });
+
+  it("only offers Replace for the last reviewer", async () => {
+    const approval = { ...managing.approval, required_count: 1, approved_count: 0, reviewers: [managing.approval.reviewers[1]] };
+    await show({ detail: { ...managing, approval }, userId: "alice", onReplaceReviewer: vi.fn(), onRemoveReviewer: vi.fn() });
+    expect(rowOf("Erin Engineer").textContent).toContain("Replace");
+    expect(rowOf("Erin Engineer").textContent).not.toContain("Remove");
+  });
+
+  it("removes after a confirmation, once, and shows a refusal", async () => {
+    const pending = deferred();
+    const onRemoveReviewer = vi.fn().mockReturnValue(pending.promise);
+    const onRetryDetail = vi.fn();
+    await show({ detail: managing, userId: "alice", onReplaceReviewer: vi.fn(), onRemoveReviewer, onRetryDetail });
+    await click(rowOf("Erin Engineer").querySelector("button.nw-btn-danger-outline"));
+    expect(rowOf("Erin Engineer").textContent).toContain("Remove Erin Engineer from this round?");
+    const confirm = buttonNamed("Remove");
+    // A double click sends one request.
+    await act(async () => {
+      confirm.click();
+      confirm.click();
+    });
+    expect(onRemoveReviewer).toHaveBeenCalledTimes(1);
+    expect(onRemoveReviewer).toHaveBeenCalledWith("erin");
+    expect(buttonNamed("Removing…").disabled).toBe(true);
+
+    const refused = Object.assign(new Error("This reviewer already decided; their decision stands."), {
+      code: "reviewer_already_decided",
+      status: 409,
+    });
+    await act(async () => pending.reject(refused));
+    expect(host.querySelector(".ne-approvals").previousElementSibling.textContent).toContain("already decided");
+    // The round is read again so the buttons match it.
+    expect(onRetryDetail).toHaveBeenCalled();
+  });
+
+  it("replaces with someone picked from the org who isn't on the round", async () => {
+    const onReplaceReviewer = vi.fn().mockResolvedValue();
+    await show({ detail: managing, userId: "alice", onReplaceReviewer, onRemoveReviewer: vi.fn() });
+    await click([...rowOf("Erin Engineer").querySelectorAll("button")].find((b) => b.textContent.startsWith("Replace")));
+    const dialog = openDialog();
+    expect(dialog.textContent).toContain("Replace Erin Engineer");
+    // Alice owns it; Ben and Erin are on the round already. Nobody else is left.
+    expect(dialog.textContent).toContain("Everyone else in your organization is already a reviewer");
+    expect(lastButtonNamed("Replace reviewer").disabled).toBe(true);
+  });
+
+  it("sends the chosen replacement and closes the dialog", async () => {
+    api.getDirectory.mockResolvedValue({
+      organization: { id: "org", name: "Campus Apps" },
+      members: [...members, { user_id: "fay", name: "Fay Designer", email: "fay@example.com" }],
+    });
+    const onReplaceReviewer = vi.fn().mockResolvedValue();
+    await show({ detail: managing, userId: "alice", onReplaceReviewer, onRemoveReviewer: vi.fn() });
+    await click([...rowOf("Erin Engineer").querySelectorAll("button")].find((b) => b.textContent.startsWith("Replace")));
+    const radios = [...openDialog().querySelectorAll('input[type="radio"]')];
+    expect(radios).toHaveLength(1);
+    await click(radios[0]);
+    await click(lastButtonNamed("Replace reviewer"));
+    expect(onReplaceReviewer).toHaveBeenCalledWith("erin", "fay");
+    expect(openDialog()).toBeNull();
+  });
+
+  it("keeps the dialog open with the error when a replace is refused", async () => {
+    api.getDirectory.mockResolvedValue({
+      organization: { id: "org", name: "Campus Apps" },
+      members: [...members, { user_id: "fay", name: "Fay Designer", email: "fay@example.com" }],
+    });
+    const onReplaceReviewer = vi
+      .fn()
+      .mockRejectedValue(Object.assign(new Error("That person is already a reviewer on this round."), { code: "already_a_reviewer" }));
+    await show({ detail: managing, userId: "alice", onReplaceReviewer, onRemoveReviewer: vi.fn(), onRetryDetail: vi.fn() });
+    await click([...rowOf("Erin Engineer").querySelectorAll("button")].find((b) => b.textContent.startsWith("Replace")));
+    await click(openDialog().querySelector('input[type="radio"]'));
+    await click(lastButtonNamed("Replace reviewer"));
+    expect(openDialog().querySelector("[role=alert]").textContent).toContain("already a reviewer");
+    expect(lastButtonNamed("Replace reviewer").disabled).toBe(false);
   });
 });

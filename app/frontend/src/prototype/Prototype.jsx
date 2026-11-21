@@ -88,9 +88,9 @@ function Prototype({
   const [aiProposal, setAiProposal] = useState(null);
   // Where the details screen is: { tab: "overview" | "activity" | "history", versionId?, compare? }.
   const [detailsView, setDetailsView] = useState({ tab: "overview" });
-  // The editor's side tab to open on ("review" unless something asked for
-  // another, like an activity line's "View comment").
-  const [editorRailTab, setEditorRailTab] = useState("review");
+  // The editor's side panel to open on: closed (null) unless something asked
+  // for a view, like an activity line's "View comment".
+  const [editorRailTab, setEditorRailTab] = useState(null);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
 
@@ -265,7 +265,7 @@ function Prototype({
     go("interview", row.id);
   }
 
-  function openPrd(prd, { railTab = "review" } = {}) {
+  function openPrd(prd, { railTab = null } = {}) {
     setEditorRailTab(railTab);
     // A PRD opened from search may not be in the list yet.
     setPrds((current) => (current.some((p) => p.id === prd.id) ? current : [prd, ...current]));
@@ -479,6 +479,15 @@ function Prototype({
     return api
       .decideReview(id, approval.round_id, { versionId: approval.version_id, decision, explanation })
       .then((result) => applyReviewResult(id, result));
+  }
+
+  // Swaps or drops an undecided reviewer on the round the page is showing.
+  // Removing the last pending one can approve the round and finalize the PRD,
+  // so the result goes through the same path as a decision.
+  function changeReviewer(id, call) {
+    const approval = prdDetail?.id === id ? prdDetail.approval : null;
+    if (!approval?.round_id) return Promise.reject(new Error("This review is no longer open."));
+    return call(approval.round_id).then((result) => applyReviewResult(id, result));
   }
 
   // Runs from the latest revision, since nothing is being edited on this path.
@@ -760,6 +769,12 @@ function Prototype({
           }
           onSubmitReview={(reviewerIds) => submitReview(activePrd.id, reviewerIds)}
           onDecideReview={(decision) => decideReview(activePrd.id, decision)}
+          onReplaceReviewer={(reviewerId, newId) =>
+            changeReviewer(activePrd.id, (roundId) => api.replaceReviewer(activePrd.id, roundId, reviewerId, newId))
+          }
+          onRemoveReviewer={(reviewerId) =>
+            changeReviewer(activePrd.id, (roundId) => api.removeReviewer(activePrd.id, roundId, reviewerId))
+          }
           chat={chatFor(activePrd.id)}
           setChat={(update) => setChatFor(activePrd.id, update)}
           proposal={aiProposal?.prdId === activePrd.id ? aiProposal : null}

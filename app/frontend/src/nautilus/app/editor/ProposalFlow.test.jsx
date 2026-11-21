@@ -99,6 +99,9 @@ async function show(props = {}) {
 const buttonNamed = (name) =>
   [...host.querySelectorAll("button")].find((button) => button.textContent.trim() === name);
 const click = (button) => act(async () => button.click());
+// The Review button carries a count when there are assumptions to confirm.
+const reviewButton = () =>
+  [...host.querySelectorAll(".ne-bar button")].find((button) => button.textContent.trim().startsWith("Review"));
 const visibleChat = () => [...host.querySelectorAll(".ne-chat")].find((chat) => !chat.hidden);
 const turns = () => [...visibleChat().querySelectorAll(".ne-turn")].map((turn) => turn.textContent);
 
@@ -131,32 +134,32 @@ afterEach(async () => {
 });
 
 describe("the chat", () => {
-  it("is one conversation in the side panel and in split view", async () => {
+  it("keeps the conversation when the side panel closes and opens again", async () => {
     await show();
-    await click(buttonNamed("Ask AI"));
+    await click(buttonNamed("Ask Nautilus"));
     await ask("Is the goal measurable?");
     expect(turns()).toEqual(["Is the goal measurable?", "The goal has no target yet."]);
+    await click(buttonNamed("Ask Nautilus")); // closes the panel
+    expect(host.querySelector(".ne-chat")).toBeNull();
     await click(buttonNamed("Ask Nautilus"));
     expect(turns()).toEqual(["Is the goal measurable?", "The goal has no target yet."]);
-    await click(buttonNamed("Close chat"));
-    await click(buttonNamed("Ask AI"));
-    expect(turns()).toHaveLength(2);
   });
 
-  it("still gets an answer when split view moves the chat mid-question", async () => {
+  it("still gets an answer when the panel is closed mid-question", async () => {
     let answer;
     api.chatAboutPrd.mockReturnValueOnce(new Promise((resolve) => (answer = resolve)));
     await show();
-    await click(buttonNamed("Ask AI"));
+    await click(buttonNamed("Ask Nautilus"));
     await ask("Is the goal measurable?");
-    await click(buttonNamed("Ask Nautilus")); // the side panel's chat unmounts
+    await click(host.querySelector('[aria-label="Close Ask Nautilus"]')); // the chat unmounts
     await act(async () => answer({ kind: "answer", message: "Not yet." }));
+    await click(buttonNamed("Ask Nautilus"));
     expect(turns()).toEqual(["Is the goal measurable?", "Not yet."]);
   });
 
   it("offers Propose changes only to people who can ask for changes", async () => {
     await show({ detail: { capabilities: { can_edit: true, can_request_ai: false } } });
-    await click(buttonNamed("Ask AI"));
+    await click(buttonNamed("Ask Nautilus"));
     expect(buttonNamed("Propose changes")).toBeUndefined();
   });
 });
@@ -165,7 +168,7 @@ describe("proposing changes", () => {
   it("sends the conversation with the default instruction when nothing is typed", async () => {
     await show();
     handlers.onRequestProposal.mockResolvedValue({ kind: "proposal", message: "Made the goal measurable." });
-    await click(buttonNamed("Ask AI"));
+    await click(buttonNamed("Ask Nautilus"));
     expect(buttonNamed("Propose changes").disabled).toBe(true); // nothing to go on yet
     await ask("Is the goal measurable?");
     await click(buttonNamed("Propose changes"));
@@ -179,7 +182,7 @@ describe("proposing changes", () => {
   it("uses what's typed as the instruction", async () => {
     await show();
     handlers.onRequestProposal.mockResolvedValue({ kind: "clarification", message: "How does that relate?" });
-    await click(buttonNamed("Ask AI"));
+    await click(buttonNamed("Ask Nautilus"));
     await typeInto(visibleChat().querySelector("textarea"), "Make the goal measurable");
     await click(buttonNamed("Propose changes"));
     expect(handlers.onRequestProposal.mock.calls[0][0]).toBe("Make the goal measurable");
@@ -188,8 +191,9 @@ describe("proposing changes", () => {
 
   it("asks for unsaved edits to be saved first, without calling the AI", async () => {
     await show();
+    await click(reviewButton());
     await click(host.querySelector('[aria-label="Confirm assumption: Students drive"]'));
-    await click(buttonNamed("Ask AI"));
+    await click(buttonNamed("Ask Nautilus"));
     await ask("Is the goal measurable?");
     await click(buttonNamed("Propose changes"));
     expect(handlers.onRequestProposal).not.toHaveBeenCalled();
@@ -199,7 +203,7 @@ describe("proposing changes", () => {
   it("offers the latest version when the PRD moved on", async () => {
     await show();
     handlers.onRequestProposal.mockRejectedValue(apiError(409, "stale_revision"));
-    await click(buttonNamed("Ask AI"));
+    await click(buttonNamed("Ask Nautilus"));
     await ask("Is the goal measurable?");
     await click(buttonNamed("Propose changes"));
     expect(visibleChat().textContent).toContain("Load the latest version, then propose changes again");
@@ -323,6 +327,7 @@ describe("addressing review comments", () => {
 
   it("asks for unsaved edits to be saved first", async () => {
     await show({ detail: owner });
+    await click(reviewButton());
     await click(host.querySelector('[aria-label="Confirm assumption: Students drive"]'));
     await commentsTab();
     await click(buttonNamed("Ask AI to address"));

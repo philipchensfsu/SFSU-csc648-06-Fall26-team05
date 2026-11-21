@@ -194,6 +194,16 @@ export const api = {
       body: JSON.stringify({ version_id: versionId, decision, ...(explanation ? { explanation } : {}) }),
     }),
 
+  // Owners and org admins swap or drop a reviewer who hasn't decided yet, on an
+  // open round. Both answer { round, revision, status }.
+  replaceReviewer: (prdId, roundId, userId, reviewerId) =>
+    request(`/prds/${prdId}/reviews/${roundId}/reviewers/${userId}/replace`, {
+      method: "POST",
+      body: JSON.stringify({ reviewer_id: reviewerId }),
+    }),
+  removeReviewer: (prdId, roundId, userId) =>
+    request(`/prds/${prdId}/reviews/${roundId}/reviewers/${userId}`, { method: "DELETE" }),
+
   // Flat comments on a PRD's saved versions, oldest first. Without versionId,
   // every version's comments, each carrying its own version_no.
   listPrdComments: (prdId, { versionId, limit = 50, cursor } = {}) => {

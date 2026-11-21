@@ -10,6 +10,7 @@ vi.mock("../../../../lib/api", () => ({
     getPrd: vi.fn(),
     listPrdMembers: vi.fn(),
     listVersions: vi.fn(),
+    listReviews: vi.fn(),
     listPrdEvents: vi.fn(),
     getVersion: vi.fn(),
     getDirectory: vi.fn(),
@@ -190,6 +191,7 @@ beforeEach(() => {
   api.getPrd.mockResolvedValue(prdRow());
   api.listPrdMembers.mockResolvedValue(members);
   api.listVersions.mockResolvedValue(versionsPage);
+  api.listReviews.mockResolvedValue({ items: [], next_cursor: null });
   api.getDirectory.mockResolvedValue(directory);
 });
 
@@ -311,6 +313,42 @@ describe("revision history", () => {
     expect(host.querySelectorAll(".nd-version")).toHaveLength(3);
     expect(text()).toContain("Saved before history");
     expect(buttonNamed("Show older versions")).toBeUndefined();
+  });
+
+  it("shows reviewers taken off a version's review round, and why", async () => {
+    api.listReviews.mockResolvedValue({
+      items: [
+        {
+          id: "r2",
+          round_no: 2,
+          version_id: "v6",
+          reviewers: [{ user_id: "fay", name: "Fay Designer", state: "pending" }],
+          removed_reviewers: [
+            { user_id: "erin", name: "Erin Engineer", reason: "replaced", replaced_by: "fay", removed_by: "aksh", removed_at: "2026-11-13T09:12:00Z" },
+            { user_id: "gus", name: "Gus Lead", reason: "removed", replaced_by: null, removed_by: "aksh", removed_at: "2026-11-13T09:20:00Z" },
+            { user_id: null, name: null, reason: "reviewer_deactivated", replaced_by: null, removed_by: null, removed_at: "2026-11-13T09:30:00Z" },
+          ],
+        },
+        { id: "r1", round_no: 1, version_id: "v5", reviewers: [], removed_reviewers: [] },
+      ],
+      next_cursor: null,
+    });
+    await show({ tab: "history" });
+    const rows = [...host.querySelectorAll(".nd-version")];
+    const removed = rows[0].querySelector(".nd-removed");
+    expect(removed.textContent).toContain("Review round 2: reviewers changed");
+    expect(removed.textContent).toContain("Erin Engineer replaced by Fay Designer");
+    expect(removed.textContent).toContain("Gus Lead removed from the round");
+    expect(removed.textContent).toContain("A former member left: account deactivated");
+    // A round nobody left adds nothing.
+    expect(rows[1].querySelector(".nd-removed")).toBeNull();
+  });
+
+  it("still shows the history when the review rounds can't load", async () => {
+    api.listReviews.mockRejectedValue(new Error("Server down."));
+    await show({ tab: "history" });
+    expect(host.querySelectorAll(".nd-version")).toHaveLength(2);
+    expect(host.querySelector("[role=alert]")).toBeNull();
   });
 
   it("says so when the history can't load", async () => {
