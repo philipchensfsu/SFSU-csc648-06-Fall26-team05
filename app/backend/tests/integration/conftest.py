@@ -45,7 +45,9 @@ TEST_PASSWORD = "integration-test-password"
 
 for _url in (SUPABASE_URL, API_URL, DB_URL):
     if urlparse(_url).hostname not in LOCAL_HOSTS:
-        raise pytest.UsageError(f"Integration tests only run against a local stack, not {_url}")
+        raise pytest.UsageError(
+            f"Integration tests only run against a local stack, not {_url}"
+        )
 
 # Every HTTP call goes through this client. Under load (or after the laptop
 # sleeps) a connection to the local stack sometimes fails to open; the
@@ -58,14 +60,24 @@ def connect_db(**kwargs):
     """A psycopg connection that fails instead of hanging: TCP keepalives notice
     a connection killed by sleep within about a minute, and no statement waits
     more than two minutes (a stuck lock fails the test, not the whole run)."""
-    return psycopg.connect(DB_URL, connect_timeout=10, keepalives=1, keepalives_idle=30, keepalives_interval=10,
-                           keepalives_count=3, options="-c statement_timeout=120000", **kwargs)
+    return psycopg.connect(
+        DB_URL,
+        connect_timeout=10,
+        keepalives=1,
+        keepalives_idle=30,
+        keepalives_interval=10,
+        keepalives_count=3,
+        options="-c statement_timeout=120000",
+        **kwargs,
+    )
 
 
 @pytest.fixture(scope="session", autouse=True)
 def local_stack():
     try:
-        http.get(f"{SUPABASE_URL}/auth/v1/health", headers={"apikey": ANON_KEY}, timeout=3).raise_for_status()
+        http.get(
+            f"{SUPABASE_URL}/auth/v1/health", headers={"apikey": ANON_KEY}, timeout=3
+        ).raise_for_status()
         http.get(f"{API_URL}/health", timeout=3).raise_for_status()
     except httpx.HTTPError:
         pytest.skip("local stack not running (supabase start, docker compose up)")
@@ -97,7 +109,9 @@ def data_api(method, path, token=None, **kwargs):
     headers = {"apikey": ANON_KEY, "Prefer": "return=representation"}
     if token:
         headers["Authorization"] = f"Bearer {token}"
-    return http.request(method, f"{SUPABASE_URL}/rest/v1/{path}", headers=headers, **kwargs)
+    return http.request(
+        method, f"{SUPABASE_URL}/rest/v1/{path}", headers=headers, **kwargs
+    )
 
 
 @pytest.fixture
@@ -112,19 +126,30 @@ def make_user(db):
 
     def make(role="pm", org=True):
         email = f"it-{uuid.uuid4().hex[:12]}@example.com"
-        r = http.post(f"{SUPABASE_URL}/auth/v1/admin/users", headers=admin,
-                       json={"email": email, "password": TEST_PASSWORD, "email_confirm": True})
+        r = http.post(
+            f"{SUPABASE_URL}/auth/v1/admin/users",
+            headers=admin,
+            json={"email": email, "password": TEST_PASSWORD, "email_confirm": True},
+        )
         r.raise_for_status()
         user_id = r.json()["id"]
         created.append(user_id)
         db.execute("update profile set role = %s where id = %s", (role, user_id))
         if org:
-            org_id = db.execute("insert into organization (name, created_by) values (%s, %s) returning id::text",
-                                (f"Org of {email}", user_id)).fetchone()[0]
-            db.execute("insert into organization_member (organization_id, user_id, access_role) "
-                       "values (%s, %s, 'admin')", (org_id, user_id))
-        r = http.post(f"{SUPABASE_URL}/auth/v1/token?grant_type=password", headers={"apikey": ANON_KEY},
-                       json={"email": email, "password": TEST_PASSWORD})
+            org_id = db.execute(
+                "insert into organization (name, created_by) values (%s, %s) returning id::text",
+                (f"Org of {email}", user_id),
+            ).fetchone()[0]
+            db.execute(
+                "insert into organization_member (organization_id, user_id, access_role) "
+                "values (%s, %s, 'admin')",
+                (org_id, user_id),
+            )
+        r = http.post(
+            f"{SUPABASE_URL}/auth/v1/token?grant_type=password",
+            headers={"apikey": ANON_KEY},
+            json={"email": email, "password": TEST_PASSWORD},
+        )
         r.raise_for_status()
         return User(user_id, email, r.json()["access_token"])
 
@@ -153,13 +178,20 @@ def make_org(db):
         # Accounts belong to one organization: leave the ones make_user made.
         for user in (admin, *members):
             remove_orgs_created_by(db, user.id)
-        org = db.execute("insert into organization (name, created_by) values ('Test org', %s) returning id::text",
-                         (admin.id,)).fetchone()[0]
+        org = db.execute(
+            "insert into organization (name, created_by) values ('Test org', %s) returning id::text",
+            (admin.id,),
+        ).fetchone()[0]
         created.append(org)
-        db.execute("insert into organization_member (organization_id, user_id, access_role) values (%s, %s, 'admin')",
-                   (org, admin.id))
+        db.execute(
+            "insert into organization_member (organization_id, user_id, access_role) values (%s, %s, 'admin')",
+            (org, admin.id),
+        )
         for member in members:
-            db.execute("insert into organization_member (organization_id, user_id) values (%s, %s)", (org, member.id))
+            db.execute(
+                "insert into organization_member (organization_id, user_id) values (%s, %s)",
+                (org, member.id),
+            )
         return org
 
     yield make
@@ -170,16 +202,24 @@ def make_org(db):
 
 def org_prd(db, org, creator, title="Org PRD", project_id=None):
     """A PRD in the org, created directly (the creator becomes its owner)."""
-    return db.execute("insert into prd (title, owner_id, organization_id, project_id) values (%s, %s, %s, %s) "
-                      "returning id::text", (title, creator.id, org, project_id)).fetchone()[0]
+    return db.execute(
+        "insert into prd (title, owner_id, organization_id, project_id) values (%s, %s, %s, %s) "
+        "returning id::text",
+        (title, creator.id, org, project_id),
+    ).fetchone()[0]
 
 
 def add_to_prd(db, prd, user, role):
-    db.execute("insert into prd_member (prd_id, user_id, role) values (%s, %s, %s)", (prd, user.id, role))
+    db.execute(
+        "insert into prd_member (prd_id, user_id, role) values (%s, %s, %s)",
+        (prd, user.id, role),
+    )
 
 
-ONE_SECTION_DOC = ('{"type": "doc", "content": [{"type": "section", "attrs": {"type": "problem"}, '
-                   '"content": [{"type": "paragraph", "content": [{"type": "text", "text": "Why"}]}]}]}')
+ONE_SECTION_DOC = (
+    '{"type": "doc", "content": [{"type": "section", "attrs": {"type": "problem"}, '
+    '"content": [{"type": "paragraph", "content": [{"type": "text", "text": "Why"}]}]}]}'
+)
 EMPTY_DOC = '{"type": "doc", "content": []}'
 
 
@@ -189,11 +229,19 @@ def save_version(db, prd, user, content=ONE_SECTION_DOC):
         "insert into prd_version (prd_id, content_json, doc_schema_version, created_by, origin, version_no, saved_revision) "
         "select %s, %s::jsonb, 2, %s, 'pm_edit', "
         "(select coalesce(max(version_no), 0) + 1 from prd_version where prd_id = %s), revision + 1 from prd where id = %s "
-        "returning id::text", (prd, content, user.id, prd, prd)).fetchone()[0]
-    db.execute("update prd set current_version_id = %s, revision = revision + 1 where id = %s", (version, prd))
+        "returning id::text",
+        (prd, content, user.id, prd, prd),
+    ).fetchone()[0]
+    db.execute(
+        "update prd set current_version_id = %s, revision = revision + 1 where id = %s",
+        (version, prd),
+    )
     return version
 
 
 def remove_orgs_created_by(db, user_id):
-    db.execute("delete from prd where organization_id in (select id from organization where created_by = %s)", (user_id,))
+    db.execute(
+        "delete from prd where organization_id in (select id from organization where created_by = %s)",
+        (user_id,),
+    )
     db.execute("delete from organization where created_by = %s", (user_id,))

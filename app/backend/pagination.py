@@ -58,10 +58,14 @@ def decode_cursor(cursor: str) -> tuple[str, str]:
         sort_value, row_id = json.loads(base64.urlsafe_b64decode(padded))
         return datetime.fromisoformat(sort_value).isoformat(), str(UUID(row_id))
     except (ValueError, TypeError, binascii.Error):
-        raise ApiError(400, "Invalid cursor. Start again without one.", code="invalid_cursor")
+        raise ApiError(
+            400, "Invalid cursor. Start again without one.", code="invalid_cursor"
+        )
 
 
-def paginate(query, params: PageParams, sort_column: str = "created_at", descending: bool = True) -> dict:
+def paginate(
+    query, params: PageParams, sort_column: str = "created_at", descending: bool = True
+) -> dict:
     """Applies keyset paging to a supabase-py select query and runs it.
 
     The query must select `sort_column` and `id`. Newest first by default.

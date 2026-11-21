@@ -12,10 +12,22 @@ from __future__ import annotations
 from prd_document import section_title
 
 EVENT_TYPES = (
-    "created", "version_saved", "ai_applied",
-    "member_added", "member_role_changed", "member_removed", "team_added",
-    "comment_added", "mentioned", "submitted", "approved", "changes_requested", "round_approved", "superseded",
-    "reviewer_changed", "work_status_changed",
+    "created",
+    "version_saved",
+    "ai_applied",
+    "member_added",
+    "member_role_changed",
+    "member_removed",
+    "team_added",
+    "comment_added",
+    "mentioned",
+    "submitted",
+    "approved",
+    "changes_requested",
+    "round_approved",
+    "superseded",
+    "reviewer_changed",
+    "work_status_changed",
 )
 
 # Payload keys that hold another person's id, whose name the summary needs.
@@ -46,12 +58,18 @@ def summarize(event: dict, names: dict) -> str:
     actor = event.get("actor_name") or ("Someone" if event.get("actor_id") else None)
     if actor is None and event_type not in SYSTEM_AWARE:
         actor = "Nautilus"
-    if event_type == "member_removed" and event.get("actor_id") and payload.get("user_id") == event["actor_id"]:
+    if (
+        event_type == "member_removed"
+        and event.get("actor_id")
+        and payload.get("user_id") == event["actor_id"]
+    ):
         return f"{actor} left the PRD"
     build = SUMMARIES.get(event_type)
     if build is None:
         return f"{actor} updated the PRD"
-    return build(actor, payload, lambda user_id: names.get(user_id) or "a former member")
+    return build(
+        actor, payload, lambda user_id: names.get(user_id) or "a former member"
+    )
 
 
 def _with_role(role) -> str:
@@ -72,13 +90,17 @@ def _section(section_type) -> str | None:
 
 
 def _changed(changed) -> str:
-    labels = [field.capitalize() if field in ("title", "description") else _section(field)
-              for field in changed or []]
+    labels = [
+        field.capitalize() if field in ("title", "description") else _section(field)
+        for field in changed or []
+    ]
     if not labels:
         return ""
     if len(labels) > 3:
         labels = labels[:2] + [f"{len(labels) - 2} more"]
-    listed = labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
+    listed = (
+        labels[0] if len(labels) == 1 else ", ".join(labels[:-1]) + " and " + labels[-1]
+    )
     return f" ({listed})"
 
 
@@ -91,7 +113,9 @@ def _saved(actor, payload, name):
 
 
 def _ai_applied(actor, payload, name):
-    return f"{actor} applied an AI suggestion (version {payload.get('version_no', '?')})"
+    return (
+        f"{actor} applied an AI suggestion (version {payload.get('version_no', '?')})"
+    )
 
 
 def _member_added(actor, payload, name):
@@ -99,8 +123,10 @@ def _member_added(actor, payload, name):
 
 
 def _role_changed(actor, payload, name):
-    return (f"{actor} changed {name(payload.get('user_id'))}'s role "
-            f"from {payload.get('from')} to {payload.get('to')}")
+    return (
+        f"{actor} changed {name(payload.get('user_id'))}'s role "
+        f"from {payload.get('from')} to {payload.get('to')}"
+    )
 
 
 def _member_removed(actor, payload, name):
@@ -127,7 +153,9 @@ def _listed(names: list[str]) -> str:
 
 
 def _mentioned(actor, payload, name):
-    people = _listed([name(user_id) for user_id in payload.get("user_ids") or []] or ["someone"])
+    people = _listed(
+        [name(user_id) for user_id in payload.get("user_ids") or []] or ["someone"]
+    )
     section = _section(payload.get("section_type"))
     where = f" in a comment on {section}" if section else " in a comment"
     return f"{actor} mentioned {people}{where}"
@@ -161,11 +189,16 @@ def _round_approved(actor, payload, name):
 
 def _superseded(actor, payload, name):
     if not actor:
-        return (f"{_round(payload).capitalize()} ended and the PRD went back to draft "
-                f"after {_system_reason(payload, name)}")
+        return (
+            f"{_round(payload).capitalize()} ended and the PRD went back to draft "
+            f"after {_system_reason(payload, name)}"
+        )
     version = payload.get("version_no", "?")
-    saved = (f"{actor} applied an AI suggestion (version {version})" if payload.get("generation_record_id")
-             else f"{actor} saved version {version}")
+    saved = (
+        f"{actor} applied an AI suggestion (version {version})"
+        if payload.get("generation_record_id")
+        else f"{actor} saved version {version}"
+    )
     if not payload.get("continued"):
         return f"{saved}; the PRD went back to draft"
     # reviewer_ids is everyone who had decided: approvals and change requests.

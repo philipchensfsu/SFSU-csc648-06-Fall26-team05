@@ -52,14 +52,31 @@ def with_my_role(client, user_id, rows):
     ids = [row["id"] for row in rows]
     roles, review_states = {}, {}
     if ids:
-        members = client.table("prd_member").select("prd_id, role").eq("user_id", user_id).in_("prd_id", ids).execute()
+        members = (
+            client.table("prd_member")
+            .select("prd_id, role")
+            .eq("user_id", user_id)
+            .in_("prd_id", ids)
+            .execute()
+        )
         roles = {m["prd_id"]: m["role"] for m in members.data}
-        rounds = (client.table("review_round").select("prd_id, state")
-                  .in_("prd_id", ids).neq("state", "superseded").execute())
+        rounds = (
+            client.table("review_round")
+            .select("prd_id, state")
+            .in_("prd_id", ids)
+            .neq("state", "superseded")
+            .execute()
+        )
         review_states = {r["prd_id"]: r["state"] for r in rounds.data}
     # Visible without a role on it means the caller is an admin of its org.
-    return [{**row, "my_role": roles.get(row["id"], "org_admin"), "review_state": review_states.get(row["id"])}
-            for row in rows]
+    return [
+        {
+            **row,
+            "my_role": roles.get(row["id"], "org_admin"),
+            "review_state": review_states.get(row["id"]),
+        }
+        for row in rows
+    ]
 
 
 @router.post("/api/prds", response_model=PRDOut, status_code=201)
@@ -67,11 +84,19 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
     client = auth["client"]
     # A new PRD belongs to the creator's organization (one per account).
     membership = (
-        client.table("organization_member").select("organization_id")
-        .eq("user_id", auth["user"].id).eq("active", True).execute().data
+        client.table("organization_member")
+        .select("organization_id")
+        .eq("user_id", auth["user"].id)
+        .eq("active", True)
+        .execute()
+        .data
     )
     if not membership:
-        raise ApiError(403, "You need to be in an organization to create a PRD.", code="no_organization")
+        raise ApiError(
+            403,
+            "You need to be in an organization to create a PRD.",
+            code="no_organization",
+        )
     insert_fields = {
         "id": str(uuid4()),
         "title": payload.title,
@@ -89,7 +114,9 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
             .execute()
         )
         if not project.data:
-            raise HTTPException(status_code=404, detail="Project not found or not allowed")
+            raise HTTPException(
+                status_code=404, detail="Project not found or not allowed"
+            )
         insert_fields["project_id"] = str(payload.project_id)
     # Inserted without returning the row, then read back: the creator only
     # becomes an owner (and so able to see it) when the insert's trigger
@@ -104,7 +131,9 @@ def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
 @router.get("/api/prds", response_model=list[PRDOut])
 def list_prds(
     search: Optional[str] = None,
-    view: Optional[Literal["owned", "shared", "needs_my_approval", "waiting_for_approval"]] = None,
+    view: Optional[
+        Literal["owned", "shared", "needs_my_approval", "waiting_for_approval"]
+    ] = None,
     auth=Depends(get_current_user),
 ):
     # view=owned: PRDs the caller owns. view=shared: PRDs they were invited
@@ -129,14 +158,23 @@ def list_prds(
     elif view == "shared":
         prds = [prd for prd in prds if prd["my_role"] in ("editor", "viewer")]
     elif view == "needs_my_approval":
-        pending = (client.table("review_slot").select("prd_id, round:review_round!inner(state)")
-                   .eq("reviewer_id", auth["user"].id).eq("state", "pending")
-                   .in_("round.state", ["in_review", "changes_requested"]).execute())
+        pending = (
+            client.table("review_slot")
+            .select("prd_id, round:review_round!inner(state)")
+            .eq("reviewer_id", auth["user"].id)
+            .eq("state", "pending")
+            .in_("round.state", ["in_review", "changes_requested"])
+            .execute()
+        )
         waiting_on_me = {slot["prd_id"] for slot in pending.data}
         prds = [prd for prd in prds if prd["id"] in waiting_on_me]
     elif view == "waiting_for_approval":
-        prds = [prd for prd in prds
-                if prd["my_role"] == "owner" and prd["review_state"] in ("in_review", "changes_requested")]
+        prds = [
+            prd
+            for prd in prds
+            if prd["my_role"] == "owner"
+            and prd["review_state"] in ("in_review", "changes_requested")
+        ]
     return prds
 
 
@@ -195,20 +233,36 @@ class PRDDetailOut(PRDOut):
     changed_since_approval: bool
 
 
-NO_APPROVAL = {"round_id": None, "round_no": None, "version_id": None, "state": None,
-               "required_count": 0, "approved_count": 0, "reviewers": []}
+NO_APPROVAL = {
+    "round_id": None,
+    "round_no": None,
+    "version_id": None,
+    "state": None,
+    "required_count": 0,
+    "approved_count": 0,
+    "reviewers": [],
+}
 
 
 def approval_summary(client, prd_id: UUID):
     """The current round's progress, or empty counts when nothing is under review."""
-    rows = (client.table("review_round").select(ROUND_COLUMNS)
-            .eq("prd_id", str(prd_id)).neq("state", "superseded").execute().data)
+    rows = (
+        client.table("review_round")
+        .select(ROUND_COLUMNS)
+        .eq("prd_id", str(prd_id))
+        .neq("state", "superseded")
+        .execute()
+        .data
+    )
     if not rows:
         return NO_APPROVAL
     current = round_item(rows[0])
     return {
-        "round_id": current["id"], "round_no": current["round_no"], "version_id": current["version_id"],
-        "state": current["state"], "required_count": len(current["reviewers"]),
+        "round_id": current["id"],
+        "round_no": current["round_no"],
+        "version_id": current["version_id"],
+        "state": current["state"],
+        "required_count": len(current["reviewers"]),
         "approved_count": sum(r["state"] == "approved" for r in current["reviewers"]),
         "reviewers": current["reviewers"],
     }
@@ -222,23 +276,40 @@ def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
     if not response.data:
         raise HTTPException(status_code=404, detail="PRD not found")
     prd = with_my_role(client, auth["user"].id, response.data)[0]
-    return {**prd, "approval": approval_summary(client, prd_id), "capabilities": prd_capabilities(client, prd_id),
-            **read_model(client, prd_id)}
+    return {
+        **prd,
+        "approval": approval_summary(client, prd_id),
+        "capabilities": prd_capabilities(client, prd_id),
+        **read_model(client, prd_id),
+    }
 
 
 def prd_capabilities(client, prd_id) -> dict:
     """Vineela's E03 flags plus the E14/A08 ones, each from the helper its
     route checks (asked as the caller)."""
-    flags = client.rpc("prd_capabilities", {"target_prd": str(prd_id)}).execute().data or {}
-    manage = client.rpc("can_manage_prd", {"target_prd_id": str(prd_id)}).execute().data is True
+    flags = (
+        client.rpc("prd_capabilities", {"target_prd": str(prd_id)}).execute().data or {}
+    )
+    manage = (
+        client.rpc("can_manage_prd", {"target_prd_id": str(prd_id)}).execute().data
+        is True
+    )
     return {
         **flags,
-        "can_update_work_status": client.rpc("can_update_work_status", {"target_prd": str(prd_id)}).execute().data
+        "can_update_work_status": client.rpc(
+            "can_update_work_status", {"target_prd": str(prd_id)}
+        )
+        .execute()
+        .data
         is True,
         "can_request_classification": manage,
         "can_set_routing": manage,
-        "can_request_review_suggestions": client.rpc("can_request_review_suggestions",
-                                                     {"target_prd": str(prd_id)}).execute().data is True,
+        "can_request_review_suggestions": client.rpc(
+            "can_request_review_suggestions", {"target_prd": str(prd_id)}
+        )
+        .execute()
+        .data
+        is True,
     }
 
 

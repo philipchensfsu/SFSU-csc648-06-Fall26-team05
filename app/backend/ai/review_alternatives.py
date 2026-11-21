@@ -110,7 +110,11 @@ def response_schema() -> dict:
 
 def without_array_counts(node):
     if isinstance(node, dict):
-        return {k: without_array_counts(v) for k, v in node.items() if k not in ("minItems", "maxItems")}
+        return {
+            k: without_array_counts(v)
+            for k, v in node.items()
+            if k not in ("minItems", "maxItems")
+        }
     if isinstance(node, list):
         return [without_array_counts(v) for v in node]
     return node
@@ -122,43 +126,81 @@ def _schema() -> dict:
         "type": "object",
         "properties": {
             "title": {"type": "string", "minLength": 1, "maxLength": MAX_TITLE_CHARS},
-            "explanation": {"type": "string", "minLength": 1, "maxLength": MAX_EXPLANATION_CHARS},
-            "tradeoffs": {"type": "array", "minItems": 1, "maxItems": MAX_TRADEOFFS,
-                          "items": {"type": "string", "minLength": 1, "maxLength": MAX_TRADEOFF_CHARS}},
+            "explanation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MAX_EXPLANATION_CHARS,
+            },
+            "tradeoffs": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": MAX_TRADEOFFS,
+                "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": MAX_TRADEOFF_CHARS,
+                },
+            },
             "sections": sections,
         },
         "required": ["title", "explanation", "tradeoffs", "sections"],
     }
     return {
         "type": "object",
-        "properties": {"options": {"type": "array", "minItems": OPTION_COUNT, "maxItems": OPTION_COUNT,
-                                   "items": option}},
+        "properties": {
+            "options": {
+                "type": "array",
+                "minItems": OPTION_COUNT,
+                "maxItems": OPTION_COUNT,
+                "items": option,
+            }
+        },
         "required": ["options"],
     }
 
 
-def propose_alternatives(user_client, service_client, *, actor_id, prd_id: str, revision: int,
-                         feedback_ids: list[str], instruction: str | None,
-                         budget: usage_gate.RequestBudget | None = None,
-                         call_model: Callable[..., GeminiResult] | None = None,
-                         modules: chat.ChatModules | None = None) -> dict:
+def propose_alternatives(
+    user_client,
+    service_client,
+    *,
+    actor_id,
+    prd_id: str,
+    revision: int,
+    feedback_ids: list[str],
+    instruction: str | None,
+    budget: usage_gate.RequestBudget | None = None,
+    call_model: Callable[..., GeminiResult] | None = None,
+    modules: chat.ChatModules | None = None,
+) -> dict:
     """Returns {base_revision, generation_record_id, options: [{option,
     title, explanation, tradeoffs, proposal: {section_types, sections,
     content_json}}]}."""
     feedback_ids = list(dict.fromkeys(str(i) for i in feedback_ids))
     if not 1 <= len(feedback_ids) <= review_suggestion.MAX_FEEDBACK_ITEMS:
-        raise ApiError(422, f"Choose 1 to {review_suggestion.MAX_FEEDBACK_ITEMS} comments.", "validation_error")
+        raise ApiError(
+            422,
+            f"Choose 1 to {review_suggestion.MAX_FEEDBACK_ITEMS} comments.",
+            "validation_error",
+        )
     instruction = (instruction or "").strip() or None
-    if instruction is not None and len(instruction) > review_suggestion.MAX_INSTRUCTION_CHARS:
-        raise ApiError(422, f"The instruction can be at most {review_suggestion.MAX_INSTRUCTION_CHARS} characters.",
-                       "validation_error")
+    if (
+        instruction is not None
+        and len(instruction) > review_suggestion.MAX_INSTRUCTION_CHARS
+    ):
+        raise ApiError(
+            422,
+            f"The instruction can be at most {review_suggestion.MAX_INSTRUCTION_CHARS} characters.",
+            "validation_error",
+        )
     budget = budget or usage_gate.RequestBudget()
     if instruction is not None:
         modules = modules or chat.load_modules()
         if modules is None:
             raise ApiError(*chat.CHAT_UNAVAILABLE)
 
-    current_revision, prd = chat.load_chat_prd(user_client, prd_id)  # 404 if not visible
+    current_revision, prd = chat.load_chat_prd(
+        user_client, prd_id
+    )  # 404 if not visible
     _require_owner(user_client, prd_id)
     if current_revision != revision:
         raise ApiError(*chat.STALE_REVISION)
@@ -170,18 +212,34 @@ def propose_alternatives(user_client, service_client, *, actor_id, prd_id: str, 
         try:
             if instruction is not None:
                 calls.cap = usage_gate.scope_timeout_seconds()
-                decision = modules.guardrails.check_scope(prd, [], instruction, call_model=calls,
-                                                          timeout_seconds=budget.call_timeout(calls.cap))
+                decision = modules.guardrails.check_scope(
+                    prd,
+                    [],
+                    instruction,
+                    call_model=calls,
+                    timeout_seconds=budget.call_timeout(calls.cap),
+                )
                 verdict = chat._verdict(decision)
                 if verdict != "allow":
-                    text, code = ((modules.prompts.FIXED_REFUSAL, "out_of_scope") if verdict == "block"
-                                  else (modules.prompts.FIXED_CLARIFICATION, "clarification_needed"))
-                    _record_failure(service_client, actor_id, prd_id, revision, calls, code)
+                    text, code = (
+                        (modules.prompts.FIXED_REFUSAL, "out_of_scope")
+                        if verdict == "block"
+                        else (
+                            modules.prompts.FIXED_CLARIFICATION,
+                            "clarification_needed",
+                        )
+                    )
+                    _record_failure(
+                        service_client, actor_id, prd_id, revision, calls, code
+                    )
                     raise ApiError(422, text, code)
             calls.cap = usage_gate.main_timeout_seconds()
-            result = calls(build_prompt(prd, document, feedback, instruction),
-                           system_instruction=SYSTEM_INSTRUCTION, response_schema=response_schema(),
-                           max_output_tokens=MAX_OUTPUT_TOKENS)
+            result = calls(
+                build_prompt(prd, document, feedback, instruction),
+                system_instruction=SYSTEM_INSTRUCTION,
+                response_schema=response_schema(),
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            )
             options = checked_options(result, document)
         except AIError as exc:
             _record_failure(service_client, actor_id, prd_id, revision, calls, exc.code)
@@ -189,24 +247,48 @@ def propose_alternatives(user_client, service_client, *, actor_id, prd_id: str, 
         try:
             _require_owner(user_client, prd_id)  # still an owner after the model call
         except ApiError:
-            _record_failure(service_client, actor_id, prd_id, revision, calls, "owner_required")
+            _record_failure(
+                service_client, actor_id, prd_id, revision, calls, "owner_required"
+            )
             raise
         # One record for the call (usage counted once), one staged proposal
         # per option. The database rechecks ownership, edit access and the
         # revision.
         record = records.stage_alternatives(
-            service_client, actor_id=actor_id, prd_id=prd_id, base_revision=revision, model=calls.model,
-            prompt_version=PROMPT_VERSION, prompt_tokens=calls.prompt_tokens or None,
+            service_client,
+            actor_id=actor_id,
+            prd_id=prd_id,
+            base_revision=revision,
+            model=calls.model,
+            prompt_version=PROMPT_VERSION,
+            prompt_tokens=calls.prompt_tokens or None,
             output_tokens=calls.output_tokens or None,
-            candidates=[{**option["proposal"], "title": option["title"], "explanation": option["explanation"],
-                         "tradeoffs": option["tradeoffs"], "feedback_ids": feedback_ids} for option in options])
+            candidates=[
+                {
+                    **option["proposal"],
+                    "title": option["title"],
+                    "explanation": option["explanation"],
+                    "tradeoffs": option["tradeoffs"],
+                    "feedback_ids": feedback_ids,
+                }
+                for option in options
+            ],
+        )
     if record.outcome != "staged":
         raise ApiError(*chat.STALE_REVISION)
-    return {"base_revision": revision, "generation_record_id": record.generation_record_id,
-            "options": [{"option": number, **option} for number, option in enumerate(options, start=1)]}
+    return {
+        "base_revision": revision,
+        "generation_record_id": record.generation_record_id,
+        "options": [
+            {"option": number, **option}
+            for number, option in enumerate(options, start=1)
+        ],
+    }
 
 
-def build_prompt(prd: dict, document: dict, feedback: list[dict], instruction: str | None) -> str:
+def build_prompt(
+    prd: dict, document: dict, feedback: list[dict], instruction: str | None
+) -> str:
     data = {
         "title": prd["title"],
         "description": prd["description"],
@@ -224,53 +306,96 @@ def checked_options(result: GeminiResult, document: dict) -> list[dict]:
     Anything wrong with either one fails the whole reply."""
     data = result.data
     raw = data.get("options") if isinstance(data, dict) else None
-    if not isinstance(raw, list) or len(raw) != OPTION_COUNT or not all(isinstance(o, dict) for o in raw):
+    if (
+        not isinstance(raw, list)
+        or len(raw) != OPTION_COUNT
+        or not all(isinstance(o, dict) for o in raw)
+    ):
         _invalid(result, "options")
     saved_by_type = {s["attrs"]["type"]: s for s in document.get("content", [])}
     options = []
     for item in raw:
         title = item.get("title")
         tradeoffs = item.get("tradeoffs")
-        if not (isinstance(title, str) and title.strip() and len(title) <= MAX_TITLE_CHARS):
+        if not (
+            isinstance(title, str) and title.strip() and len(title) <= MAX_TITLE_CHARS
+        ):
             _invalid(result, "title")
-        if not (isinstance(tradeoffs, list) and 1 <= len(tradeoffs) <= MAX_TRADEOFFS
-                and all(isinstance(t, str) and t.strip() and len(t) <= MAX_TRADEOFF_CHARS for t in tradeoffs)):
+        if not (
+            isinstance(tradeoffs, list)
+            and 1 <= len(tradeoffs) <= MAX_TRADEOFFS
+            and all(
+                isinstance(t, str) and t.strip() and len(t) <= MAX_TRADEOFF_CHARS
+                for t in tradeoffs
+            )
+        ):
             _invalid(result, "tradeoffs")
         # The same section and explanation checks as one E12 suggestion.
-        sections, explanation = _checked_reply(dataclasses.replace(
-            result, data={"sections": item.get("sections"), "explanation": item.get("explanation")}))
+        sections, explanation = _checked_reply(
+            dataclasses.replace(
+                result,
+                data={
+                    "sections": item.get("sections"),
+                    "explanation": item.get("explanation"),
+                },
+            )
+        )
         merged = document
         for section in sections:
             merged = merge_section(merged, section)
         errors = validate_document(merged)
         if errors:
-            logger.warning("Review alternative on %s failed document checks: %s", result.model,
-                           ", ".join(sorted({e.code for e in errors})))
+            logger.warning(
+                "Review alternative on %s failed document checks: %s",
+                result.model,
+                ", ".join(sorted({e.code for e in errors})),
+            )
             raise AIError(502, "ai_invalid_output")
         # As in E12, a section returned exactly as saved isn't part of the
         # option, so accepting it doesn't mark the person's own text.
         changed = [s for s in sections if saved_by_type.get(s["attrs"]["type"]) != s]
         if not changed:
             _invalid(result, "no change")
-        options.append({"title": title.strip(), "explanation": explanation,
-                        "tradeoffs": [t.strip() for t in tradeoffs],
-                        "proposal": {"section_types": [s["attrs"]["type"] for s in changed], "sections": changed,
-                                     "content_json": merged}})
+        options.append(
+            {
+                "title": title.strip(),
+                "explanation": explanation,
+                "tradeoffs": [t.strip() for t in tradeoffs],
+                "proposal": {
+                    "section_types": [s["attrs"]["type"] for s in changed],
+                    "sections": changed,
+                    "content_json": merged,
+                },
+            }
+        )
     if options[0]["proposal"]["content_json"] == options[1]["proposal"]["content_json"]:
         _invalid(result, "identical options")
     return options
 
 
 def _invalid(result: GeminiResult, what: str):
-    logger.warning("Review alternatives reply on %s failed checks (%s)", result.model, what)
+    logger.warning(
+        "Review alternatives reply on %s failed checks (%s)", result.model, what
+    )
     raise AIError(502, "ai_invalid_output")
 
 
 def _record_failure(service_client, actor_id, prd_id, revision, calls, error_code):
     try:
         records.record_ai_request(
-            service_client, actor_id=actor_id, prd_id=prd_id, base_revision=revision, trigger="chat_request",
-            model=calls.model or model_name(), prompt_version=PROMPT_VERSION, status="failed", error_code=error_code,
-            prompt_tokens=calls.prompt_tokens or None, output_tokens=calls.output_tokens or None)
+            service_client,
+            actor_id=actor_id,
+            prd_id=prd_id,
+            base_revision=revision,
+            trigger="chat_request",
+            model=calls.model or model_name(),
+            prompt_version=PROMPT_VERSION,
+            status="failed",
+            error_code=error_code,
+            prompt_tokens=calls.prompt_tokens or None,
+            output_tokens=calls.output_tokens or None,
+        )
     except Exception as exc:  # noqa: BLE001 - the original error is what the user needs
-        logger.error("Couldn't record failed review alternatives (%s)", type(exc).__name__)
+        logger.error(
+            "Couldn't record failed review alternatives (%s)", type(exc).__name__
+        )

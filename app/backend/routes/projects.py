@@ -35,12 +35,16 @@ def create_project(payload: ProjectCreate, auth=Depends(get_current_user)):
 @router.get("/api/projects", response_model=list[ProjectOut])
 def list_projects(auth=Depends(get_current_user)):
     client = auth["client"]
-    response = client.table("project").select("*").order("updated_at", desc=True).execute()
+    response = (
+        client.table("project").select("*").order("updated_at", desc=True).execute()
+    )
     return response.data
 
 
 @router.put("/api/projects/{project_id}", response_model=ProjectOut)
-def rename_project(project_id: UUID, payload: ProjectCreate, auth=Depends(get_current_user)):
+def rename_project(
+    project_id: UUID, payload: ProjectCreate, auth=Depends(get_current_user)
+):
     client = auth["client"]
     response = (
         client.table("project")

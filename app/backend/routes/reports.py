@@ -56,34 +56,83 @@ class ProgressReport(BaseModel):
 def directory_names(client, user_id, report) -> dict:
     # Everyone in the caller's organization, including people who have left.
     # Fetched only when an owner row or an activity payload needs a name.
-    if not report["by_owner"] and not any(people_in(row["payload"] or {}) for row in report["activity"]):
+    if not report["by_owner"] and not any(
+        people_in(row["payload"] or {}) for row in report["activity"]
+    ):
         return {}
-    rows = (client.table("organization_member").select("organization_id")
-            .eq("user_id", str(user_id)).eq("active", True).execute().data)
+    rows = (
+        client.table("organization_member")
+        .select("organization_id")
+        .eq("user_id", str(user_id))
+        .eq("active", True)
+        .execute()
+        .data
+    )
     if not rows:
         return {}
-    people = client.rpc("org_directory_people", {"target_org": rows[0]["organization_id"]}).execute().data or []
+    people = (
+        client.rpc("org_directory_people", {"target_org": rows[0]["organization_id"]})
+        .execute()
+        .data
+        or []
+    )
     return {person["user_id"]: person["full_name"] for person in people}
 
 
 @router.get("/api/reports/progress", response_model=ProgressReport)
-def progress_report(team_id: Optional[UUID] = None, project_id: Optional[UUID] = None,
-                    owner_id: Optional[UUID] = None, activity_limit: int = Query(20, ge=1, le=50),
-                    auth=Depends(get_current_user)):
+def progress_report(
+    team_id: Optional[UUID] = None,
+    project_id: Optional[UUID] = None,
+    owner_id: Optional[UUID] = None,
+    activity_limit: int = Query(20, ge=1, le=50),
+    auth=Depends(get_current_user),
+):
     # Counts and recent activity over the PRDs the caller can see (all of the
     # org's for an admin), optionally narrowed by owning team, project or owner.
     client = auth["client"]
-    report = client.rpc("progress_report", {
-        "p_team": str(team_id) if team_id else None, "p_project": str(project_id) if project_id else None,
-        "p_owner": str(owner_id) if owner_id else None, "p_activity_limit": activity_limit,
-    }).execute().data
+    report = (
+        client.rpc(
+            "progress_report",
+            {
+                "p_team": str(team_id) if team_id else None,
+                "p_project": str(project_id) if project_id else None,
+                "p_owner": str(owner_id) if owner_id else None,
+                "p_activity_limit": activity_limit,
+            },
+        )
+        .execute()
+        .data
+    )
     names = directory_names(client, auth["user"].id, report)
     return {
-        **{key: report[key] for key in ("total", "by_status", "by_work_status", "by_priority")},
-        "by_owner": [{"owner": {"id": row["user_id"], "name": names.get(row["user_id"])},
-                      "total": row["total"], "by_status": row["by_status"]} for row in report["by_owner"]],
-        "by_team": [{"team": {"id": row["team_id"], "name": row["team_name"]} if row["team_id"] else None,
-                     "total": row["total"], "by_status": row["by_status"]} for row in report["by_team"]],
-        "activity": [{**event_item(row, names), "prd_id": row["prd_id"], "prd_title": row["prd_title"]}
-                     for row in report["activity"]],
+        **{
+            key: report[key]
+            for key in ("total", "by_status", "by_work_status", "by_priority")
+        },
+        "by_owner": [
+            {
+                "owner": {"id": row["user_id"], "name": names.get(row["user_id"])},
+                "total": row["total"],
+                "by_status": row["by_status"],
+            }
+            for row in report["by_owner"]
+        ],
+        "by_team": [
+            {
+                "team": {"id": row["team_id"], "name": row["team_name"]}
+                if row["team_id"]
+                else None,
+                "total": row["total"],
+                "by_status": row["by_status"],
+            }
+            for row in report["by_team"]
+        ],
+        "activity": [
+            {
+                **event_item(row, names),
+                "prd_id": row["prd_id"],
+                "prd_title": row["prd_title"],
+            }
+            for row in report["activity"]
+        ],
     }

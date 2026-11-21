@@ -45,22 +45,46 @@ def validate_generated_document(document) -> list[DocumentError]:
     present = {section_type_of(section) for section in sections}
     for section_type in section_types():
         if section_type not in present:
-            errors.append(DocumentError("missing_section", "/content",
-                                        f"Generated output needs the {section_type} section."))
+            errors.append(
+                DocumentError(
+                    "missing_section",
+                    "/content",
+                    f"Generated output needs the {section_type} section.",
+                )
+            )
     forbidden = set(generation["forbid_marks"]["values"])
     for index, section in enumerate(sections):
         path = f"/content/{index}"
         for mark_path, mark_type in iter_marks(section, path):
             if mark_type in forbidden:
-                errors.append(DocumentError(FORBIDDEN_MARK_CODES.get(mark_type, "mark_not_allowed_in_output"),
-                                            mark_path,
-                                            f"Generated output must not contain the {mark_type} mark."))
+                errors.append(
+                    DocumentError(
+                        FORBIDDEN_MARK_CODES.get(
+                            mark_type, "mark_not_allowed_in_output"
+                        ),
+                        mark_path,
+                        f"Generated output must not contain the {mark_type} mark.",
+                    )
+                )
         if not plain_text(section).strip():
-            errors.append(DocumentError("empty_section", path,
-                                        f"The generated {section_type_of(section)} section has no text."))
+            errors.append(
+                DocumentError(
+                    "empty_section",
+                    path,
+                    f"The generated {section_type_of(section)} section has no text.",
+                )
+            )
         first = section["content"][0]
         title = section_title(section_type_of(section))
-        if first["type"] == "heading" and plain_text(first).strip().casefold() == title.casefold():
-            errors.append(DocumentError("duplicate_section_heading", f"{path}/content/0",
-                                        f"The section starts with a heading repeating its label, {title!r}."))
+        if (
+            first["type"] == "heading"
+            and plain_text(first).strip().casefold() == title.casefold()
+        ):
+            errors.append(
+                DocumentError(
+                    "duplicate_section_heading",
+                    f"{path}/content/0",
+                    f"The section starts with a heading repeating its label, {title!r}.",
+                )
+            )
     return errors

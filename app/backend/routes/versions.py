@@ -20,7 +20,9 @@ class VersionOut(BaseModel):
     id: UUID
     version_no: int
     saved_revision: Optional[int]
-    actor: Optional[VersionActor]  # null: the person was deleted, or the pre-history checkpoint
+    actor: Optional[
+        VersionActor
+    ]  # null: the person was deleted, or the pre-history checkpoint
     origin: str
     created_at: datetime
     changed_sections: list[str]
@@ -49,7 +51,9 @@ def list_prd_versions(
     cursor: Optional[str] = None,
     auth=Depends(get_current_user),
 ):
-    return prd_versions.list_versions(auth["client"], str(prd_id), limit=limit, cursor=cursor)
+    return prd_versions.list_versions(
+        auth["client"], str(prd_id), limit=limit, cursor=cursor
+    )
 
 
 @router.get("/api/prds/{prd_id}/versions/{version_id}", response_model=VersionDetail)

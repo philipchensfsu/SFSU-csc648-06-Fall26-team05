@@ -18,8 +18,12 @@ def link_code(user):
 
 def redeem(code):
     # What routes/bot.py will do for /link: the service role redeems it.
-    r = data_api("POST", "rpc/redeem_discord_link_code", token=SERVICE_KEY,
-                 json={"p_code": code, "p_discord_user_id": DISCORD_ID})
+    r = data_api(
+        "POST",
+        "rpc/redeem_discord_link_code",
+        token=SERVICE_KEY,
+        json={"p_code": code, "p_discord_user_id": DISCORD_ID},
+    )
     assert r.status_code == 200, r.text
 
 
@@ -28,16 +32,27 @@ def test_a_code_is_readable_and_expires_in_ten_minutes(make_user):
     body = link_code(ada)
     assert CODE.match(body["code"])
     expires = datetime.fromisoformat(body["expires_at"])
-    assert timedelta(minutes=9) < expires - datetime.now(timezone.utc) <= timedelta(minutes=10)
+    assert (
+        timedelta(minutes=9)
+        < expires - datetime.now(timezone.utc)
+        <= timedelta(minutes=10)
+    )
 
 
 def test_the_link_shows_after_the_code_is_redeemed(make_user):
     ada = make_user()
     assert ada.api("GET", "/integrations/discord/link").json() == {
-        "linked": False, "discord_user_id": None, "linked_at": None}
+        "linked": False,
+        "discord_user_id": None,
+        "linked_at": None,
+    }
     redeem(link_code(ada)["code"])
     body = ada.api("GET", "/integrations/discord/link").json()
-    assert body["linked"] is True and body["discord_user_id"] == DISCORD_ID and body["linked_at"]
+    assert (
+        body["linked"] is True
+        and body["discord_user_id"] == DISCORD_ID
+        and body["linked_at"]
+    )
 
 
 def test_people_see_only_their_own_link(make_user):
@@ -60,13 +75,20 @@ def test_a_new_code_replaces_the_one_before(make_user):
     ada = make_user()
     first, second = link_code(ada)["code"], link_code(ada)["code"]
     assert first != second
-    r = data_api("POST", "rpc/redeem_discord_link_code", token=SERVICE_KEY,
-                 json={"p_code": first, "p_discord_user_id": DISCORD_ID})
+    r = data_api(
+        "POST",
+        "rpc/redeem_discord_link_code",
+        token=SERVICE_KEY,
+        json={"p_code": first, "p_discord_user_id": DISCORD_ID},
+    )
     assert r.json()["message"] == "invalid_link_code"
     redeem(second)
 
 
 def test_the_routes_need_a_signed_in_user():
-    for method, path in (("POST", "/integrations/discord/link-code"), ("GET", "/integrations/discord/link"),
-                         ("DELETE", "/integrations/discord/link")):
+    for method, path in (
+        ("POST", "/integrations/discord/link-code"),
+        ("GET", "/integrations/discord/link"),
+        ("DELETE", "/integrations/discord/link"),
+    ):
         assert http.request(method, f"{API_URL}{path}").status_code == 401, path

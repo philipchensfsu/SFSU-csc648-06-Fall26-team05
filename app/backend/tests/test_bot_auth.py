@@ -23,7 +23,9 @@ def configured(monkeypatch):
     monkeypatch.setenv("SUPABASE_JWT_SECRET", JWT_SECRET)
 
 
-def call(path="/api/bot/me", secret=SECRET, discord_id=DISCORD_ID, method="GET", **kwargs):
+def call(
+    path="/api/bot/me", secret=SECRET, discord_id=DISCORD_ID, method="GET", **kwargs
+):
     headers = {}
     if secret is not None:
         headers["X-Bot-Secret"] = secret
@@ -40,21 +42,29 @@ def test_without_configuration_the_bot_routes_are_unavailable(monkeypatch, missi
 
 
 @pytest.mark.parametrize("secret", [None, "", "wrong", SECRET + "x"])
-@pytest.mark.parametrize("path, method", [("/api/bot/me", "GET"), ("/api/bot/link", "POST")])
+@pytest.mark.parametrize(
+    "path, method", [("/api/bot/me", "GET"), ("/api/bot/link", "POST")]
+)
 def test_a_missing_or_wrong_secret_is_refused(secret, path, method):
     r = call(path, secret=secret, method=method, json={"code": "ABCD-EFGH-JKMN"})
     assert r.status_code == 401
 
 
-@pytest.mark.parametrize("discord_id", [None, "", "abc", "0123456789012345678", "1234", "1" * 21])
+@pytest.mark.parametrize(
+    "discord_id", [None, "", "abc", "0123456789012345678", "1234", "1" * 21]
+)
 def test_the_discord_user_id_must_be_a_snowflake(discord_id):
     r = call(discord_id=discord_id)
     assert r.status_code == 422 and r.json()["code"] == "invalid_discord_user"
 
 
 def test_signed_tokens_are_for_one_user_and_last_five_minutes():
-    claims = jwt.decode(bot_auth.sign_token("00000000-0000-0000-0000-00000000a11c"), JWT_SECRET,
-                        algorithms=["HS256"], audience="authenticated")
+    claims = jwt.decode(
+        bot_auth.sign_token("00000000-0000-0000-0000-00000000a11c"),
+        JWT_SECRET,
+        algorithms=["HS256"],
+        audience="authenticated",
+    )
     assert claims["sub"] == "00000000-0000-0000-0000-00000000a11c"
     assert claims["role"] == "authenticated"
     assert claims["exp"] - claims["iat"] == 300 and abs(claims["iat"] - time.time()) < 5
@@ -63,7 +73,9 @@ def test_signed_tokens_are_for_one_user_and_last_five_minutes():
 def test_banned_accounts_are_recognized():
     now = datetime.now(timezone.utc)
     assert bot_auth.banned(SimpleNamespace(banned_until=now + timedelta(hours=1)))
-    assert bot_auth.banned(SimpleNamespace(banned_until=(now + timedelta(hours=1)).isoformat()))
+    assert bot_auth.banned(
+        SimpleNamespace(banned_until=(now + timedelta(hours=1)).isoformat())
+    )
     assert not bot_auth.banned(SimpleNamespace(banned_until=now - timedelta(hours=1)))
     assert not bot_auth.banned(SimpleNamespace(banned_until=None))
     assert not bot_auth.banned(SimpleNamespace())

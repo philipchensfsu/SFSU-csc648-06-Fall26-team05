@@ -30,17 +30,26 @@ DEFAULT_LIMIT = 25
 MAX_LIMIT = 100
 
 LIST_COLUMNS = "id, version_no, saved_revision, created_by, origin, created_at, changed_sections, change_summary"
-DETAIL_COLUMNS = LIST_COLUMNS + ", title, description, content_json, doc_schema_version, generation_record_id"
+DETAIL_COLUMNS = (
+    LIST_COLUMNS
+    + ", title, description, content_json, doc_schema_version, generation_record_id"
+)
 
 NOT_FOUND = (404, "PRD not found")
 VERSION_NOT_FOUND = (404, "Version not found")
 
 
-def list_versions(client, prd_id: str, *, limit: int = DEFAULT_LIMIT, cursor: str | None = None) -> dict:
+def list_versions(
+    client, prd_id: str, *, limit: int = DEFAULT_LIMIT, cursor: str | None = None
+) -> dict:
     org_id = _visible_prd_org(client, prd_id)
     before = _decode_cursor(cursor) if cursor else None
-    query = (client.table("prd_version").select(LIST_COLUMNS)
-             .eq("prd_id", prd_id).not_.is_("version_no", "null"))
+    query = (
+        client.table("prd_version")
+        .select(LIST_COLUMNS)
+        .eq("prd_id", prd_id)
+        .not_.is_("version_no", "null")
+    )
     if before is not None:
         query = query.lt("version_no", before)
     # One extra row tells whether another page exists.
@@ -55,8 +64,14 @@ def list_versions(client, prd_id: str, *, limit: int = DEFAULT_LIMIT, cursor: st
 
 def get_version(client, prd_id: str, version_id: str) -> dict:
     org_id = _visible_prd_org(client, prd_id)
-    rows = (client.table("prd_version").select(DETAIL_COLUMNS)
-            .eq("id", version_id).eq("prd_id", prd_id).execute().data)
+    rows = (
+        client.table("prd_version")
+        .select(DETAIL_COLUMNS)
+        .eq("id", version_id)
+        .eq("prd_id", prd_id)
+        .execute()
+        .data
+    )
     if not rows or rows[0]["version_no"] is None:
         raise ApiError(*VERSION_NOT_FOUND)
     row = rows[0]
@@ -72,7 +87,13 @@ def get_version(client, prd_id: str, version_id: str) -> dict:
 
 
 def _visible_prd_org(client, prd_id: str):
-    rows = client.table("prd").select("id, organization_id").eq("id", prd_id).execute().data
+    rows = (
+        client.table("prd")
+        .select("id, organization_id")
+        .eq("id", prd_id)
+        .execute()
+        .data
+    )
     if not rows:
         raise ApiError(*NOT_FOUND)
     return rows[0]["organization_id"]
@@ -81,7 +102,9 @@ def _visible_prd_org(client, prd_id: str):
 def _actor_names(client, org_id, rows) -> dict:
     if not org_id or not any(row["created_by"] for row in rows):
         return {}
-    people = client.rpc("org_directory_people", {"target_org": org_id}).execute().data or []
+    people = (
+        client.rpc("org_directory_people", {"target_org": org_id}).execute().data or []
+    )
     return {person["user_id"]: person["full_name"] for person in people}
 
 
@@ -114,4 +137,6 @@ def _decode_cursor(cursor: str) -> int:
         return value
     except (ValueError, UnicodeDecodeError):
         # Same answer as the shared keyset pagination (pagination.py).
-        raise ApiError(400, "Invalid cursor. Start again without one.", "invalid_cursor") from None
+        raise ApiError(
+            400, "Invalid cursor. Start again without one.", "invalid_cursor"
+        ) from None

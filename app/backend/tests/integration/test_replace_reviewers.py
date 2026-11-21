@@ -12,17 +12,41 @@ def team(make_user, make_org, db):
     """Ada is the admin; Olive owns the PRD and Ed edits it; Rae and Ray review it; Gus is in the org but not on it."""
     ada, olive, ed, rae, ray, gus = (make_user() for _ in range(6))
     org = make_org(ada, olive, ed, rae, ray, gus)
-    for user, name in ((olive, "Olive Owner"), (rae, "Rae Reviewer"), (ray, "Ray Reviewer"), (gus, "Gus New")):
+    for user, name in (
+        (olive, "Olive Owner"),
+        (rae, "Rae Reviewer"),
+        (ray, "Ray Reviewer"),
+        (gus, "Gus New"),
+    ):
         db.execute("update profile set full_name = %s where id = %s", (name, user.id))
     prd = org_prd(db, org, olive, "Team PRD")
     add_to_prd(db, prd, ed, "editor")
     version = save_version(db, prd, olive)
-    revision = db.execute("select revision from prd where id = %s", (prd,)).fetchone()[0]
-    r = olive.api("POST", f"/prds/{prd}/reviews",
-                  json={"revision": revision, "version_id": version, "reviewer_ids": [rae.id, ray.id]})
+    revision = db.execute("select revision from prd where id = %s", (prd,)).fetchone()[
+        0
+    ]
+    r = olive.api(
+        "POST",
+        f"/prds/{prd}/reviews",
+        json={
+            "revision": revision,
+            "version_id": version,
+            "reviewer_ids": [rae.id, ray.id],
+        },
+    )
     assert r.status_code == 201, r.text
-    return dict(ada=ada, olive=olive, ed=ed, rae=rae, ray=ray, gus=gus, org=org, prd=prd, version=version,
-                round=r.json()["round"]["id"])
+    return dict(
+        ada=ada,
+        olive=olive,
+        ed=ed,
+        rae=rae,
+        ray=ray,
+        gus=gus,
+        org=org,
+        prd=prd,
+        version=version,
+        round=r.json()["round"]["id"],
+    )
 
 
 def path(team, who):
@@ -30,7 +54,9 @@ def path(team, who):
 
 
 def replace(team, who, new, by="olive"):
-    return team[by].api("POST", path(team, who) + "/replace", json={"reviewer_id": team[new].id})
+    return team[by].api(
+        "POST", path(team, who) + "/replace", json={"reviewer_id": team[new].id}
+    )
 
 
 def remove(team, who, by="olive"):
@@ -38,8 +64,15 @@ def remove(team, who, by="olive"):
 
 
 def decide(team, who, decision="approved", explanation=None):
-    r = team[who].api("PUT", f"/prds/{team['prd']}/reviews/{team['round']}/decision",
-                      json={"version_id": team["version"], "decision": decision, "explanation": explanation})
+    r = team[who].api(
+        "PUT",
+        f"/prds/{team['prd']}/reviews/{team['round']}/decision",
+        json={
+            "version_id": team["version"],
+            "decision": decision,
+            "explanation": explanation,
+        },
+    )
     assert r.status_code == 200, r.text
 
 
@@ -52,33 +85,56 @@ def test_replacing_a_reviewer_keeps_the_old_slot_as_history(team, db):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["status"] == "in_review" and body["round"]["state"] == "in_review"
-    assert sorted((x["user_id"], x["state"]) for x in body["round"]["reviewers"]) == sorted(
-        [(team["rae"].id, "pending"), (team["gus"].id, "pending")])
+    assert sorted(
+        (x["user_id"], x["state"]) for x in body["round"]["reviewers"]
+    ) == sorted([(team["rae"].id, "pending"), (team["gus"].id, "pending")])
     [removed] = body["round"]["removed_reviewers"]
     assert removed["user_id"] == team["ray"].id and removed["name"] == "Ray Reviewer"
     assert removed["reason"] == "replaced" and removed["replaced_by"] == team["gus"].id
     assert removed["removed_by"] == team["olive"].id
     # Gus wasn't on the PRD: added as a viewer, to read it and decide.
-    assert db.execute("select role from prd_member where prd_id = %s and user_id = %s",
-                      (team["prd"], team["gus"].id)).fetchone() == ("viewer",)
+    assert db.execute(
+        "select role from prd_member where prd_id = %s and user_id = %s",
+        (team["prd"], team["gus"].id),
+    ).fetchone() == ("viewer",)
     decide(team, "gus")
 
 
 def test_the_removed_and_added_reviewers_are_notified(team, db):
     replace(team, "ray", "gus")
-    assert "reviewer_changed" in inbox_types(team["ray"]) and "reviewer_changed" in inbox_types(team["gus"])
-    assert "reviewer_changed" not in inbox_types(team["olive"]) + inbox_types(team["rae"])
-    events = team["olive"].api("GET", f"/prds/{team['prd']}/events", params={"type": "reviewer_changed"}).json()
-    assert events["items"][0]["summary"] == "Olive Owner replaced Ray Reviewer with Gus New as a reviewer (round 1)"
+    assert "reviewer_changed" in inbox_types(
+        team["ray"]
+    ) and "reviewer_changed" in inbox_types(team["gus"])
+    assert "reviewer_changed" not in inbox_types(team["olive"]) + inbox_types(
+        team["rae"]
+    )
+    events = (
+        team["olive"]
+        .api("GET", f"/prds/{team['prd']}/events", params={"type": "reviewer_changed"})
+        .json()
+    )
+    assert (
+        events["items"][0]["summary"]
+        == "Olive Owner replaced Ray Reviewer with Gus New as a reviewer (round 1)"
+    )
 
 
 def test_removing_the_last_pending_reviewer_approves_the_round(team, db):
     decide(team, "rae")
     r = remove(team, "ray")
-    assert r.status_code == 200 and r.json()["status"] == "final" and r.json()["round"]["state"] == "approved"
-    summaries = [e["summary"] for e in team["olive"].api("GET", f"/prds/{team['prd']}/events").json()["items"]]
+    assert (
+        r.status_code == 200
+        and r.json()["status"] == "final"
+        and r.json()["round"]["state"] == "approved"
+    )
+    summaries = [
+        e["summary"]
+        for e in team["olive"].api("GET", f"/prds/{team['prd']}/events").json()["items"]
+    ]
     assert "Olive Owner removed Ray Reviewer as a reviewer (round 1)" in summaries
-    assert "Round 1 was approved after Ray Reviewer was taken off the review" in summaries
+    assert (
+        "Round 1 was approved after Ray Reviewer was taken off the review" in summaries
+    )
 
 
 def test_removing_a_reviewer_while_others_are_pending_keeps_the_round_open(team, db):
@@ -111,7 +167,10 @@ def test_bad_replacements_are_rejected(team, make_user, db):
     team["outsider"] = make_user()
     r = replace(team, "ray", "outsider")
     assert r.status_code == 422 and r.json()["code"] == "not_in_organization"
-    r = team["olive"].api("DELETE", f"/prds/{team['prd']}/reviews/{team['round']}/reviewers/{team['gus'].id}")
+    r = team["olive"].api(
+        "DELETE",
+        f"/prds/{team['prd']}/reviews/{team['round']}/reviewers/{team['gus'].id}",
+    )
     assert r.status_code == 404
 
 
@@ -130,9 +189,16 @@ def test_closed_rounds_cant_change(team, db):
 
 
 def test_a_deactivated_reviewer_is_kept_as_history_too(team, db):
-    r = team["ada"].api("PATCH", f"/organizations/{team['org']}/members/{team['ray'].id}", json={"active": False})
+    r = team["ada"].api(
+        "PATCH",
+        f"/organizations/{team['org']}/members/{team['ray'].id}",
+        json={"active": False},
+    )
     assert r.status_code == 200, r.text
     [listed] = team["olive"].api("GET", f"/prds/{team['prd']}/reviews").json()["items"]
     [removed] = listed["removed_reviewers"]
-    assert removed["user_id"] == team["ray"].id and removed["reason"] == "reviewer_deactivated"
+    assert (
+        removed["user_id"] == team["ray"].id
+        and removed["reason"] == "reviewer_deactivated"
+    )
     assert removed["removed_by"] is None
