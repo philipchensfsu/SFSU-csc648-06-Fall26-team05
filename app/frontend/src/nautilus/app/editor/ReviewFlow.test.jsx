@@ -407,6 +407,20 @@ describe("opening the editor on a side tab", () => {
     expect(reviewButton().getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("keeps a comment being typed when the panel is closed and opened again", async () => {
+    await show({ detail: { ...owner, currentVersion: { id: "v1" } }, initialRailTab: null });
+    await click(buttonNamed("Comments"));
+    await typeInto(host.querySelector(".ne-comment-box"), "This needs a number.");
+    // The same button closes it: one misclick.
+    await click(buttonNamed("Comments"));
+    expect(host.querySelector(".ne-panel").hidden).toBe(true);
+    expect(host.querySelector(".ne-panel-rail")).not.toBeNull();
+    await click(buttonNamed("Comments"));
+    expect(host.querySelector(".ne-comment-box").value).toBe("This needs a number.");
+    // Comments were read once, not again on reopening.
+    expect(api.listPrdComments).toHaveBeenCalledTimes(1);
+  });
+
   it("opens Review from the top bar, and a reviewer's decision opens it too", async () => {
     await show({ detail: reviewer, initialRailTab: null });
     expect(host.textContent).not.toContain("Your review");
