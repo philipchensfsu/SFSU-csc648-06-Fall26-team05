@@ -11,7 +11,9 @@ def team(make_user, make_org, db):
     """Ada is the org admin; Olive owns the PRD; Ed edits it; Vic views it; Nia is in the org but not on it."""
     ada, olive, ed, vic, nia = (make_user() for _ in range(5))
     org = make_org(ada, olive, ed, vic, nia)
-    db.execute("update profile set full_name = 'Olive Owner' where id = %s", (olive.id,))
+    db.execute(
+        "update profile set full_name = 'Olive Owner' where id = %s", (olive.id,)
+    )
     prd = org_prd(db, org, olive, "Team PRD")
     add_to_prd(db, prd, ed, "editor")
     add_to_prd(db, prd, vic, "viewer")
@@ -30,12 +32,17 @@ def invite(by, prd, user, role="viewer"):
 
 
 def events(db, prd):
-    return db.execute("select event_type, payload from prd_event where prd_id = %s order by created_at",
-                      (prd,)).fetchall()
+    return db.execute(
+        "select event_type, payload from prd_event where prd_id = %s order by created_at",
+        (prd,),
+    ).fetchall()
 
 
 def record(db, prd, event_type, actor, payload="{}"):
-    db.execute("select record_prd_event(%s, %s, %s, %s::jsonb)", (prd, event_type, actor.id if actor else None, payload))
+    db.execute(
+        "select record_prd_event(%s, %s, %s, %s::jsonb)",
+        (prd, event_type, actor.id if actor else None, payload),
+    )
 
 
 def test_an_invite_notifies_only_the_invited_person(team, db):
@@ -43,11 +50,22 @@ def test_an_invite_notifies_only_the_invited_person(team, db):
     body = inbox(team["nia"])
     assert body["unread_count"] == 1 and body["next_cursor"] is None
     [item] = body["items"]
-    assert item["type"] == "member_added" and item["prd_id"] == team["prd"] and item["title"] == "Team PRD"
+    assert (
+        item["type"] == "member_added"
+        and item["prd_id"] == team["prd"]
+        and item["title"] == "Team PRD"
+    )
     assert item["actor_id"] == team["olive"].id and item["actor_name"] == "Olive Owner"
-    assert item["payload"] == {"user_id": team["nia"].id, "role": "editor"} and item["read_at"] is None
+    assert (
+        item["payload"] == {"user_id": team["nia"].id, "role": "editor"}
+        and item["read_at"] is None
+    )
     for other in ("olive", "ed", "vic", "ada"):
-        assert inbox(team[other]) == {"items": [], "next_cursor": None, "unread_count": 0}
+        assert inbox(team[other]) == {
+            "items": [],
+            "next_cursor": None,
+            "unread_count": 0,
+        }
 
 
 def test_repeating_an_invite_records_nothing_new(team, db):
@@ -60,9 +78,15 @@ def test_repeating_an_invite_records_nothing_new(team, db):
 def test_a_role_change_notifies_only_that_person(team, db):
     olive, prd, ed = team["olive"], team["prd"], team["ed"]
     invite(olive, prd, ed, "viewer")
-    assert events(db, prd) == [("member_role_changed", {"user_id": ed.id, "from": "editor", "to": "viewer"})]
+    assert events(db, prd) == [
+        ("member_role_changed", {"user_id": ed.id, "from": "editor", "to": "viewer"})
+    ]
     [item] = inbox(ed)["items"]
-    assert item["type"] == "member_role_changed" and item["payload"] == {"user_id": ed.id, "from": "editor", "to": "viewer"}
+    assert item["type"] == "member_role_changed" and item["payload"] == {
+        "user_id": ed.id,
+        "from": "editor",
+        "to": "viewer",
+    }
     for other in ("olive", "vic", "ada", "nia"):
         assert inbox(team[other])["unread_count"] == 0
 
@@ -71,11 +95,18 @@ def test_a_removal_is_recorded_without_notifying(team, db):
     olive, prd, ed = team["olive"], team["prd"], team["ed"]
     assert olive.api("DELETE", f"/prds/{prd}/members/{ed.id}").status_code == 204
     assert events(db, prd) == [("member_removed", {"user_id": ed.id, "role": "editor"})]
-    assert db.execute("select count(*) from notification where prd_id = %s", (prd,)).fetchone()[0] == 0
+    assert (
+        db.execute(
+            "select count(*) from notification where prd_id = %s", (prd,)
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_a_failed_invite_records_nothing(team, make_user, db):
-    r = team["olive"].api("PUT", f"/prds/{team['prd']}/members/{make_user().id}", json={"role": "viewer"})
+    r = team["olive"].api(
+        "PUT", f"/prds/{team['prd']}/members/{make_user().id}", json={"role": "viewer"}
+    )
     assert r.status_code == 422
     assert events(db, team["prd"]) == []
 
@@ -86,7 +117,12 @@ def test_a_rolled_back_action_leaves_no_event_or_notification(team, db):
             record(db, team["prd"], "comment_added", team["olive"])
             raise RuntimeError("the action failed")
     assert events(db, team["prd"]) == []
-    assert db.execute("select count(*) from notification where prd_id = %s", (team["prd"],)).fetchone()[0] == 0
+    assert (
+        db.execute(
+            "select count(*) from notification where prd_id = %s", (team["prd"],)
+        ).fetchone()[0]
+        == 0
+    )
 
 
 def test_comments_notify_owners_and_editors_except_the_actor(team, db):
@@ -97,24 +133,40 @@ def test_comments_notify_owners_and_editors_except_the_actor(team, db):
 
 
 def test_inactive_members_and_people_without_access_arent_notified(team, make_user, db):
-    db.execute("update organization_member set active = false where user_id = %s", (team["ed"].id,))
+    db.execute(
+        "update organization_member set active = false where user_id = %s",
+        (team["ed"].id,),
+    )
     record(db, team["prd"], "comment_added", None)
-    recipients = db.execute("select recipient_id::text from notification where prd_id = %s", (team["prd"],)).fetchall()
+    recipients = db.execute(
+        "select recipient_id::text from notification where prd_id = %s", (team["prd"],)
+    ).fetchall()
     assert recipients == [(team["olive"].id,)]
     outsider = make_user()
-    record(db, team["prd"], "member_added", team["olive"], f'{{"user_id": "{outsider.id}"}}')
+    record(
+        db,
+        team["prd"],
+        "member_added",
+        team["olive"],
+        f'{{"user_id": "{outsider.id}"}}',
+    )
     assert inbox(outsider)["unread_count"] == 0
 
 
 def test_review_decisions_and_done_work_notify_owners(team, db):
     record(db, team["prd"], "approved", team["ed"])
     record(db, team["prd"], "changes_requested", team["ed"])
-    record(db, team["prd"], "work_status_changed", team["ed"], '{"status": "in_progress"}')
+    record(
+        db, team["prd"], "work_status_changed", team["ed"], '{"status": "in_progress"}'
+    )
     record(db, team["prd"], "work_status_changed", team["ed"], '{"status": "done"}')
     # Who is notified, not the order: these are written milliseconds apart, so
     # their timestamps (from Docker's clock) can tie or swap.
     assert sorted(i["type"] for i in inbox(team["olive"])["items"]) == [
-        "approved", "changes_requested", "work_status_changed"]
+        "approved",
+        "changes_requested",
+        "work_status_changed",
+    ]
     assert inbox(team["vic"])["unread_count"] == 0
 
 
@@ -125,7 +177,9 @@ def test_mark_read_is_idempotent_and_updates_the_count(team):
     assert r.status_code == 200, r.text
     first = r.json()["read_at"]
     assert first and r.json()["type"] == "member_added"
-    again = team["nia"].api("PATCH", f"/notifications/{item['id']}", json={"read": True})
+    again = team["nia"].api(
+        "PATCH", f"/notifications/{item['id']}", json={"read": True}
+    )
     assert again.status_code == 200 and again.json()["read_at"] == first
     assert inbox(team["nia"])["unread_count"] == 0
     assert inbox(team["nia"], unread_only="true")["items"] == []
@@ -137,7 +191,12 @@ def test_only_the_recipient_can_mark_it_read(team):
     item = inbox(team["nia"])["items"][0]
     r = team["olive"].api("PATCH", f"/notifications/{item['id']}", json={"read": True})
     assert r.status_code == 404 and r.json()["code"] == "not_found"
-    assert team["nia"].api("PATCH", f"/notifications/{item['id']}", json={"read": False}).status_code == 422
+    assert (
+        team["nia"]
+        .api("PATCH", f"/notifications/{item['id']}", json={"read": False})
+        .status_code
+        == 422
+    )
     assert inbox(team["nia"])["unread_count"] == 1
 
 
@@ -147,7 +206,12 @@ def test_losing_access_hides_notifications_from_the_list_and_count(team):
     item = inbox(nia)["items"][0]
     assert olive.api("DELETE", f"/prds/{prd}/members/{nia.id}").status_code == 204
     assert inbox(nia) == {"items": [], "next_cursor": None, "unread_count": 0}
-    assert nia.api("PATCH", f"/notifications/{item['id']}", json={"read": True}).status_code == 404
+    assert (
+        nia.api(
+            "PATCH", f"/notifications/{item['id']}", json={"read": True}
+        ).status_code
+        == 404
+    )
     invite(olive, prd, nia)
     assert inbox(nia)["unread_count"] == 2
 
@@ -178,15 +242,28 @@ def test_outsiders_cant_read_events(team, make_user):
 
 def test_clients_cant_forge_events_or_notifications(team, db):
     olive, prd, nia = team["olive"], team["prd"], team["nia"]
-    r = olive.rest("POST", "rpc/record_prd_event",
-                   json={"p_prd_id": prd, "p_event_type": "approved", "p_actor": nia.id})
+    r = olive.rest(
+        "POST",
+        "rpc/record_prd_event",
+        json={"p_prd_id": prd, "p_event_type": "approved", "p_actor": nia.id},
+    )
     assert r.status_code in (401, 403, 404)
     r = olive.rest("POST", "prd_event", json={"prd_id": prd, "event_type": "approved"})
     assert r.status_code in (401, 403)
     invite(olive, prd, nia)
-    event = db.execute("select id::text from prd_event where prd_id = %s", (prd,)).fetchone()[0]
-    r = olive.rest("POST", "notification", json={"event_id": event, "recipient_id": team["vic"].id, "prd_id": prd})
+    event = db.execute(
+        "select id::text from prd_event where prd_id = %s", (prd,)
+    ).fetchone()[0]
+    r = olive.rest(
+        "POST",
+        "notification",
+        json={"event_id": event, "recipient_id": team["vic"].id, "prd_id": prd},
+    )
     assert r.status_code in (401, 403)
-    r = nia.rest("PATCH", f"notification?recipient_id=eq.{nia.id}", json={"read_at": "2000-01-01T00:00:00Z"})
+    r = nia.rest(
+        "PATCH",
+        f"notification?recipient_id=eq.{nia.id}",
+        json={"read_at": "2000-01-01T00:00:00Z"},
+    )
     assert r.status_code in (401, 403) or r.json() == []
     assert inbox(nia)["unread_count"] == 1

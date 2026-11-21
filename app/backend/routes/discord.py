@@ -39,7 +39,13 @@ def create_link_code(auth=Depends(get_current_user)):
 @router.get("/api/integrations/discord/link", response_model=DiscordLink)
 def get_link(auth=Depends(get_current_user)):
     # RLS shows people only their own link.
-    rows = auth["client"].table("discord_link").select("discord_user_id, linked_at").execute().data
+    rows = (
+        auth["client"]
+        .table("discord_link")
+        .select("discord_user_id, linked_at")
+        .execute()
+        .data
+    )
     if not rows:
         return {"linked": False}
     return {"linked": True, **rows[0]}
@@ -48,5 +54,7 @@ def get_link(auth=Depends(get_current_user)):
 @router.delete("/api/integrations/discord/link", status_code=204)
 def unlink(auth=Depends(get_current_user)):
     # Unlinking an account that isn't linked also succeeds.
-    auth["client"].table("discord_link").delete().eq("profile_id", str(auth["user"].id)).execute()
+    auth["client"].table("discord_link").delete().eq(
+        "profile_id", str(auth["user"].id)
+    ).execute()
     return Response(status_code=204)

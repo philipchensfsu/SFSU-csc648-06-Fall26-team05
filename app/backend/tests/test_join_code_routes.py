@@ -28,9 +28,14 @@ class Query:
 
 def sign_in(rpc, visible_orgs=()):
     user = SimpleNamespace(id="11111111-1111-1111-1111-111111111111")
-    fake = SimpleNamespace(rpc=lambda name, params: rpc,
-                           table=lambda name: Query([{"id": org} for org in visible_orgs]))
-    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": user, "client": fake}
+    fake = SimpleNamespace(
+        rpc=lambda name, params: rpc,
+        table=lambda name: Query([{"id": org} for org in visible_orgs]),
+    )
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {
+        "user": user,
+        "client": fake,
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -45,12 +50,15 @@ def test_join_returns_the_organization():
     assert r.status_code == 200 and r.json() == {"organization_id": ORG}
 
 
-@pytest.mark.parametrize("message, status, code", [
-    ("invalid_join_code", 404, "invalid_join_code"),
-    ("membership_inactive", 403, "membership_inactive"),
-    ("already_in_organization", 409, "already_in_organization"),
-    ("anything else", 500, "database_error"),
-])
+@pytest.mark.parametrize(
+    "message, status, code",
+    [
+        ("invalid_join_code", 404, "invalid_join_code"),
+        ("membership_inactive", 403, "membership_inactive"),
+        ("already_in_organization", 409, "already_in_organization"),
+        ("anything else", 500, "database_error"),
+    ],
+)
 def test_join_errors(message, status, code):
     sign_in(Query(error={"code": "P0001", "message": message}))
     r = client.post("/api/organizations/join", json={"code": "K7QX-M2PA-9DZR"})

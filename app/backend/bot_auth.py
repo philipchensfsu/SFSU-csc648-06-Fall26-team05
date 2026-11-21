@@ -35,24 +35,42 @@ def check_bot_secret(x_bot_secret: Optional[str] = Header(default=None)) -> None
     """Only the bot knows the secret. Compared in constant time."""
     expected = os.environ.get("BOT_API_SECRET")
     if not expected or not os.environ.get("SUPABASE_JWT_SECRET"):
-        raise ApiError(503, "The Discord bot isn't set up on this server.", code="bot_not_configured")
-    if not x_bot_secret or not hmac.compare_digest(x_bot_secret.encode(), expected.encode()):
+        raise ApiError(
+            503,
+            "The Discord bot isn't set up on this server.",
+            code="bot_not_configured",
+        )
+    if not x_bot_secret or not hmac.compare_digest(
+        x_bot_secret.encode(), expected.encode()
+    ):
         raise HTTPException(status_code=401, detail="Invalid bot secret")
 
 
 def discord_user_id(x_discord_user_id: Optional[str] = Header(default=None)) -> str:
     if not x_discord_user_id or not SNOWFLAKE.match(x_discord_user_id):
-        raise ApiError(422, "X-Discord-User-Id must be a Discord user id.", code="invalid_discord_user")
+        raise ApiError(
+            422,
+            "X-Discord-User-Id must be a Discord user id.",
+            code="invalid_discord_user",
+        )
     return x_discord_user_id
 
 
-def get_bot_user(x_bot_secret: Optional[str] = Header(default=None),
-                 x_discord_user_id: Optional[str] = Header(default=None)):
+def get_bot_user(
+    x_bot_secret: Optional[str] = Header(default=None),
+    x_discord_user_id: Optional[str] = Header(default=None),
+):
     """The linked person, in the same shape as get_current_user."""
     check_bot_secret(x_bot_secret)
     discord_id = discord_user_id(x_discord_user_id)
     # The service client only finds who is linked; everything after runs as them.
-    rows = supabase.table("discord_link").select("profile_id").eq("discord_user_id", discord_id).execute().data
+    rows = (
+        supabase.table("discord_link")
+        .select("profile_id")
+        .eq("discord_user_id", discord_id)
+        .execute()
+        .data
+    )
     if not rows:
         raise not_linked()
     # A signed token skips Supabase Auth, so check what Auth would: the
@@ -71,8 +89,13 @@ def get_bot_user(x_bot_secret: Optional[str] = Header(default=None),
 
 def sign_token(user_id: str) -> str:
     now = int(time.time())
-    claims = {"sub": str(user_id), "role": "authenticated", "aud": "authenticated",
-              "iat": now, "exp": now + TOKEN_SECONDS}
+    claims = {
+        "sub": str(user_id),
+        "role": "authenticated",
+        "aud": "authenticated",
+        "iat": now,
+        "exp": now + TOKEN_SECONDS,
+    }
     return jwt.encode(claims, os.environ["SUPABASE_JWT_SECRET"], algorithm="HS256")
 
 
@@ -86,5 +109,9 @@ def banned(user) -> bool:
 
 
 def not_linked() -> ApiError:
-    return ApiError(403, "This Discord account isn't linked to Nautilus. Run /link with a code from your Nautilus "
-                         "settings.", code="discord_not_linked")
+    return ApiError(
+        403,
+        "This Discord account isn't linked to Nautilus. Run /link with a code from your Nautilus "
+        "settings.",
+        code="discord_not_linked",
+    )

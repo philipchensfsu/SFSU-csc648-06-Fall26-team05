@@ -50,7 +50,12 @@ def test_an_unlinked_discord_account_gets_nothing(make_user):
 def test_a_wrong_secret_is_refused_even_for_a_linked_account(make_user):
     link(make_user())
     assert bot("GET", "/bot/me", secret="wrong").status_code == 401
-    assert bot("POST", "/bot/link", secret="wrong", json={"code": "ABCD-EFGH-JKMN"}).status_code == 401
+    assert (
+        bot(
+            "POST", "/bot/link", secret="wrong", json={"code": "ABCD-EFGH-JKMN"}
+        ).status_code
+        == 401
+    )
 
 
 def test_bad_used_and_expired_codes(make_user, db):
@@ -59,18 +64,30 @@ def test_bad_used_and_expired_codes(make_user, db):
     assert r.status_code == 404 and r.json()["code"] == "invalid_link_code"
     code = ada.api("POST", "/integrations/discord/link-code").json()["code"]
     assert bot("POST", "/bot/link", json={"code": code}).status_code == 200
-    assert bot("POST", "/bot/link", DISCORD_B, json={"code": code}).json()["code"] == "invalid_link_code"
+    assert (
+        bot("POST", "/bot/link", DISCORD_B, json={"code": code}).json()["code"]
+        == "invalid_link_code"
+    )
     code = ada.api("POST", "/integrations/discord/link-code").json()["code"]
-    db.execute("update discord_link_code set expires_at = now() - interval '1 second' where profile_id = %s",
-               (ada.id,))
-    assert bot("POST", "/bot/link", DISCORD_B, json={"code": code}).json()["code"] == "invalid_link_code"
+    db.execute(
+        "update discord_link_code set expires_at = now() - interval '1 second' where profile_id = %s",
+        (ada.id,),
+    )
+    assert (
+        bot("POST", "/bot/link", DISCORD_B, json={"code": code}).json()["code"]
+        == "invalid_link_code"
+    )
 
 
 def test_a_banned_account_is_refused(make_user):
     ada = make_user()
     link(ada)
     admin = {"apikey": SERVICE_KEY, "Authorization": f"Bearer {SERVICE_KEY}"}
-    r = http.put(f"{SUPABASE_URL}/auth/v1/admin/users/{ada.id}", headers=admin, json={"ban_duration": "24h"})
+    r = http.put(
+        f"{SUPABASE_URL}/auth/v1/admin/users/{ada.id}",
+        headers=admin,
+        json={"ban_duration": "24h"},
+    )
     assert r.status_code == 200, r.text
     assert bot("GET", "/bot/me").json()["code"] == "discord_not_linked"
 
@@ -79,12 +96,20 @@ def test_leaving_the_organization_is_seen_as_that_person_would_see_it(make_user,
     ada = make_user()
     link(ada)
     assert bot("GET", "/bot/me").json()["organization"] is not None
-    db.execute("update organization_member set active = false where user_id = %s", (ada.id,))
+    db.execute(
+        "update organization_member set active = false where user_id = %s", (ada.id,)
+    )
     assert bot("GET", "/bot/me").json()["organization"] is None
 
 
 def test_no_response_carries_a_token(make_user):
     ada = make_user()
-    linked = bot("POST", "/bot/link", json={"code": ada.api("POST", "/integrations/discord/link-code").json()["code"]})
+    linked = bot(
+        "POST",
+        "/bot/link",
+        json={
+            "code": ada.api("POST", "/integrations/discord/link-code").json()["code"]
+        },
+    )
     for r in (linked, bot("GET", "/bot/me")):
         assert "eyJ" not in r.text and "token" not in r.text.lower()

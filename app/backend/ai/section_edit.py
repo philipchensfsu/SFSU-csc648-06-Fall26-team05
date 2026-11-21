@@ -80,9 +80,16 @@ supports: don't invent names, numbers, dates, targets or commitments. Write
 in the language of the document.
 """
 
-NOT_EDITOR = (403, "You can ask the AI about this PRD, but only editors can request changes.", "forbidden")
-NOT_V2 = (409, "This PRD isn't in the new document format yet, so AI edits aren't available for it.",
-          "document_not_v2")
+NOT_EDITOR = (
+    403,
+    "You can ask the AI about this PRD, but only editors can request changes.",
+    "forbidden",
+)
+NOT_V2 = (
+    409,
+    "This PRD isn't in the new document format yet, so AI edits aren't available for it.",
+    "document_not_v2",
+)
 
 
 def response_schema(section_type: str) -> dict:
@@ -93,26 +100,54 @@ def response_schema(section_type: str) -> dict:
         "type": "object",
         "properties": {
             "type": {"type": "string", "enum": ["section"]},
-            "attrs": {"type": "object", "properties": {"type": {"type": "string", "enum": [section_type]}},
-                      "required": ["type"]},
-            "content": {"type": "array", "minItems": 1,
-                        "items": {"anyOf": [paragraph_schema(), heading_schema(), list_schema("bulletList"),
-                                            list_schema("orderedList")]}},
+            "attrs": {
+                "type": "object",
+                "properties": {"type": {"type": "string", "enum": [section_type]}},
+                "required": ["type"],
+            },
+            "content": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "anyOf": [
+                        paragraph_schema(),
+                        heading_schema(),
+                        list_schema("bulletList"),
+                        list_schema("orderedList"),
+                    ]
+                },
+            },
         },
         "required": ["type", "attrs", "content"],
     }
     return {
         "type": "object",
-        "properties": {"section": section,
-                       "message": {"type": "string", "minLength": 1, "maxLength": MAX_EXPLANATION_CHARS}},
+        "properties": {
+            "section": section,
+            "message": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MAX_EXPLANATION_CHARS,
+            },
+        },
         "required": ["section", "message"],
     }
 
 
-def propose_section_edit(user_client, service_client, *, actor_id, prd_id: str, revision: int, section_type: str,
-                         instruction: str, session_messages: list[dict],
-                         budget: usage_gate.RequestBudget | None = None, modules: chat.ChatModules | None = None,
-                         call_model: Callable[..., GeminiResult] | None = None) -> dict:
+def propose_section_edit(
+    user_client,
+    service_client,
+    *,
+    actor_id,
+    prd_id: str,
+    revision: int,
+    section_type: str,
+    instruction: str,
+    session_messages: list[dict],
+    budget: usage_gate.RequestBudget | None = None,
+    modules: chat.ChatModules | None = None,
+    call_model: Callable[..., GeminiResult] | None = None,
+) -> dict:
     modules = modules or chat.load_modules()
     if modules is None:
         raise ApiError(*chat.CHAT_UNAVAILABLE)
@@ -122,7 +157,9 @@ def propose_section_edit(user_client, service_client, *, actor_id, prd_id: str, 
         raise ApiError(422, "Say what to change in the section.", "validation_error")
     budget = budget or usage_gate.RequestBudget()
 
-    current_revision, prd = chat.load_chat_prd(user_client, prd_id)  # 404 if not visible
+    current_revision, prd = chat.load_chat_prd(
+        user_client, prd_id
+    )  # 404 if not visible
     edit_access.require_edit_request(user_client, prd_id, NOT_EDITOR)
     if current_revision != revision:
         raise ApiError(*chat.STALE_REVISION)
@@ -134,46 +171,103 @@ def propose_section_edit(user_client, service_client, *, actor_id, prd_id: str, 
     with usage_gate.admitted(user_client):
         try:
             calls.cap = usage_gate.scope_timeout_seconds()
-            decision = modules.guardrails.check_scope(prd, session_messages, instruction, call_model=calls,
-                                                      timeout_seconds=budget.call_timeout(calls.cap))
+            decision = modules.guardrails.check_scope(
+                prd,
+                session_messages,
+                instruction,
+                call_model=calls,
+                timeout_seconds=budget.call_timeout(calls.cap),
+            )
             verdict = chat._verdict(decision)
             if verdict != "allow":
-                kind, text, code = (("blocked", prompts.FIXED_REFUSAL, "out_of_scope") if verdict == "block"
-                                    else ("clarification", prompts.FIXED_CLARIFICATION, "clarification_needed"))
-                record = _record(service_client, actor_id, prd_id, revision, calls, status="failed", error_code=code)
+                kind, text, code = (
+                    ("blocked", prompts.FIXED_REFUSAL, "out_of_scope")
+                    if verdict == "block"
+                    else (
+                        "clarification",
+                        prompts.FIXED_CLARIFICATION,
+                        "clarification_needed",
+                    )
+                )
+                record = _record(
+                    service_client,
+                    actor_id,
+                    prd_id,
+                    revision,
+                    calls,
+                    status="failed",
+                    error_code=code,
+                )
                 return _response(kind, text, None, revision, record)
 
             calls.cap = usage_gate.main_timeout_seconds()
-            result = calls(build_prompt(prd, document, current_section, section_type, instruction, session_messages),
-                           system_instruction=SYSTEM_INSTRUCTION, response_schema=response_schema(section_type),
-                           max_output_tokens=MAX_OUTPUT_TOKENS)
+            result = calls(
+                build_prompt(
+                    prd,
+                    document,
+                    current_section,
+                    section_type,
+                    instruction,
+                    session_messages,
+                ),
+                system_instruction=SYSTEM_INSTRUCTION,
+                response_schema=response_schema(section_type),
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            )
             section, explanation = _checked_reply(result, section_type)
             merged = merge_section(document, section)
             errors = validate_document(merged)
             if errors:
-                logger.warning("Section edit on %s failed document checks: %s", result.model,
-                               ", ".join(sorted({e.code for e in errors})))
+                logger.warning(
+                    "Section edit on %s failed document checks: %s",
+                    result.model,
+                    ", ".join(sorted({e.code for e in errors})),
+                )
                 raise AIError(502, "ai_invalid_output")
         except AIError as exc:
             _record_failure(service_client, actor_id, prd_id, revision, calls, exc.code)
             raise
         if not edit_access.can_request_edit(user_client, prd_id):
             # Approved or access lost while the model ran: counted, not staged.
-            _record_failure(service_client, actor_id, prd_id, revision, calls, "forbidden")
+            _record_failure(
+                service_client, actor_id, prd_id, revision, calls, "forbidden"
+            )
             edit_access.require_edit_request(user_client, prd_id, NOT_EDITOR)
         record = records.record_ai_request(
-            service_client, actor_id=actor_id, prd_id=prd_id, base_revision=revision, trigger="chat_request",
-            model=calls.model, prompt_version=PROMPT_VERSION, prompt_tokens=calls.prompt_tokens or None,
-            output_tokens=calls.output_tokens or None, proposal_kind="ai_edit",
-            proposal_content={"section_type": section_type, "section": section, "content_json": merged})
+            service_client,
+            actor_id=actor_id,
+            prd_id=prd_id,
+            base_revision=revision,
+            trigger="chat_request",
+            model=calls.model,
+            prompt_version=PROMPT_VERSION,
+            prompt_tokens=calls.prompt_tokens or None,
+            output_tokens=calls.output_tokens or None,
+            proposal_kind="ai_edit",
+            proposal_content={
+                "section_type": section_type,
+                "section": section,
+                "content_json": merged,
+            },
+        )
     if record.outcome != "staged":
         raise ApiError(*chat.STALE_REVISION)
-    proposal = {"section_type": section_type, "section": section, "content_json": merged}
+    proposal = {
+        "section_type": section_type,
+        "section": section,
+        "content_json": merged,
+    }
     return _response("proposal", explanation, proposal, revision, record)
 
 
-def build_prompt(prd: dict, document: dict, current_section: dict | None, section_type: str, instruction: str,
-                 session_messages: list[dict]) -> str:
+def build_prompt(
+    prd: dict,
+    document: dict,
+    current_section: dict | None,
+    section_type: str,
+    instruction: str,
+    session_messages: list[dict],
+) -> str:
     data = {
         "title": prd["title"],
         "description": prd["description"],
@@ -181,7 +275,9 @@ def build_prompt(prd: dict, document: dict, current_section: dict | None, sectio
         "document_text_truncated": prd["content_text_truncated"],
         "saved_context": prd["context"],
         "interview_answers": prd["intake_answers"],
-        "recent_conversation": [{"role": m["role"], "content": m["content"]} for m in session_messages],
+        "recent_conversation": [
+            {"role": m["role"], "content": m["content"]} for m in session_messages
+        ],
         "section_type": section_type,
         "section_title": section_title(section_type),
         "current_section": current_section,  # null: the section doesn't exist yet
@@ -195,15 +291,22 @@ def merge_section(document: dict, section: dict) -> dict:
     order if it was missing. Every other section is kept exactly."""
     order = section_types()
     section_type = section["attrs"]["type"]
-    others = [s for s in document.get("content", []) if s["attrs"]["type"] != section_type]
+    others = [
+        s for s in document.get("content", []) if s["attrs"]["type"] != section_type
+    ]
     merged = others + [section]
     merged.sort(key=lambda s: order.index(s["attrs"]["type"]))
     return {**document, "content": merged}
 
 
 def _saved_document(user_client, prd_id: str) -> dict:
-    row = (user_client.table("prd").select("content_json, doc_schema_version").eq("id", prd_id)
-           .execute().data[0])
+    row = (
+        user_client.table("prd")
+        .select("content_json, doc_schema_version")
+        .eq("id", prd_id)
+        .execute()
+        .data[0]
+    )
     if row["content_json"] is None:
         return copy.deepcopy(EMPTY_DOCUMENT)
     if row["doc_schema_version"] != 2 or validate_document(row["content_json"]):
@@ -212,17 +315,25 @@ def _saved_document(user_client, prd_id: str) -> dict:
 
 
 def _section(document: dict, section_type: str) -> dict | None:
-    return next((s for s in document.get("content", []) if s["attrs"]["type"] == section_type), None)
+    return next(
+        (s for s in document.get("content", []) if s["attrs"]["type"] == section_type),
+        None,
+    )
 
 
 def _checked_reply(result: GeminiResult, section_type: str) -> tuple[dict, str]:
     data = result.data
     section = data.get("section") if isinstance(data, dict) else None
     explanation = data.get("message") if isinstance(data, dict) else None
-    if (not isinstance(section, dict) or section.get("type") != "section"
-            or (section.get("attrs") or {}).get("type") != section_type
-            or not isinstance(explanation, str) or not explanation.strip()
-            or len(explanation) > MAX_EXPLANATION_CHARS or _has_forbidden_marks(section)):
+    if (
+        not isinstance(section, dict)
+        or section.get("type") != "section"
+        or (section.get("attrs") or {}).get("type") != section_type
+        or not isinstance(explanation, str)
+        or not explanation.strip()
+        or len(explanation) > MAX_EXPLANATION_CHARS
+        or _has_forbidden_marks(section)
+    ):
         logger.warning("Section edit reply on %s failed checks", result.model)
         raise AIError(502, "ai_invalid_output")
     return section, explanation
@@ -234,26 +345,63 @@ def _has_forbidden_marks(node: dict) -> bool:
         current = stack.pop()
         if not isinstance(current, dict):
             continue
-        if any(isinstance(m, dict) and m.get("type") in FORBIDDEN_MARK_CODES for m in current.get("marks", [])):
+        if any(
+            isinstance(m, dict) and m.get("type") in FORBIDDEN_MARK_CODES
+            for m in current.get("marks", [])
+        ):
             return True
-        stack.extend(current.get("content", []) if isinstance(current.get("content"), list) else [])
+        stack.extend(
+            current.get("content", [])
+            if isinstance(current.get("content"), list)
+            else []
+        )
     return False
 
 
-def _record(service_client, actor_id, prd_id, revision, calls, *, status, error_code=None):
+def _record(
+    service_client, actor_id, prd_id, revision, calls, *, status, error_code=None
+):
     return records.record_ai_request(
-        service_client, actor_id=actor_id, prd_id=prd_id, base_revision=revision, trigger="chat_request",
-        model=calls.model or model_name(), prompt_version=PROMPT_VERSION, status=status, error_code=error_code,
-        prompt_tokens=calls.prompt_tokens or None, output_tokens=calls.output_tokens or None)
+        service_client,
+        actor_id=actor_id,
+        prd_id=prd_id,
+        base_revision=revision,
+        trigger="chat_request",
+        model=calls.model or model_name(),
+        prompt_version=PROMPT_VERSION,
+        status=status,
+        error_code=error_code,
+        prompt_tokens=calls.prompt_tokens or None,
+        output_tokens=calls.output_tokens or None,
+    )
 
 
 def _record_failure(service_client, actor_id, prd_id, revision, calls, error_code):
     try:
-        _record(service_client, actor_id, prd_id, revision, calls, status="failed", error_code=error_code)
+        _record(
+            service_client,
+            actor_id,
+            prd_id,
+            revision,
+            calls,
+            status="failed",
+            error_code=error_code,
+        )
     except Exception as exc:  # noqa: BLE001 - the provider error is what the user needs
         logger.error("Couldn't record a failed section edit (%s)", type(exc).__name__)
 
 
-def _response(kind: str, message: str, proposal: dict | None, revision: int, record: records.RecordResult) -> dict:
-    return {"kind": kind, "message": message, "proposal": proposal, "base_revision": revision,
-            "generation_record_id": record.generation_record_id}
+def _response(
+    kind: str,
+    message: str,
+    proposal: dict | None,
+    revision: int,
+    record: records.RecordResult,
+) -> dict:
+    return {
+        "kind": kind,
+        "message": message,
+        "proposal": proposal,
+        "base_revision": revision,
+        "generation_record_id": record.generation_record_id,
+    }

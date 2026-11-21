@@ -106,8 +106,9 @@ class ScopeDecision:
     reason_code: str = ""
 
 
-def check_scope(prd: dict, history: list[dict], message: str, *, call_model,
-                timeout_seconds: float) -> ScopeDecision:
+def check_scope(
+    prd: dict, history: list[dict], message: str, *, call_model, timeout_seconds: float
+) -> ScopeDecision:
     """Classifies one chat message against the open PRD.
 
     Returns a ScopeDecision whose verdict is "allow", "block" or "unclear".
@@ -173,10 +174,12 @@ def _recent_history(history) -> list[dict]:
         if not isinstance(turn, dict):
             continue
         role = turn.get("role")
-        turns.append({
-            "role": role if role in ("user", "assistant") else "user",
-            "content": _clip(turn.get("content"), MAX_HISTORY_CHARS),
-        })
+        turns.append(
+            {
+                "role": role if role in ("user", "assistant") else "user",
+                "content": _clip(turn.get("content"), MAX_HISTORY_CHARS),
+            }
+        )
     return turns
 
 
@@ -187,4 +190,6 @@ def _clip(value, limit: int) -> str:
 
 def _clip_list(values, limit: int = 10) -> list[str]:
     items = values if isinstance(values, list) else []
-    return [_clip(item, MAX_ANSWER_CHARS) for item in items[:limit] if isinstance(item, str)]
+    return [
+        _clip(item, MAX_ANSWER_CHARS) for item in items[:limit] if isinstance(item, str)
+    ]

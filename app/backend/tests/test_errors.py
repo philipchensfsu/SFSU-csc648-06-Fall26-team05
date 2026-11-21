@@ -7,7 +7,11 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 from postgrest.exceptions import APIError
-from supabase_auth.errors import AuthApiError, AuthRetryableError, AuthSessionMissingError
+from supabase_auth.errors import (
+    AuthApiError,
+    AuthRetryableError,
+    AuthSessionMissingError,
+)
 
 import auth
 import main
@@ -41,7 +45,10 @@ class FakeQuery:
 def sign_in_with(query):
     user = SimpleNamespace(id="11111111-1111-1111-1111-111111111111")
     fake_client = SimpleNamespace(table=lambda name: query)
-    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": user, "client": fake_client}
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {
+        "user": user,
+        "client": fake_client,
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -58,7 +65,9 @@ def assert_error(response, status, code):
     return body
 
 
-@pytest.mark.parametrize("headers", [{}, {"Authorization": "Token abc"}, {"Authorization": "Bearer "}])
+@pytest.mark.parametrize(
+    "headers", [{}, {"Authorization": "Token abc"}, {"Authorization": "Bearer "}]
+)
 def test_missing_or_malformed_auth_is_401(headers, monkeypatch):
     def reject(token):
         raise AuthApiError("invalid JWT", 403, "bad_jwt")
@@ -67,11 +76,14 @@ def test_missing_or_malformed_auth_is_401(headers, monkeypatch):
     assert_error(client.get("/api/projects", headers=headers), 401, "not_authenticated")
 
 
-@pytest.mark.parametrize("error", [
-    AuthApiError("invalid JWT", 403, "bad_jwt"),
-    AuthApiError("token expired", 401, None),
-    AuthSessionMissingError(),
-])
+@pytest.mark.parametrize(
+    "error",
+    [
+        AuthApiError("invalid JWT", 403, "bad_jwt"),
+        AuthApiError("token expired", 401, None),
+        AuthSessionMissingError(),
+    ],
+)
 def test_invalid_token_is_401(error, monkeypatch):
     def reject(token):
         raise error
@@ -82,25 +94,32 @@ def test_invalid_token_is_401(error, monkeypatch):
 
 
 def test_no_user_returned_is_401(monkeypatch):
-    monkeypatch.setattr(auth.supabase.auth, "get_user", lambda token: SimpleNamespace(user=None))
+    monkeypatch.setattr(
+        auth.supabase.auth, "get_user", lambda token: SimpleNamespace(user=None)
+    )
     response = client.get("/api/projects", headers={"Authorization": "Bearer nope"})
     assert_error(response, 401, "not_authenticated")
 
 
-@pytest.mark.parametrize("error", [
-    httpx.ConnectError("refused"),
-    httpx.ReadTimeout("slow"),
-    AuthRetryableError("bad gateway", 502),
-    AuthApiError("too many requests", 429, "over_request_rate_limit"),
-    AuthApiError("internal error", 500, None),
-])
+@pytest.mark.parametrize(
+    "error",
+    [
+        httpx.ConnectError("refused"),
+        httpx.ReadTimeout("slow"),
+        AuthRetryableError("bad gateway", 502),
+        AuthApiError("too many requests", 429, "over_request_rate_limit"),
+        AuthApiError("internal error", 500, None),
+    ],
+)
 def test_auth_outage_is_503_and_never_logs_the_token(error, monkeypatch, caplog):
     def fail(token):
         raise error
 
     monkeypatch.setattr(auth.supabase.auth, "get_user", fail)
     with caplog.at_level(logging.ERROR):
-        response = client.get("/api/projects", headers={"Authorization": "Bearer secret-token-value"})
+        response = client.get(
+            "/api/projects", headers={"Authorization": "Bearer secret-token-value"}
+        )
     assert_error(response, 503, "service_unavailable")
     assert "secret-token-value" not in caplog.text
 
@@ -116,7 +135,9 @@ def test_unexpected_auth_failure_is_500(monkeypatch):
 
 def test_validation_error_has_readable_detail_and_field_list():
     sign_in_with(FakeQuery())
-    body = assert_error(client.post("/api/projects", json={"name": "x" * 201}), 422, "validation_error")
+    body = assert_error(
+        client.post("/api/projects", json={"name": "x" * 201}), 422, "validation_error"
+    )
     assert "name" in body["detail"]
     assert body["errors"][0]["loc"] == ["body", "name"]
 
@@ -127,7 +148,9 @@ def test_unknown_route_is_404():
 
 def test_route_raised_error_gets_default_code():
     sign_in_with(FakeQuery())
-    response = client.put(f"/api/prds/{PRD_ID}/intake/favorite_color", json={"answer_text": "blue"})
+    response = client.put(
+        f"/api/prds/{PRD_ID}/intake/favorite_color", json={"answer_text": "blue"}
+    )
     assert_error(response, 400, "bad_request")
 
 
@@ -153,37 +176,66 @@ def test_update_of_missing_or_hidden_prd_is_404():
 
 @pytest.mark.parametrize(
     "pg_code, status, code",
-    [("42501", 403, "forbidden"), ("23503", 404, "not_found"),
-     ("23514", 400, "bad_request"), ("XX000", 500, "database_error")],
+    [
+        ("42501", 403, "forbidden"),
+        ("23503", 404, "not_found"),
+        ("23514", 400, "bad_request"),
+        ("XX000", 500, "database_error"),
+    ],
 )
 def test_database_errors_are_mapped(pg_code, status, code):
-    sign_in_with(FakeQuery(error={"code": pg_code, "message": "violates check constraint"}))
+    sign_in_with(
+        FakeQuery(error={"code": pg_code, "message": "violates check constraint"})
+    )
     assert_error(client.get("/api/projects"), status, code)
 
 
 @pytest.mark.parametrize(
     "method, path, body",
-    [("post", "/api/projects", {"name": "P", "owner_id": "someone-else"}),
-     ("post", "/api/prds", {"title": "T", "colour": "blue"}),
-     ("put", f"/api/prds/{PRD_ID}", {"revision": 1, "owner_id": "someone-else"}),
-     ("put", f"/api/prds/{PRD_ID}/intake/problem", {"answer_text": "x", "extra": True})],
+    [
+        ("post", "/api/projects", {"name": "P", "owner_id": "someone-else"}),
+        ("post", "/api/prds", {"title": "T", "colour": "blue"}),
+        ("put", f"/api/prds/{PRD_ID}", {"revision": 1, "owner_id": "someone-else"}),
+        (
+            "put",
+            f"/api/prds/{PRD_ID}/intake/problem",
+            {"answer_text": "x", "extra": True},
+        ),
+    ],
 )
 def test_unknown_request_fields_are_rejected(method, path, body):
     sign_in_with(FakeQuery(result=[{}]))
-    body_json = assert_error(client.request(method, path, json=body), 422, "validation_error")
+    body_json = assert_error(
+        client.request(method, path, json=body), 422, "validation_error"
+    )
     assert body_json["errors"][0]["type"] == "extra_forbidden"
 
 
 def test_known_fields_are_still_accepted():
-    row = {"id": PRD_ID, "name": "P", "owner_id": PRD_ID,
-           "created_at": "2026-10-28T00:00:00Z", "updated_at": "2026-10-28T00:00:00Z"}
+    row = {
+        "id": PRD_ID,
+        "name": "P",
+        "owner_id": PRD_ID,
+        "created_at": "2026-10-28T00:00:00Z",
+        "updated_at": "2026-10-28T00:00:00Z",
+    }
     sign_in_with(FakeQuery(result=[row]))
     assert client.post("/api/projects", json={"name": "P"}).status_code == 201
 
 
 def test_database_messages_are_not_returned():
-    message = 'null value in column "title" of relation "prd" violates not-null constraint'
-    sign_in_with(FakeQuery(error={"code": "23502", "message": message, "details": "Failing row contains (secret)"}))
+    message = (
+        'null value in column "title" of relation "prd" violates not-null constraint'
+    )
+    sign_in_with(
+        FakeQuery(
+            error={
+                "code": "23502",
+                "message": message,
+                "details": "Failing row contains (secret)",
+            }
+        )
+    )
     response = client.put(f"/api/prds/{PRD_ID}", json={"revision": 1, "title": "T"})
     body = assert_error(response, 400, "bad_request")
     assert body["detail"] == "Invalid value"
@@ -192,9 +244,11 @@ def test_database_messages_are_not_returned():
 
 @pytest.mark.parametrize(
     "error, status, code",
-    [(RuntimeError("bug"), 500, "internal_error"),
-     (httpx.ConnectError("connection refused"), 503, "service_unavailable"),
-     (httpx.ReadTimeout("timed out"), 503, "service_unavailable")],
+    [
+        (RuntimeError("bug"), 500, "internal_error"),
+        (httpx.ConnectError("connection refused"), 503, "service_unavailable"),
+        (httpx.ReadTimeout("timed out"), 503, "service_unavailable"),
+    ],
 )
 def test_unexpected_errors_use_the_json_shape(error, status, code):
     sign_in_with(FakeQuery(error=error))
@@ -203,10 +257,20 @@ def test_unexpected_errors_use_the_json_shape(error, status, code):
 
 def test_error_logs_leave_out_tokens_bodies_and_db_details(caplog):
     caplog.set_level(logging.INFO, logger="nautilus.errors")
-    sign_in_with(FakeQuery(error={"code": "22P02", "message": 'invalid input: "my-secret-title"',
-                                  "details": "row (my-secret-title)"}))
-    client.put(f"/api/prds/{PRD_ID}", headers={"Authorization": "Bearer my-secret-token"},
-               json={"revision": 1, "title": "my-secret-title"})
+    sign_in_with(
+        FakeQuery(
+            error={
+                "code": "22P02",
+                "message": 'invalid input: "my-secret-title"',
+                "details": "row (my-secret-title)",
+            }
+        )
+    )
+    client.put(
+        f"/api/prds/{PRD_ID}",
+        headers={"Authorization": "Bearer my-secret-token"},
+        json={"revision": 1, "title": "my-secret-title"},
+    )
     sign_in_with(FakeQuery(error=RuntimeError("my-secret-title")))
     client.get("/api/projects", headers={"Authorization": "Bearer my-secret-token"})
     assert caplog.records, "expected the errors to be logged"

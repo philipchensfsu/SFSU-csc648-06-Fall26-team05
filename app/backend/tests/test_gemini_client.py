@@ -42,7 +42,9 @@ def reply(text='{"ok": true}', finish="STOP", block_reason=None):
         candidates = [types.Candidate(content=content, finish_reason=finish)]
     feedback = None
     if block_reason:
-        feedback = types.GenerateContentResponsePromptFeedback(block_reason=block_reason)
+        feedback = types.GenerateContentResponsePromptFeedback(
+            block_reason=block_reason
+        )
     usage = types.GenerateContentResponseUsageMetadata(
         prompt_token_count=120, candidates_token_count=45
     )
@@ -56,7 +58,9 @@ def api_error(code, status="", reason=None):
     # here to prove it never reaches users or logs.
     error = {"code": code, "status": status, "message": f"Bad input: {PROMPT_TEXT}"}
     if reason:
-        error["details"] = [{"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": reason}]
+        error["details"] = [
+            {"@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": reason}
+        ]
     error_class = genai_errors.ServerError if code >= 500 else genai_errors.ClientError
     return error_class(code, {"error": error})
 
@@ -69,7 +73,9 @@ def gemini(monkeypatch):
 
     def queue(*outcomes):
         models = FakeModels(outcomes)
-        monkeypatch.setattr(gemini_client, "_get_client", lambda: SimpleNamespace(models=models))
+        monkeypatch.setattr(
+            gemini_client, "_get_client", lambda: SimpleNamespace(models=models)
+        )
         return models
 
     return queue
@@ -98,7 +104,12 @@ def test_asks_for_json_with_the_schema_timeout_and_model(gemini, monkeypatch):
     monkeypatch.setenv("GEMINI_MODEL", "gemini-test-model")
     models = gemini(reply())
     schema = {"type": "object"}
-    generate_json(PROMPT_TEXT, system_instruction="Be brief.", response_schema=schema, timeout_seconds=30)
+    generate_json(
+        PROMPT_TEXT,
+        system_instruction="Be brief.",
+        response_schema=schema,
+        timeout_seconds=30,
+    )
     sent = models.calls[0]
     assert sent["model"] == "gemini-test-model"
     assert sent["contents"] == PROMPT_TEXT

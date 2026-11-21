@@ -25,15 +25,30 @@ PRDS = [
         },
         "content": {
             "problem": "Students study alone because existing group chats are hard to discover and go stale quickly.",
-            "goals": ["Join a relevant study group within one day of searching.", "Let students create and manage their own groups."],
+            "goals": [
+                "Join a relevant study group within one day of searching.",
+                "Let students create and manage their own groups.",
+            ],
             "non_goals": ["Video calls or built-in chat.", "Paid tutoring."],
             "target_users": "Undergraduates in large lecture courses.",
             "assumption": "Most users search from a phone between classes.",
-            "user_stories": ["As a student, I filter groups by course code so I find one that fits.", "As an organizer, I approve join requests."],
-            "requirements": ["FR-01: Search groups by course code and section.", "FR-02: Request to join a group.", "FR-03: Organizers approve or decline requests."],
-            "success_metrics": ["60% of searchers join a group within 24 hours.", "Weekly active groups grow through the semester."],
+            "user_stories": [
+                "As a student, I filter groups by course code so I find one that fits.",
+                "As an organizer, I approve join requests.",
+            ],
+            "requirements": [
+                "FR-01: Search groups by course code and section.",
+                "FR-02: Request to join a group.",
+                "FR-03: Organizers approve or decline requests.",
+            ],
+            "success_metrics": [
+                "60% of searchers join a group within 24 hours.",
+                "Weekly active groups grow through the semester.",
+            ],
             "risks": ["Too few groups at launch to be useful."],
-            "open_questions": ["Should groups be tied to a section or the whole course?"],
+            "open_questions": [
+                "Should groups be tied to a section or the whole course?"
+            ],
         },
     },
     {
@@ -52,12 +67,25 @@ PRDS = [
         },
         "content": {
             "problem": "Students with dietary restrictions walk to the dining hall only to find nothing they can eat.",
-            "goals": ["Alert students when a matching meal is on today's menu.", "Show allergen tags on every menu item."],
+            "goals": [
+                "Alert students when a matching meal is on today's menu.",
+                "Show allergen tags on every menu item.",
+            ],
             "non_goals": ["Online ordering.", "Meal plan payments."],
             "target_users": "Meal plan holders with vegetarian, vegan, gluten-free, or allergy needs.",
-            "user_stories": ["As a vegan student, I get a morning alert when a vegan entree is served.", "As a student with a nut allergy, I see allergen tags before I go."],
-            "requirements": ["FR-01: Subscribe to dietary tags.", "FR-02: Daily push or email alert.", "FR-03: Import the menu spreadsheet nightly."],
-            "success_metrics": ["40% of subscribers open an alert each week.", "Survey: fewer wasted trips."],
+            "user_stories": [
+                "As a vegan student, I get a morning alert when a vegan entree is served.",
+                "As a student with a nut allergy, I see allergen tags before I go.",
+            ],
+            "requirements": [
+                "FR-01: Subscribe to dietary tags.",
+                "FR-02: Daily push or email alert.",
+                "FR-03: Import the menu spreadsheet nightly.",
+            ],
+            "success_metrics": [
+                "40% of subscribers open an alert each week.",
+                "Survey: fewer wasted trips.",
+            ],
             "risks": ["Menu spreadsheet is updated late or inconsistently."],
             "open_questions": ["Can dining services commit to a menu update time?"],
         },
@@ -90,12 +118,22 @@ PRDS = [
         },
         "content": {
             "problem": "Riders walk to a dock and find it empty, or full when they need to return a bike.",
-            "goals": ["Show live bikes and open spots for nearby docks.", "Let riders save favorite docks."],
+            "goals": [
+                "Show live bikes and open spots for nearby docks.",
+                "Let riders save favorite docks.",
+            ],
             "non_goals": ["Renting or unlocking bikes in the app."],
             "target_users": "Students and staff commuting by bike share.",
             "assumption": "The city feed refreshes at least once a minute.",
-            "user_stories": ["As a commuter, I check my home dock before leaving.", "As a rider, I find the nearest dock with open spots."],
-            "requirements": ["FR-01: Map of docks with live counts.", "FR-02: Save favorite docks.", "FR-03: Read the city GBFS feed."],
+            "user_stories": [
+                "As a commuter, I check my home dock before leaving.",
+                "As a rider, I find the nearest dock with open spots.",
+            ],
+            "requirements": [
+                "FR-01: Map of docks with live counts.",
+                "FR-02: Save favorite docks.",
+                "FR-03: Read the city GBFS feed.",
+            ],
             "success_metrics": ["Riders check the map before half of their trips."],
             "risks": ["The public feed goes down or changes format."],
             "open_questions": ["Do we need an offline fallback?"],
@@ -117,14 +155,30 @@ PRDS = [
         },
         "content": {
             "problem": "Paper expense reports are slow, error-prone, and re-typed by finance.",
-            "goals": ["Reimburse employees within three days.", "Remove manual re-typing by finance."],
+            "goals": [
+                "Reimburse employees within three days.",
+                "Remove manual re-typing by finance.",
+            ],
             "non_goals": ["Issuing corporate cards.", "Tax reporting."],
             "target_users": "Traveling employees, their managers, and the finance team.",
-            "user_stories": ["As an employee, I photograph a receipt and submit it.", "As a manager, I approve reports from my phone.", "As finance, I export approved reports as CSV."],
-            "requirements": ["FR-01: Upload receipt photos.", "FR-02: Manager approval step.", "FR-03: CSV export for accounting."],
-            "success_metrics": ["Average reimbursement time under three days.", "Zero re-typed reports per month."],
+            "user_stories": [
+                "As an employee, I photograph a receipt and submit it.",
+                "As a manager, I approve reports from my phone.",
+                "As finance, I export approved reports as CSV.",
+            ],
+            "requirements": [
+                "FR-01: Upload receipt photos.",
+                "FR-02: Manager approval step.",
+                "FR-03: CSV export for accounting.",
+            ],
+            "success_metrics": [
+                "Average reimbursement time under three days.",
+                "Zero re-typed reports per month.",
+            ],
             "risks": ["Receipt photos are unreadable."],
-            "open_questions": ["What is the approval limit before a director signs off?"],
+            "open_questions": [
+                "What is the approval limit before a director signs off?"
+            ],
         },
     },
     {
@@ -146,8 +200,15 @@ PRDS = [
             "goals": ["One checklist per role.", "Managers see who is stuck."],
             "non_goals": ["Payroll and benefits enrollment."],
             "target_users": "New hires and hiring managers.",
-            "user_stories": ["As a new hire, I see every step I need to finish this week.", "As a manager, I see which steps my new hire hasn't done."],
-            "requirements": ["FR-01: Checklist templates per role.", "FR-02: Mark steps done.", "FR-03: Manager progress view."],
+            "user_stories": [
+                "As a new hire, I see every step I need to finish this week.",
+                "As a manager, I see which steps my new hire hasn't done.",
+            ],
+            "requirements": [
+                "FR-01: Checklist templates per role.",
+                "FR-02: Mark steps done.",
+                "FR-03: Manager progress view.",
+            ],
             "success_metrics": ["90% of checklists done within five days."],
             "risks": ["Templates go out of date."],
             "open_questions": ["Who owns updating each role's template?"],
@@ -186,13 +247,25 @@ PRDS = [
         },
         "content": {
             "problem": "People who cook at home spend too long deciding meals and writing grocery lists.",
-            "goals": ["Plan a week of meals in under ten minutes.", "Generate a combined grocery list."],
+            "goals": [
+                "Plan a week of meals in under ten minutes.",
+                "Generate a combined grocery list.",
+            ],
             "non_goals": ["Grocery delivery.", "Calorie tracking."],
             "target_users": "Students and young professionals cooking on a budget.",
             "assumption": "Users already have a few favorite recipes saved somewhere.",
-            "user_stories": ["As a cook, I drag recipes onto a weekly calendar.", "As a shopper, I get one grocery list for the week."],
-            "requirements": ["FR-01: Save recipes.", "FR-02: Weekly meal calendar.", "FR-03: Combined grocery list."],
-            "success_metrics": ["Users plan at least three weeks in their first month."],
+            "user_stories": [
+                "As a cook, I drag recipes onto a weekly calendar.",
+                "As a shopper, I get one grocery list for the week.",
+            ],
+            "requirements": [
+                "FR-01: Save recipes.",
+                "FR-02: Weekly meal calendar.",
+                "FR-03: Combined grocery list.",
+            ],
+            "success_metrics": [
+                "Users plan at least three weeks in their first month."
+            ],
             "risks": ["Importing recipes from websites is unreliable."],
             "open_questions": ["Should grocery lists group items by store aisle?"],
         },
@@ -216,8 +289,15 @@ PRDS = [
             "goals": ["Fill every shift.", "Remind volunteers the day before."],
             "non_goals": ["Donor and donation tracking."],
             "target_users": "Food bank volunteers of all ages and one coordinator.",
-            "user_stories": ["As a volunteer, I sign up for an open shift from a link.", "As the coordinator, I see which shifts still need people."],
-            "requirements": ["FR-01: Shift calendar with open spots.", "FR-02: Sign up from a web link, no install.", "FR-03: Text reminder the day before."],
+            "user_stories": [
+                "As a volunteer, I sign up for an open shift from a link.",
+                "As the coordinator, I see which shifts still need people.",
+            ],
+            "requirements": [
+                "FR-01: Shift calendar with open spots.",
+                "FR-02: Sign up from a web link, no install.",
+                "FR-03: Text reminder the day before.",
+            ],
             "success_metrics": ["No unfilled shifts for a month."],
             "risks": ["Older volunteers may not use links."],
             "open_questions": ["Do we need a phone-in option?"],

@@ -23,7 +23,9 @@ def test_cursors_round_trip_and_are_opaque(version_no):
     assert prd_versions._decode_cursor(cursor) == version_no
 
 
-@pytest.mark.parametrize("cursor", ["", "not-base64!", "djA", "eDEy", "dmFiYw"])  # "", junk, v0, x12, vabc
+@pytest.mark.parametrize(
+    "cursor", ["", "not-base64!", "djA", "eDEy", "dmFiYw"]
+)  # "", junk, v0, x12, vabc
 def test_bad_cursors_are_400_invalid_cursor(cursor):
     # The same code as the inbox and comments (pagination.py).
     with pytest.raises(ApiError) as info:
@@ -33,18 +35,24 @@ def test_bad_cursors_are_400_invalid_cursor(cursor):
 
 @pytest.fixture
 def api():
-    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": SimpleNamespace(id="u"), "client": None}
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {
+        "user": SimpleNamespace(id="u"),
+        "client": None,
+    }
     yield TestClient(main.app)
     main.app.dependency_overrides.clear()
 
 
-@pytest.mark.parametrize("path", [
-    f"/api/prds/{PRD}/versions?limit=0",
-    f"/api/prds/{PRD}/versions?limit=101",
-    f"/api/prds/{PRD}/versions?limit=ten",
-    "/api/prds/not-a-uuid/versions",
-    f"/api/prds/{PRD}/versions/not-a-uuid",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        f"/api/prds/{PRD}/versions?limit=0",
+        f"/api/prds/{PRD}/versions?limit=101",
+        f"/api/prds/{PRD}/versions?limit=ten",
+        "/api/prds/not-a-uuid/versions",
+        f"/api/prds/{PRD}/versions/not-a-uuid",
+    ],
+)
 def test_bad_requests_are_422_before_any_query(api, path):
     response = api.get(path)
     assert response.status_code == 422 and response.json()["code"] == "validation_error"

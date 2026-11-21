@@ -23,6 +23,7 @@ class RecordingQuery:
         def call(*args, **kwargs):
             self.calls.append((name, args, kwargs))
             return self
+
         return call
 
     def execute(self):
@@ -30,19 +31,25 @@ class RecordingQuery:
 
 
 def rows(n):
-    return [{"id": f"00000000-0000-0000-0000-{i:012d}", "created_at": STAMP} for i in range(n, 0, -1)]
+    return [
+        {"id": f"00000000-0000-0000-0000-{i:012d}", "created_at": STAMP}
+        for i in range(n, 0, -1)
+    ]
 
 
 def test_cursor_round_trip():
     assert decode_cursor(encode_cursor(STAMP, ROW_ID)) == (STAMP, ROW_ID)
 
 
-@pytest.mark.parametrize("cursor", [
-    "not-base64!!",
-    encode_cursor("yesterday", ROW_ID),
-    encode_cursor(STAMP, "not-a-uuid"),
-    encode_cursor(STAMP, 'x"),id.gt.(0'),
-])
+@pytest.mark.parametrize(
+    "cursor",
+    [
+        "not-base64!!",
+        encode_cursor("yesterday", ROW_ID),
+        encode_cursor(STAMP, "not-a-uuid"),
+        encode_cursor(STAMP, 'x"),id.gt.(0'),
+    ],
+)
 def test_invalid_cursors_are_rejected(cursor):
     with pytest.raises(ApiError) as caught:
         decode_cursor(cursor)

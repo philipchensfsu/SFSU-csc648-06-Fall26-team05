@@ -57,10 +57,19 @@ LOCAL_HOSTS = {"127.0.0.1", "localhost", "host.docker.internal"}
 # gets throwaway members. "prds" maps PRD titles to that member's role; a
 # member sees only the PRDs listed.
 MEMBERS = [
-    {"tag": "engineer", "name": "Nautilus Demo Engineer",
-     "prds": {"Campus Study Group Finder": "editor", "Expense Report Automation": "viewer"}},
-    {"tag": "stakeholder", "name": "Nautilus Demo Stakeholder",
-     "prds": {"Campus Study Group Finder": "viewer"}},
+    {
+        "tag": "engineer",
+        "name": "Nautilus Demo Engineer",
+        "prds": {
+            "Campus Study Group Finder": "editor",
+            "Expense Report Automation": "viewer",
+        },
+    },
+    {
+        "tag": "stakeholder",
+        "name": "Nautilus Demo Stakeholder",
+        "prds": {"Campus Study Group Finder": "viewer"},
+    },
 ]
 
 
@@ -77,6 +86,7 @@ def section_order():
 
 
 # --- v2 documents ------------------------------------------------------------------
+
 
 def _text(text, marks=None):
     node = {"type": "text", "text": text}
@@ -98,21 +108,35 @@ def build_document(content):
     for section_type in section_order():
         value = content[section_type]
         if isinstance(value, list):
-            body = [{"type": "bulletList", "content": [
-                {"type": "listItem", "content": [_paragraph(_text(item))]} for item in value]}]
+            body = [
+                {
+                    "type": "bulletList",
+                    "content": [
+                        {"type": "listItem", "content": [_paragraph(_text(item))]}
+                        for item in value
+                    ],
+                }
+            ]
         else:
             texts = [_text(value)]
             if section_type == "target_users" and content.get("assumption"):
-                texts += [_text(" "), _text(content["assumption"], [{"type": "assumption"}])]
+                texts += [
+                    _text(" "),
+                    _text(content["assumption"], [{"type": "assumption"}]),
+                ]
             body = [_paragraph(*texts)]
-        sections.append({"type": "section", "attrs": {"type": section_type}, "content": body})
+        sections.append(
+            {"type": "section", "attrs": {"type": section_type}, "content": body}
+        )
     return {"type": "doc", "content": sections}
 
 
 def description_for(prd):
     """A one-line summary for the card: the interview's problem answer, else
     the document's problem statement."""
-    text = (prd["answers"].get("problem") or (prd["content"] or {}).get("problem") or "").strip()
+    text = (
+        prd["answers"].get("problem") or (prd["content"] or {}).get("problem") or ""
+    ).strip()
     return text[:2000] or None
 
 
@@ -132,11 +156,14 @@ def check_documents():
 
 # --- seeding -----------------------------------------------------------------------
 
+
 def require_local_target(allow_hosted):
     host = urlparse(os.environ.get("SUPABASE_URL", "")).hostname
     if host not in LOCAL_HOSTS and not allow_hosted:
-        raise SystemExit(f"Refusing to seed {host!r}: not a local stack. Hosted seeding is part of the rollout plan "
-                         "and needs --allow-hosted.")
+        raise SystemExit(
+            f"Refusing to seed {host!r}: not a local stack. Hosted seeding is part of the rollout plan "
+            "and needs --allow-hosted."
+        )
 
 
 def find_user(supabase, email):
@@ -160,15 +187,25 @@ def ensure_account(supabase, email, name):
         if password:
             supabase.auth.admin.update_user_by_id(user.id, {"password": password})
             return user, f"{email}: existing account, password set from DEMO_PASSWORD."
-        return user, f"{email}: existing account, password unchanged (set DEMO_PASSWORD to reset it)."
+        return (
+            user,
+            f"{email}: existing account, password unchanged (set DEMO_PASSWORD to reset it).",
+        )
     generated = password is None
     password = password or secrets.token_urlsafe(12)
-    created = supabase.auth.admin.create_user({
-        "email": email, "password": password, "email_confirm": True,
-        "user_metadata": {"full_name": name},
-    })
+    created = supabase.auth.admin.create_user(
+        {
+            "email": email,
+            "password": password,
+            "email_confirm": True,
+            "user_metadata": {"full_name": name},
+        }
+    )
     if generated:
-        return created.user, f"{email}: new account. Password: {password}\nSave this now: it isn't stored anywhere else."
+        return (
+            created.user,
+            f"{email}: new account. Password: {password}\nSave this now: it isn't stored anywhere else.",
+        )
     return created.user, f"{email}: new account, password set from DEMO_PASSWORD."
 
 
@@ -179,29 +216,56 @@ def ensure_demo_user(supabase):
 def ensure_demo_org(supabase, user_id):
     """The demo account's organization, as its admin. Reuses an existing
     active membership; never takes over someone else's organization."""
-    rows = (supabase.table("organization_member").select("organization_id, access_role")
-            .eq("user_id", user_id).eq("active", True).execute().data)
+    rows = (
+        supabase.table("organization_member")
+        .select("organization_id, access_role")
+        .eq("user_id", user_id)
+        .eq("active", True)
+        .execute()
+        .data
+    )
     if rows:
         if rows[0]["access_role"] != "admin":
-            raise SystemExit(f"{DEMO_EMAIL} is a member (not admin) of another organization; not seeding into it.")
+            raise SystemExit(
+                f"{DEMO_EMAIL} is a member (not admin) of another organization; not seeding into it."
+            )
         return rows[0]["organization_id"]
-    org_id = (supabase.table("organization").insert({"name": DEMO_ORG, "created_by": user_id})
-              .execute().data[0]["id"])
+    org_id = (
+        supabase.table("organization")
+        .insert({"name": DEMO_ORG, "created_by": user_id})
+        .execute()
+        .data[0]["id"]
+    )
     supabase.table("organization_member").insert(
-        {"organization_id": org_id, "user_id": user_id, "access_role": "admin"}).execute()
+        {"organization_id": org_id, "user_id": user_id, "access_role": "admin"}
+    ).execute()
     return org_id
 
 
 def ensure_org_member(supabase, user_id, org_id):
     """A plain, active member of the demo organization. Never moves an
     account out of another organization (one active org per account)."""
-    rows = (supabase.table("organization_member").select("organization_id")
-            .eq("user_id", user_id).eq("active", True).execute().data)
+    rows = (
+        supabase.table("organization_member")
+        .select("organization_id")
+        .eq("user_id", user_id)
+        .eq("active", True)
+        .execute()
+        .data
+    )
     if rows and rows[0]["organization_id"] != org_id:
-        raise SystemExit(f"Demo member {user_id} belongs to another organization; not adding them.")
+        raise SystemExit(
+            f"Demo member {user_id} belongs to another organization; not adding them."
+        )
     supabase.table("organization_member").upsert(
-        {"organization_id": org_id, "user_id": user_id, "access_role": "member", "active": True},
-        on_conflict="organization_id,user_id").execute()
+        {
+            "organization_id": org_id,
+            "user_id": user_id,
+            "access_role": "member",
+            "active": True,
+        },
+        on_conflict="organization_id,user_id",
+    ).execute()
 
 
 def ensure_members(supabase, org_id):
@@ -210,7 +274,9 @@ def ensure_members(supabase, org_id):
     members = []
     for member in MEMBERS:
         user, note = ensure_account(supabase, member_email(member), member["name"])
-        supabase.table("profile").update({"full_name": member["name"]}).eq("id", user.id).execute()
+        supabase.table("profile").update({"full_name": member["name"]}).eq(
+            "id", user.id
+        ).execute()
         ensure_org_member(supabase, user.id, org_id)
         members.append((member, user, note))
     return members
@@ -223,7 +289,9 @@ def seed(supabase, allow_hosted=False):
     check_documents()
     user, note = ensure_demo_user(supabase)
     user_id = user.id
-    supabase.table("profile").update({"full_name": DEMO_NAME}).eq("id", user_id).execute()
+    supabase.table("profile").update({"full_name": DEMO_NAME}).eq(
+        "id", user_id
+    ).execute()
     org_id = ensure_demo_org(supabase, user_id)
     members = ensure_members(supabase, org_id)
 
@@ -234,19 +302,39 @@ def seed(supabase, allow_hosted=False):
 
     project_ids = {}
     for name in PROJECTS:
-        project_ids[name] = (supabase.table("project").insert({"name": name, "owner_id": user_id})
-                             .execute().data[0]["id"])
+        project_ids[name] = (
+            supabase.table("project")
+            .insert({"name": name, "owner_id": user_id})
+            .execute()
+            .data[0]["id"]
+        )
 
     # Oldest first, so "recently updated" ordering matches the story.
     prd_ids = {}
     for prd in sorted(PRDS, key=lambda p: -p["days_ago"]):
-        row = (supabase.table("prd").insert({
-            "title": prd["title"], "owner_id": user_id, "organization_id": org_id,
-            "project_id": project_ids.get(prd["project"]),
-        }).execute().data[0])
+        row = (
+            supabase.table("prd")
+            .insert(
+                {
+                    "title": prd["title"],
+                    "owner_id": user_id,
+                    "organization_id": org_id,
+                    "project_id": project_ids.get(prd["project"]),
+                }
+            )
+            .execute()
+            .data[0]
+        )
         prd_ids[prd["title"]] = row["id"]
-        answers = [{"prd_id": row["id"], "question_key": key, "answer_text": text, "skipped": text == ""}
-                   for key, text in prd["answers"].items()]
+        answers = [
+            {
+                "prd_id": row["id"],
+                "question_key": key,
+                "answer_text": text,
+                "skipped": text == "",
+            }
+            for key, text in prd["answers"].items()
+        ]
         if answers:
             supabase.table("intake_answer").insert(answers).execute()
         fields = {"description": description_for(prd)}
@@ -255,18 +343,30 @@ def seed(supabase, allow_hosted=False):
         prd_save.save_prd(supabase, user, row["id"], row["revision"], **fields)
         if prd["status"] != "draft":
             # Demo metadata only: there's no review workflow yet (E07/E08).
-            supabase.table("prd").update({"status": prd["status"]}).eq("id", row["id"]).execute()
+            supabase.table("prd").update({"status": prd["status"]}).eq(
+                "id", row["id"]
+            ).execute()
 
     # The members' roles, granted by the demo admin. Written directly like
     # the rest of the demo data, so no member_added events or notifications
     # are recorded (nobody gets an invite in their inbox).
-    supabase.table("prd_member").insert([
-        {"prd_id": prd_ids[title], "user_id": user.id, "role": role, "granted_by": user_id}
-        for member, user, _ in members for title, role in member["prds"].items()
-    ]).execute()
+    supabase.table("prd_member").insert(
+        [
+            {
+                "prd_id": prd_ids[title],
+                "user_id": user.id,
+                "role": role,
+                "granted_by": user_id,
+            }
+            for member, user, _ in members
+            for title, role in member["prds"].items()
+        ]
+    ).execute()
 
-    print(f"Seeded {len(PROJECTS)} projects and {len(PRDS)} PRDs for {DEMO_EMAIL} in {DEMO_ORG!r}, "
-          f"with {len(members)} members")
+    print(
+        f"Seeded {len(PROJECTS)} projects and {len(PRDS)} PRDs for {DEMO_EMAIL} in {DEMO_ORG!r}, "
+        f"with {len(members)} members"
+    )
     for line in [note] + [member_note for _, _, member_note in members]:
         print(line)
     return org_id
@@ -274,8 +374,11 @@ def seed(supabase, allow_hosted=False):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    parser.add_argument("--allow-hosted", action="store_true",
-                        help="allow a non-local SUPABASE_URL (hosted rollout only)")
+    parser.add_argument(
+        "--allow-hosted",
+        action="store_true",
+        help="allow a non-local SUPABASE_URL (hosted rollout only)",
+    )
     args = parser.parse_args(argv)
     from supabase_client import supabase
 

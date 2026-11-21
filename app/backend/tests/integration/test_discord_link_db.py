@@ -23,12 +23,18 @@ def new_code(user):
 
 
 def redeem(code, discord_user_id=DISCORD_A):
-    return data_api("POST", "rpc/redeem_discord_link_code", token=SERVICE_KEY,
-                    json={"p_code": code, "p_discord_user_id": discord_user_id})
+    return data_api(
+        "POST",
+        "rpc/redeem_discord_link_code",
+        token=SERVICE_KEY,
+        json={"p_code": code, "p_discord_user_id": discord_user_id},
+    )
 
 
 def link_of(db, user):
-    row = db.execute("select discord_user_id from discord_link where profile_id = %s", (user.id,)).fetchone()
+    row = db.execute(
+        "select discord_user_id from discord_link where profile_id = %s", (user.id,)
+    ).fetchone()
     return row[0] if row else None
 
 
@@ -42,7 +48,8 @@ def test_a_code_is_returned_once_and_stored_only_as_a_hash(make_user, db):
     assert CODE.match(code)
     stored, minutes = db.execute(
         "select code_hash, extract(epoch from expires_at - now()) / 60 from discord_link_code where profile_id = %s",
-        (ada.id,)).fetchone()
+        (ada.id,),
+    ).fetchone()
     assert bytes(stored) != code.encode() and len(bytes(stored)) == 32
     assert 9 < minutes <= 10
 
@@ -53,7 +60,12 @@ def test_redeeming_links_the_discord_account_and_uses_up_the_code(make_user, db)
     r = redeem(code)
     assert r.status_code == 200 and r.json() == ada.id
     assert link_of(db, ada) == DISCORD_A
-    assert db.execute("select count(*) from discord_link_code where profile_id = %s", (ada.id,)).fetchone()[0] == 0
+    assert (
+        db.execute(
+            "select count(*) from discord_link_code where profile_id = %s", (ada.id,)
+        ).fetchone()[0]
+        == 0
+    )
     again = redeem(code, DISCORD_B)
     assert again.status_code == 400 and error(again) == "invalid_link_code"
 
@@ -70,8 +82,10 @@ def test_unknown_and_expired_codes_are_refused(make_user, db):
     ada = make_user()
     assert error(redeem("ABCDEFGHJKMN")) == "invalid_link_code"
     code = new_code(ada)
-    db.execute("update discord_link_code set expires_at = now() - interval '1 second' where profile_id = %s",
-               (ada.id,))
+    db.execute(
+        "update discord_link_code set expires_at = now() - interval '1 second' where profile_id = %s",
+        (ada.id,),
+    )
     assert error(redeem(code)) == "invalid_link_code"
     assert link_of(db, ada) is None
 
@@ -106,7 +120,10 @@ def test_people_see_and_remove_only_their_own_link(make_user, db):
     ada, ben = make_user(), make_user()
     redeem(new_code(ada), DISCORD_A)
     redeem(new_code(ben), DISCORD_B)
-    assert [row["discord_user_id"] for row in ada.rest("GET", "discord_link?select=*").json()] == [DISCORD_A]
+    assert [
+        row["discord_user_id"]
+        for row in ada.rest("GET", "discord_link?select=*").json()
+    ] == [DISCORD_A]
     # Ben's delete of Ada's link matches nothing.
     assert ben.rest("DELETE", f"discord_link?profile_id=eq.{ada.id}").json() == []
     assert link_of(db, ada) == DISCORD_A
@@ -117,10 +134,18 @@ def test_people_see_and_remove_only_their_own_link(make_user, db):
 def test_clients_cannot_write_links_or_touch_codes(make_user, db):
     ada = make_user()
     new_code(ada)
-    insert = ada.rest("POST", "discord_link", json={"profile_id": ada.id, "discord_user_id": DISCORD_A})
+    insert = ada.rest(
+        "POST",
+        "discord_link",
+        json={"profile_id": ada.id, "discord_user_id": DISCORD_A},
+    )
     assert insert.status_code in (401, 403)
     redeem(new_code(ada), DISCORD_A)
-    update = ada.rest("PATCH", f"discord_link?profile_id=eq.{ada.id}", json={"discord_user_id": DISCORD_B})
+    update = ada.rest(
+        "PATCH",
+        f"discord_link?profile_id=eq.{ada.id}",
+        json={"discord_user_id": DISCORD_B},
+    )
     assert update.status_code in (401, 403)
     assert ada.rest("GET", "discord_link_code?select=*").status_code in (401, 403)
     assert data_api("GET", "discord_link?select=*").status_code in (401, 403)
@@ -130,10 +155,20 @@ def test_clients_cannot_write_links_or_touch_codes(make_user, db):
 def test_only_the_service_role_redeems_and_only_people_create_codes(make_user, db):
     ada = make_user()
     code = new_code(ada)
-    as_user = ada.rest("POST", "rpc/redeem_discord_link_code", json={"p_code": code, "p_discord_user_id": DISCORD_A})
+    as_user = ada.rest(
+        "POST",
+        "rpc/redeem_discord_link_code",
+        json={"p_code": code, "p_discord_user_id": DISCORD_A},
+    )
     assert as_user.status_code in (401, 403, 404)
-    assert data_api("POST", "rpc/create_discord_link_code", json={}).status_code in (401, 403, 404)
-    service = data_api("POST", "rpc/create_discord_link_code", token=SERVICE_KEY, json={})
+    assert data_api("POST", "rpc/create_discord_link_code", json={}).status_code in (
+        401,
+        403,
+        404,
+    )
+    service = data_api(
+        "POST", "rpc/create_discord_link_code", token=SERVICE_KEY, json={}
+    )
     assert error(service) == "not_authenticated"
     assert link_of(db, ada) is None
 
@@ -144,9 +179,14 @@ def test_two_redeems_of_one_code_link_once(make_user, db):
     results = []
     with connect_db() as holder:
         # Hold the code row so both redeems queue behind it, then release.
-        holder.execute("select 1 from discord_link_code where profile_id = %s for update", (ada.id,))
-        threads = [threading.Thread(target=lambda d=d: results.append(redeem(code, d)))
-                   for d in (DISCORD_A, DISCORD_B)]
+        holder.execute(
+            "select 1 from discord_link_code where profile_id = %s for update",
+            (ada.id,),
+        )
+        threads = [
+            threading.Thread(target=lambda d=d: results.append(redeem(code, d)))
+            for d in (DISCORD_A, DISCORD_B)
+        ]
         for t in threads:
             t.start()
         time.sleep(1)

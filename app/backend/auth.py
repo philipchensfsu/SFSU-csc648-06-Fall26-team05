@@ -23,10 +23,17 @@ def get_current_user(authorization: Optional[str] = Header(default=None)):
         # Unreachable or timed out raises httpx.TransportError, which the
         # shared handler already turns into a 503.
         status = getattr(exc, "status", None)
-        if not isinstance(exc, AuthRetryableError) and status and 400 <= status < 500 and status != 429:
+        if (
+            not isinstance(exc, AuthRetryableError)
+            and status
+            and 400 <= status < 500
+            and status != 429
+        ):
             raise HTTPException(status_code=401, detail="Invalid or expired token")
         logger.error("Supabase Auth unavailable: %s %s", type(exc).__name__, status)
-        raise ApiError(503, "Sign-in service temporarily unavailable. Try again shortly.")
+        raise ApiError(
+            503, "Sign-in service temporarily unavailable. Try again shortly."
+        )
 
     if not user_response or not user_response.user:
         raise HTTPException(status_code=401, detail="Invalid or expired token")

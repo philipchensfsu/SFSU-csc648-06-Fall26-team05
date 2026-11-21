@@ -28,7 +28,11 @@ class FakeUserClient:
     """Answers ai_admit and ai_release; records every call."""
 
     def __init__(self, admit_row=None, release_result=True, release_error=None):
-        self.admit_row = admit_row or {"lease_id": LEASE, "refused": None, "retry_after": None}
+        self.admit_row = admit_row or {
+            "lease_id": LEASE,
+            "refused": None,
+            "retry_after": None,
+        }
         self.release_result = release_result
         self.release_error = release_error
         self.calls = []
@@ -49,8 +53,15 @@ class FakeUserClient:
 
 @pytest.fixture(autouse=True)
 def settings(monkeypatch):
-    for name in ("AI_ENABLED", "AI_COOLDOWN_SECONDS", "AI_LEASE_SECONDS", "GEMINI_MODEL",
-                 "AI_REQUEST_BUDGET_SECONDS", "AI_SCOPE_TIMEOUT_SECONDS", "AI_MAIN_TIMEOUT_SECONDS"):
+    for name in (
+        "AI_ENABLED",
+        "AI_COOLDOWN_SECONDS",
+        "AI_LEASE_SECONDS",
+        "GEMINI_MODEL",
+        "AI_REQUEST_BUDGET_SECONDS",
+        "AI_SCOPE_TIMEOUT_SECONDS",
+        "AI_MAIN_TIMEOUT_SECONDS",
+    ):
         monkeypatch.delenv(name, raising=False)
 
 
@@ -81,7 +92,9 @@ def test_lease_is_released_when_the_request_fails():
     assert names(client) == ["ai_admit", "ai_release"]
 
 
-@pytest.mark.parametrize("refused, code", [("busy", "ai_busy"), ("cooldown", "ai_cooldown")])
+@pytest.mark.parametrize(
+    "refused, code", [("busy", "ai_busy"), ("cooldown", "ai_cooldown")]
+)
 def test_refusals_are_429s_with_retry_after(refused, code):
     client = FakeUserClient({"lease_id": None, "refused": refused, "retry_after": 7})
     ran = False
@@ -130,7 +143,10 @@ def test_release_failure_doesnt_hide_the_result(caplog):
 
 
 def test_lease_outlasts_the_slowest_admitted_request():
-    slowest = gemini_client.MAX_ATTEMPTS * gemini_client.TIMEOUT_SECONDS + gemini_client.RETRY_DELAY_SECONDS
+    slowest = (
+        gemini_client.MAX_ATTEMPTS * gemini_client.TIMEOUT_SECONDS
+        + gemini_client.RETRY_DELAY_SECONDS
+    )
     assert usage_gate.DEFAULT_LEASE_SECONDS > slowest
 
 
@@ -143,12 +159,15 @@ def test_settings_come_from_the_environment(monkeypatch):
     assert client.calls[0][1] == {"p_cooldown_seconds": 30, "p_lease_seconds": 300}
 
 
-@pytest.mark.parametrize("name, value", [
-    ("AI_COOLDOWN_SECONDS", "ten"),
-    ("AI_COOLDOWN_SECONDS", "-1"),
-    ("AI_LEASE_SECONDS", "5"),
-    ("AI_LEASE_SECONDS", "99999"),
-])
+@pytest.mark.parametrize(
+    "name, value",
+    [
+        ("AI_COOLDOWN_SECONDS", "ten"),
+        ("AI_COOLDOWN_SECONDS", "-1"),
+        ("AI_LEASE_SECONDS", "5"),
+        ("AI_LEASE_SECONDS", "99999"),
+    ],
+)
 def test_bad_settings_fall_back_to_defaults(monkeypatch, caplog, name, value):
     monkeypatch.setenv(name, value)
     with caplog.at_level(logging.ERROR, logger="nautilus.ai"):
@@ -166,11 +185,18 @@ def test_provider_retry_happens_inside_one_admission(monkeypatch):
     def generate_content(*, model, contents, config):
         attempts.append(model)
         if len(attempts) == 1:
-            raise genai_errors.ServerError(503, {"error": {"code": 503, "status": "UNAVAILABLE", "message": "busy"}})
+            raise genai_errors.ServerError(
+                503,
+                {"error": {"code": 503, "status": "UNAVAILABLE", "message": "busy"}},
+            )
         content = types.Content(role="model", parts=[types.Part(text='{"ok": true}')])
-        return types.GenerateContentResponse(candidates=[types.Candidate(content=content, finish_reason="STOP")])
+        return types.GenerateContentResponse(
+            candidates=[types.Candidate(content=content, finish_reason="STOP")]
+        )
 
-    fake_genai = SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    fake_genai = SimpleNamespace(
+        models=SimpleNamespace(generate_content=generate_content)
+    )
     monkeypatch.setattr(gemini_client, "_get_client", lambda: fake_genai)
     monkeypatch.setattr(gemini_client, "_sleep", lambda seconds: None)
     client = FakeUserClient()
@@ -178,7 +204,10 @@ def test_provider_retry_happens_inside_one_admission(monkeypatch):
         result = generate_json("ping", system_instruction="Reply with JSON.")
     assert result.data == {"ok": True}
     assert len(attempts) == 2
-    assert names(client) == ["ai_admit", "ai_release"]  # one admission for both attempts
+    assert names(client) == [
+        "ai_admit",
+        "ai_release",
+    ]  # one admission for both attempts
 
 
 # --- how the API renders refusals ------------------------------------------------
@@ -198,24 +227,41 @@ def render(error):
 def test_cooldown_renders_with_retry_after_in_body_and_header():
     response = render(UsageLimitError("ai_cooldown", 12))
     assert response.status_code == 429
-    assert response.json() == {"detail": usage_gate.MESSAGES["ai_cooldown"], "code": "ai_cooldown", "retry_after": 12}
+    assert response.json() == {
+        "detail": usage_gate.MESSAGES["ai_cooldown"],
+        "code": "ai_cooldown",
+        "retry_after": 12,
+    }
     assert response.headers["retry-after"] == "12"
 
 
 def test_disabled_renders_without_retry_after():
     response = render(AIError(429, "ai_disabled"))
     assert response.status_code == 429
-    assert response.json()["code"] == "ai_disabled" and "retry_after" not in response.json()
+    assert (
+        response.json()["code"] == "ai_disabled"
+        and "retry_after" not in response.json()
+    )
 
 
 # --- the request budget and the lease -------------------------------------------------
 
 
 def test_defaults_fit_inside_vercels_300_seconds_and_the_lease_outlasts_the_budget():
-    assert usage_gate.DEFAULT_REQUEST_BUDGET_SECONDS == 170 and usage_gate.lease_seconds() == 200
-    scope_worst = 2 * usage_gate.DEFAULT_SCOPE_TIMEOUT_SECONDS + gemini_client.RETRY_DELAY_SECONDS
-    main_worst = 2 * usage_gate.DEFAULT_MAIN_TIMEOUT_SECONDS + gemini_client.RETRY_DELAY_SECONDS
-    assert scope_worst + main_worst + usage_gate.CLEANUP_ALLOWANCE_SECONDS <= usage_gate.DEFAULT_REQUEST_BUDGET_SECONDS
+    assert (
+        usage_gate.DEFAULT_REQUEST_BUDGET_SECONDS == 170
+        and usage_gate.lease_seconds() == 200
+    )
+    scope_worst = (
+        2 * usage_gate.DEFAULT_SCOPE_TIMEOUT_SECONDS + gemini_client.RETRY_DELAY_SECONDS
+    )
+    main_worst = (
+        2 * usage_gate.DEFAULT_MAIN_TIMEOUT_SECONDS + gemini_client.RETRY_DELAY_SECONDS
+    )
+    assert (
+        scope_worst + main_worst + usage_gate.CLEANUP_ALLOWANCE_SECONDS
+        <= usage_gate.DEFAULT_REQUEST_BUDGET_SECONDS
+    )
     assert usage_gate.DEFAULT_REQUEST_BUDGET_SECONDS < usage_gate.lease_seconds() < 300
 
 

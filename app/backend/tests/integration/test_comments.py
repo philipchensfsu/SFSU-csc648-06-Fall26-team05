@@ -17,15 +17,34 @@ def team(make_user, make_org, db):
     add_to_prd(db, prd, ed, "editor")
     add_to_prd(db, prd, vic, "viewer")
     db.execute("update profile set full_name = 'Vic Viewer' where id = %s", (vic.id,))
-    dept = db.execute("insert into department (organization_id, name) values (%s, 'Design') returning id::text",
-                      (org,)).fetchone()[0]
-    db.execute("update organization_member set department_id = %s where user_id = %s", (dept, vic.id))
+    dept = db.execute(
+        "insert into department (organization_id, name) values (%s, 'Design') returning id::text",
+        (org,),
+    ).fetchone()[0]
+    db.execute(
+        "update organization_member set department_id = %s where user_id = %s",
+        (dept, vic.id),
+    )
     version = save_version(db, prd, olive)
-    return dict(ada=ada, olive=olive, ed=ed, vic=vic, nia=nia, org=org, prd=prd, version=version, dept=dept)
+    return dict(
+        ada=ada,
+        olive=olive,
+        ed=ed,
+        vic=vic,
+        nia=nia,
+        org=org,
+        prd=prd,
+        version=version,
+        dept=dept,
+    )
 
 
 def post(user, prd, version, body="Looks good", section=None):
-    return user.api("POST", f"/prds/{prd}/comments", json={"version_id": version, "section_type": section, "body": body})
+    return user.api(
+        "POST",
+        f"/prds/{prd}/comments",
+        json={"version_id": version, "section_type": section, "body": body},
+    )
 
 
 def comments(user, prd, **params):
@@ -39,17 +58,34 @@ def test_anyone_who_can_view_the_prd_can_comment(team, who):
     r = post(team[who], team["prd"], team["version"], "Ship it", "goals")
     assert r.status_code == 201, r.text
     body = r.json()
-    assert body["prd_id"] == team["prd"] and body["version_id"] == team["version"] and body["version_no"] == 1
-    assert body["section_type"] == "goals" and body["body"] == "Ship it" and body["author"]["id"] == team[who].id
+    assert (
+        body["prd_id"] == team["prd"]
+        and body["version_id"] == team["version"]
+        and body["version_no"] == 1
+    )
+    assert (
+        body["section_type"] == "goals"
+        and body["body"] == "Ship it"
+        and body["author"]["id"] == team[who].id
+    )
     assert comments(team["vic"], team["prd"])["items"] == [body]
 
 
 def test_attribution_is_frozen_at_posting(team, db):
     post(team["vic"], team["prd"], team["version"])
-    db.execute("update profile set full_name = 'Renamed' where id = %s", (team["vic"].id,))
-    db.execute("update organization_member set department_id = null where user_id = %s", (team["vic"].id,))
+    db.execute(
+        "update profile set full_name = 'Renamed' where id = %s", (team["vic"].id,)
+    )
+    db.execute(
+        "update organization_member set department_id = null where user_id = %s",
+        (team["vic"].id,),
+    )
     [item] = comments(team["olive"], team["prd"])["items"]
-    assert item["author"] == {"id": team["vic"].id, "name": "Vic Viewer", "department": "Design"}
+    assert item["author"] == {
+        "id": team["vic"].id,
+        "name": "Vic Viewer",
+        "department": "Design",
+    }
 
 
 def test_people_who_cant_see_the_prd_get_404(team, make_user):
@@ -61,7 +97,10 @@ def test_people_who_cant_see_the_prd_get_404(team, make_user):
 
 def test_losing_access_hides_comments(team, db):
     post(team["olive"], team["prd"], team["version"])
-    db.execute("delete from prd_member where prd_id = %s and user_id = %s", (team["prd"], team["vic"].id))
+    db.execute(
+        "delete from prd_member where prd_id = %s and user_id = %s",
+        (team["prd"], team["vic"].id),
+    )
     assert team["vic"].api("GET", f"/prds/{team['prd']}/comments").status_code == 404
     assert team["vic"].rest("GET", f"prd_comment?prd_id=eq.{team['prd']}").json() == []
 
@@ -80,7 +119,9 @@ def test_comments_on_an_old_version_are_refused_but_stay_readable(team, db):
     assert post(team["vic"], team["prd"], v2, "On v2").status_code == 201
     every = comments(team["vic"], team["prd"])["items"]
     assert [(c["body"], c["version_no"]) for c in every] == [("On v1", 1), ("On v2", 2)]
-    assert [c["body"] for c in comments(team["vic"], team["prd"], version_id=v2)["items"]] == ["On v2"]
+    assert [
+        c["body"] for c in comments(team["vic"], team["prd"], version_id=v2)["items"]
+    ] == ["On v2"]
 
 
 def test_a_version_of_another_prd_is_refused(team, db):
@@ -90,21 +131,36 @@ def test_a_version_of_another_prd_is_refused(team, db):
     assert r.status_code == 409 and r.json()["code"] == "stale_version"
 
 
-@pytest.mark.parametrize("body, section", [("", None), ("   ", None), ("x" * 5001, None), ("Fine", "intro")])
+@pytest.mark.parametrize(
+    "body, section", [("", None), ("   ", None), ("x" * 5001, None), ("Fine", "intro")]
+)
 def test_body_and_section_are_validated(team, body, section):
     r = post(team["olive"], team["prd"], team["version"], body, section)
     assert r.status_code == 422 and r.json()["code"] == "validation_error"
 
 
 def test_the_longest_body_is_accepted(team):
-    assert post(team["olive"], team["prd"], team["version"], "x" * 5000).status_code == 201
+    assert (
+        post(team["olive"], team["prd"], team["version"], "x" * 5000).status_code == 201
+    )
 
 
 def test_a_comment_notifies_owners_and_editors_once(team, db):
     comment = post(team["vic"], team["prd"], team["version"], section="risks").json()
-    event = db.execute("select event_type, actor_id::text, payload, version_id::text, comment_id::text "
-                       "from prd_event where prd_id = %s", (team["prd"],)).fetchall()
-    assert event == [("comment_added", team["vic"].id, {"section_type": "risks"}, team["version"], comment["id"])]
+    event = db.execute(
+        "select event_type, actor_id::text, payload, version_id::text, comment_id::text "
+        "from prd_event where prd_id = %s",
+        (team["prd"],),
+    ).fetchall()
+    assert event == [
+        (
+            "comment_added",
+            team["vic"].id,
+            {"section_type": "risks"},
+            team["version"],
+            comment["id"],
+        )
+    ]
     for who, expected in (("olive", 1), ("ed", 1), ("vic", 0), ("ada", 0)):
         inbox = team[who].api("GET", "/notifications").json()
         assert inbox["unread_count"] == expected, who
@@ -114,9 +170,15 @@ def test_a_comment_notifies_owners_and_editors_once(team, db):
 
 
 def test_comments_dont_change_the_prd(team, db):
-    before = db.execute("select revision, current_version_id, status from prd where id = %s", (team["prd"],)).fetchone()
+    before = db.execute(
+        "select revision, current_version_id, status from prd where id = %s",
+        (team["prd"],),
+    ).fetchone()
     post(team["olive"], team["prd"], team["version"])
-    after = db.execute("select revision, current_version_id, status from prd where id = %s", (team["prd"],)).fetchone()
+    after = db.execute(
+        "select revision, current_version_id, status from prd where id = %s",
+        (team["prd"],),
+    ).fetchone()
     assert after == before
 
 
@@ -126,25 +188,36 @@ def test_comments_page_oldest_first(team):
     page1 = comments(team["olive"], team["prd"], limit=2)
     assert [c["body"] for c in page1["items"]] == ["Comment 0", "Comment 1"]
     page2 = comments(team["olive"], team["prd"], limit=2, cursor=page1["next_cursor"])
-    assert [c["body"] for c in page2["items"]] == ["Comment 2"] and page2["next_cursor"] is None
+    assert [c["body"] for c in page2["items"]] == ["Comment 2"] and page2[
+        "next_cursor"
+    ] is None
 
 
 def test_clients_cant_write_comments_directly(team):
-    r = team["vic"].rest("POST", "prd_comment", json={"prd_id": team["prd"], "version_id": team["version"], "body": "x"})
+    r = team["vic"].rest(
+        "POST",
+        "prd_comment",
+        json={"prd_id": team["prd"], "version_id": team["version"], "body": "x"},
+    )
     assert r.status_code in (401, 403)
 
 
 def test_the_section_list_matches_the_document_format(db):
     import prd_document
-    definition = db.execute("select pg_get_constraintdef(oid) from pg_constraint "
-                            "where conrelid = 'prd_comment'::regclass and conname = 'prd_comment_section_type_check'"
-                            ).fetchone()[0]
+
+    definition = db.execute(
+        "select pg_get_constraintdef(oid) from pg_constraint "
+        "where conrelid = 'prd_comment'::regclass and conname = 'prd_comment_section_type_check'"
+    ).fetchone()[0]
     for section_type in prd_document.section_types():
         assert f"'{section_type}'" in definition
 
 
 def notifications(user):
-    return [(i["type"], i["actor_id"], i["count"]) for i in user.api("GET", "/notifications").json()["items"]]
+    return [
+        (i["type"], i["actor_id"], i["count"])
+        for i in user.api("GET", "/notifications").json()["items"]
+    ]
 
 
 def test_a_burst_of_comments_is_one_notification_with_a_count(team):
@@ -155,7 +228,11 @@ def test_a_burst_of_comments_is_one_notification_with_a_count(team):
         inbox = team[who].api("GET", "/notifications").json()
         assert inbox["unread_count"] == 1
         [item] = inbox["items"]
-        assert item["count"] == 3 and item["comment_id"] == first["id"] and item["updated_at"] >= item["created_at"]
+        assert (
+            item["count"] == 3
+            and item["comment_id"] == first["id"]
+            and item["updated_at"] >= item["created_at"]
+        )
 
 
 def test_other_commenters_get_their_own_notification(team):
@@ -163,7 +240,10 @@ def test_other_commenters_get_their_own_notification(team):
     post(team["ed"], team["prd"], team["version"])
     post(team["vic"], team["prd"], team["version"])
     # Vic's batch grew last, so it's on top.
-    assert notifications(team["olive"]) == [("comment_added", team["vic"].id, 2), ("comment_added", team["ed"].id, 1)]
+    assert notifications(team["olive"]) == [
+        ("comment_added", team["vic"].id, 2),
+        ("comment_added", team["ed"].id, 1),
+    ]
 
 
 def test_reading_the_batch_starts_a_new_one(team):
@@ -171,32 +251,54 @@ def test_reading_the_batch_starts_a_new_one(team):
     [item] = team["olive"].api("GET", "/notifications").json()["items"]
     team["olive"].api("PATCH", f"/notifications/{item['id']}", json={"read": True})
     post(team["vic"], team["prd"], team["version"])
-    assert notifications(team["olive"]) == [("comment_added", team["vic"].id, 1), ("comment_added", team["vic"].id, 1)]
+    assert notifications(team["olive"]) == [
+        ("comment_added", team["vic"].id, 1),
+        ("comment_added", team["vic"].id, 1),
+    ]
     assert notifications(team["ed"]) == [("comment_added", team["vic"].id, 2)]
 
 
 def test_a_batch_closes_ten_minutes_after_its_first_comment(team, db):
     post(team["vic"], team["prd"], team["version"])
-    db.execute("update notification set created_at = now() - interval '11 minutes' where prd_id = %s", (team["prd"],))
+    db.execute(
+        "update notification set created_at = now() - interval '11 minutes' where prd_id = %s",
+        (team["prd"],),
+    )
     post(team["vic"], team["prd"], team["version"])
-    assert notifications(team["olive"]) == [("comment_added", team["vic"].id, 1), ("comment_added", team["vic"].id, 1)]
+    assert notifications(team["olive"]) == [
+        ("comment_added", team["vic"].id, 1),
+        ("comment_added", team["vic"].id, 1),
+    ]
 
 
 def test_a_growing_batch_moves_back_to_the_top(team, db):
     post(team["vic"], team["prd"], team["version"], "First")
-    db.execute("select record_prd_event(%s, 'approved', %s)", (team["prd"], team["ed"].id))
-    assert [i["type"] for i in team["olive"].api("GET", "/notifications").json()["items"]] == [
-        "approved", "comment_added"]
+    db.execute(
+        "select record_prd_event(%s, 'approved', %s)", (team["prd"], team["ed"].id)
+    )
+    assert [
+        i["type"] for i in team["olive"].api("GET", "/notifications").json()["items"]
+    ] == ["approved", "comment_added"]
     post(team["vic"], team["prd"], team["version"], "Second")
     items = team["olive"].api("GET", "/notifications").json()["items"]
-    assert [(i["type"], i["count"]) for i in items] == [("comment_added", 2), ("approved", 1)]
+    assert [(i["type"], i["count"]) for i in items] == [
+        ("comment_added", 2),
+        ("approved", 1),
+    ]
 
 
 def test_simultaneous_comments_from_one_person_share_a_batch(team):
     with ThreadPoolExecutor(max_workers=3) as pool:
-        codes = list(pool.map(lambda n: post(team["vic"], team["prd"], team["version"], f"Quick {n}").status_code,
-                              range(3)))
+        codes = list(
+            pool.map(
+                lambda n: (
+                    post(
+                        team["vic"], team["prd"], team["version"], f"Quick {n}"
+                    ).status_code
+                ),
+                range(3),
+            )
+        )
     assert codes == [201, 201, 201]
     for who in ("olive", "ed"):
         assert notifications(team[who]) == [("comment_added", team["vic"].id, 3)], who
-
