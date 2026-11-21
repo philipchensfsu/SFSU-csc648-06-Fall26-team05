@@ -7,6 +7,7 @@ import AskAiPanel from "./AskAiPanel";
 import CommentsPanel from "./CommentsPanel";
 import { isDraftOutOfDate } from "./aiDraft";
 import PrdProposalComparison from "./PrdProposalComparison";
+import ProposalOptions from "./ProposalOptions";
 import { describeProposalError, mustAskAgain, needsReapproval, sessionMessagesFrom } from "./proposal";
 import { ReapprovalDialog } from "./ReapprovalDialog";
 import { ApprovalsCard, YourReviewCard } from "./ReviewPanel";
@@ -220,6 +221,12 @@ function LeaveDraftDialog({ open, onStay, onDiscard, proposal = false }) {
 // beside it instead of the editor; `onAcceptProposal(confirmedReviewerIds?)`
 // saves it and `onDiscardProposal()` drops it. `onAdjustProposal(instruction,
 // sessionMessages)` asks for changes to it first (Request adjustments).
+//
+// Feature 09: the Comments tab's "2 options" calls
+// `onRequestFeedbackOptions(commentIds, instruction)`. While
+// `proposalOptions` (the set) is set too, the page shows the options instead
+// of the comparison; `proposal` is the open one, and `onSelectOption(n)`
+// opens another. Accepting and adjusting go through the same callbacks.
 function EditorPage({
   prd,
   detail,
@@ -234,8 +241,11 @@ function EditorPage({
   chat,
   setChat,
   proposal = null,
+  proposalOptions = null,
   onRequestProposal,
   onRequestFeedbackProposal,
+  onRequestFeedbackOptions,
+  onSelectOption,
   onAcceptProposal,
   onDiscardProposal,
   onAdjustProposal,
@@ -313,6 +323,8 @@ function EditorPage({
     !aiDraft &&
     Boolean(onRequestFeedbackProposal) &&
     detail?.capabilities?.can_request_review_suggestions === true;
+  // Two options at once (feature 09): the same rule and flag.
+  const canSuggestOptions = canSuggest && Boolean(onRequestFeedbackOptions);
   // Nothing says "View only" until the API has actually said so.
   const viewOnly = Boolean(detail?.capabilities) && !canEdit;
   const progress = approvalProgress(detail?.approval);
@@ -777,12 +789,14 @@ function EditorPage({
     }
   }
 
-  // "Ask AI to address" in the Comments tab. The panel shows the error and
-  // keeps the picked comments, so this rejects with a sentence to show.
-  async function requestFeedbackProposal(commentIds, instruction) {
+  // "Ask AI to address" in the Comments tab: one proposal (`ask` is
+  // onRequestFeedbackProposal) or two options (onRequestFeedbackOptions).
+  // The panel shows the error and keeps the picked comments, so this rejects
+  // with a sentence to show.
+  async function requestFeedbackChanges(ask, commentIds, instruction) {
     if (dirty) throw new Error("Save your edits first, then ask for changes.");
     try {
-      await onRequestFeedbackProposal(commentIds, instruction);
+      await ask(commentIds, instruction);
     } catch (error) {
       if (error?.code === "stale_revision") {
         setProblem(CONFLICT);
@@ -793,6 +807,11 @@ function EditorPage({
       throw new Error(describeProposalError(error), { cause: error });
     }
   }
+
+  const requestFeedbackProposal = (commentIds, instruction) =>
+    requestFeedbackChanges(onRequestFeedbackProposal, commentIds, instruction);
+  const requestFeedbackOptions = (commentIds, instruction) =>
+    requestFeedbackChanges(onRequestFeedbackOptions, commentIds, instruction);
 
   async function acceptProposal() {
     setAccepting(true);
@@ -843,6 +862,21 @@ function EditorPage({
     if (reloadAfter) reload();
   }
 
+  // Above the comparison or the options: why accepting or adjusting failed.
+  const proposalNotice = proposalProblem ? (
+    <Alert onDismiss={proposalProblem.askAgain ? undefined : () => setProposalProblem(null)}>
+      {proposalProblem.message}
+      {proposalProblem.askAgain ? (
+        <>
+          {" "}
+          <button type="button" className="ne-alert-action" onClick={() => leaveProposal(true)}>
+            Back to the PRD
+          </button>
+        </>
+      ) : null}
+    </Alert>
+  ) : null;
+
   function reload() {
     setReloading(true);
     Promise.resolve(onReload()).catch((error) => {
@@ -885,11 +919,20 @@ function EditorPage({
     { label: "Word document (.doc)", icon: <IconDownload />, onSelect: () => exportWord(exported) },
     { label: "Markdown (.md)", icon: <IconDownload />, onSelect: () => exportMarkdown(exported) },
   ];
+  // The saved version on screen, so it's clear which one comments and AI
+  // changes refer to ("Version 6 · Saved").
+  const versionNo = detail?.currentVersion?.version_no ?? null;
+  const versionLabel = versionNo ? `Version ${versionNo}` : null;
   let saveState = null;
   if (canEdit) {
     if (saving) saveState = ["is-saving", "Saving…", ""];
-    else if (dirty) saveState = ["is-dirty", "Unsaved changes", `last saved ${editedWhen(prd.updatedAt)}`];
-    else saveState = ["", "Saved", editedWhen(prd.updatedAt)];
+    else if (dirty)
+      saveState = [
+        "is-dirty",
+        "Unsaved changes",
+        `${versionLabel ? `${versionLabel} saved` : "last saved"} ${editedWhen(prd.updatedAt)}`,
+      ];
+    else saveState = ["", versionLabel ? `${versionLabel} · Saved` : "Saved", editedWhen(prd.updatedAt)];
   }
 
   return (
@@ -900,7 +943,7 @@ function EditorPage({
         crumbs={[
           { label: "Dashboard", onClick: () => guard(onHome) },
           { label: doc.title },
-          { label: proposal ? "Proposed changes" : "Editor", current: true },
+          { label: proposalOptions ? "Options" : proposal ? "Proposed changes" : "Editor", current: true },
         ]}
         // Status is shown, not set here: it changes only through the review
         // workflow (Decision 6).
@@ -1058,31 +1101,40 @@ function EditorPage({
 
       {proposal ? (
         <div className="ne-compare">
-          <PrdProposalComparison
-            currentDocument={proposal.originalDocument}
-            proposedDocument={proposal.proposedDocument}
-            explanation={proposal.explanation}
-            busy={accepting}
-            onAccept={acceptProposal}
-            onAdjust={onAdjustProposal ? adjustProposal : undefined}
-            adjusting={adjusting}
-            onDiscard={() => leaveProposal()}
-            notice={
-              proposalProblem ? (
-                <Alert onDismiss={proposalProblem.askAgain ? undefined : () => setProposalProblem(null)}>
-                  {proposalProblem.message}
-                  {proposalProblem.askAgain ? (
-                    <>
-                      {" "}
-                      <button type="button" className="ne-alert-action" onClick={() => leaveProposal(true)}>
-                        Back to the PRD
-                      </button>
-                    </>
-                  ) : null}
-                </Alert>
-              ) : null
-            }
-          />
+          {proposalOptions ? (
+            <ProposalOptions
+              options={proposalOptions}
+              selected={proposal.option}
+              onSelect={(option) => {
+                setProposalProblem(null);
+                onSelectOption(option);
+              }}
+              busy={accepting}
+              onAccept={acceptProposal}
+              onAdjust={onAdjustProposal ? adjustProposal : undefined}
+              adjusting={adjusting}
+              onAskAgain={
+                canSuggestOptions
+                  ? () => requestFeedbackOptions(proposal.feedbackIds, proposal.instruction ?? null)
+                  : undefined
+              }
+              onDiscard={() => leaveProposal()}
+              inReview={prd.status === "in_review"}
+              notice={proposalNotice}
+            />
+          ) : (
+            <PrdProposalComparison
+              currentDocument={proposal.originalDocument}
+              proposedDocument={proposal.proposedDocument}
+              explanation={proposal.explanation}
+              busy={accepting}
+              onAccept={acceptProposal}
+              onAdjust={onAdjustProposal ? adjustProposal : undefined}
+              adjusting={adjusting}
+              onDiscard={() => leaveProposal()}
+              notice={proposalNotice}
+            />
+          )}
         </div>
       ) : (
       <div className={`ne-body${panel ? " has-panel" : ""}`} ref={bodyRef}>
@@ -1097,7 +1149,7 @@ function EditorPage({
               {saveState[2] ? <span className="ne-hide-sm"> · {saveState[2]}</span> : null}
             </span>
           ) : viewOnly ? (
-            <span className="ne-viewonly">View only</span>
+            <span className="ne-viewonly">View only{versionLabel ? ` · ${versionLabel}` : ""}</span>
           ) : null}
           {canEdit ? (
             <button type="button" className="nw-btn nw-btn-primary nw-btn-sm" onClick={save} disabled={saving || !dirty}>
@@ -1426,6 +1478,9 @@ function EditorPage({
               prd={prd}
               currentVersionId={detail?.currentVersion?.id ?? null}
               onSuggest={canSuggest ? requestFeedbackProposal : undefined}
+              onSuggestOptions={canSuggestOptions ? requestFeedbackOptions : undefined}
+              ownerView={prd.myRole === "owner"}
+              currentVersionNo={versionNo}
               onRefresh={onRetryDetail}
               userId={userId}
               id={`${ids}-panel-comments`}
