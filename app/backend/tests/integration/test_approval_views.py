@@ -16,21 +16,47 @@ def team(make_user, make_org, db):
     add_to_prd(db, prd, otto, "owner")
     add_to_prd(db, prd, ed, "editor")
     version = save_version(db, prd, olive)
-    return dict(ada=ada, olive=olive, otto=otto, ed=ed, rae=rae, ray=ray, org=org, prd=prd, version=version)
+    return dict(
+        ada=ada,
+        olive=olive,
+        otto=otto,
+        ed=ed,
+        rae=rae,
+        ray=ray,
+        org=org,
+        prd=prd,
+        version=version,
+    )
 
 
 def submit(team, db, prd=None, reviewers=("rae", "ray")):
     prd = prd or team["prd"]
-    revision, version = db.execute("select revision, current_version_id::text from prd where id = %s", (prd,)).fetchone()
-    r = team["olive"].api("POST", f"/prds/{prd}/reviews", json={
-        "revision": revision, "version_id": version, "reviewer_ids": [team[w].id for w in reviewers]})
+    revision, version = db.execute(
+        "select revision, current_version_id::text from prd where id = %s", (prd,)
+    ).fetchone()
+    r = team["olive"].api(
+        "POST",
+        f"/prds/{prd}/reviews",
+        json={
+            "revision": revision,
+            "version_id": version,
+            "reviewer_ids": [team[w].id for w in reviewers],
+        },
+    )
     assert r.status_code == 201, r.text
     return r.json()["round"]["id"]
 
 
 def decide(team, who, round_id, decision="approved", explanation=None):
-    r = team[who].api("PUT", f"/prds/{team['prd']}/reviews/{round_id}/decision",
-                      json={"version_id": team["version"], "decision": decision, "explanation": explanation})
+    r = team[who].api(
+        "PUT",
+        f"/prds/{team['prd']}/reviews/{round_id}/decision",
+        json={
+            "version_id": team["version"],
+            "decision": decision,
+            "explanation": explanation,
+        },
+    )
     assert r.status_code == 200, r.text
 
 
@@ -49,21 +75,41 @@ def listed(user, view):
 def test_a_prd_never_submitted_has_no_review(team):
     prd = details(team["olive"], team["prd"])
     assert prd["review_state"] is None
-    assert prd["approval"] == {"round_id": None, "round_no": None, "version_id": None, "state": None,
-                               "required_count": 0, "approved_count": 0, "reviewers": []}
+    assert prd["approval"] == {
+        "round_id": None,
+        "round_no": None,
+        "version_id": None,
+        "state": None,
+        "required_count": 0,
+        "approved_count": 0,
+        "reviewers": [],
+    }
 
 
 def test_the_summary_follows_the_round(team, db):
     rnd = submit(team, db)
     approval = details(team["ed"], team["prd"])["approval"]
-    assert approval["round_id"] == rnd and approval["round_no"] == 1 and approval["version_id"] == team["version"]
-    assert (approval["state"], approval["required_count"], approval["approved_count"]) == ("in_review", 2, 0)
+    assert (
+        approval["round_id"] == rnd
+        and approval["round_no"] == 1
+        and approval["version_id"] == team["version"]
+    )
+    assert (
+        approval["state"],
+        approval["required_count"],
+        approval["approved_count"],
+    ) == ("in_review", 2, 0)
 
     decide(team, "rae", rnd, "changes_requested", "Tighten the goals")
     prd = details(team["ed"], team["prd"])
     assert prd["review_state"] == "changes_requested" and prd["status"] == "in_review"
-    rae = next(r for r in prd["approval"]["reviewers"] if r["user_id"] == team["rae"].id)
-    assert rae["state"] == "changes_requested" and rae["explanation"] == "Tighten the goals"
+    rae = next(
+        r for r in prd["approval"]["reviewers"] if r["user_id"] == team["rae"].id
+    )
+    assert (
+        rae["state"] == "changes_requested"
+        and rae["explanation"] == "Tighten the goals"
+    )
     assert rae["name"] == "Rae Reviewer"
 
 
@@ -74,13 +120,18 @@ def test_an_approved_round_keeps_its_counts(team, db):
     decide(team, "ray", rnd)
     prd = details(team["olive"], team["prd"])
     assert prd["review_state"] == "approved" and prd["status"] == "final"
-    assert (prd["approval"]["state"], prd["approval"]["required_count"], prd["approval"]["approved_count"]) == (
-        "approved", 2, 2)
+    assert (
+        prd["approval"]["state"],
+        prd["approval"]["required_count"],
+        prd["approval"]["approved_count"],
+    ) == ("approved", 2, 2)
 
 
 def test_a_superseded_round_is_no_longer_the_current_review(team, db):
     submit(team, db)
-    db.execute("update review_round set state = 'superseded' where prd_id = %s", (team["prd"],))
+    db.execute(
+        "update review_round set state = 'superseded' where prd_id = %s", (team["prd"],)
+    )
     prd = details(team["olive"], team["prd"])
     assert prd["review_state"] is None and prd["approval"]["round_id"] is None
 
@@ -88,7 +139,9 @@ def test_a_superseded_round_is_no_longer_the_current_review(team, db):
 def test_review_state_is_on_every_prd_in_the_list(team, db):
     submit(team, db)
     other = org_prd(db, team["org"], team["olive"], "Draft PRD")
-    states = {p["id"]: p["review_state"] for p in team["olive"].api("GET", "/prds").json()}
+    states = {
+        p["id"]: p["review_state"] for p in team["olive"].api("GET", "/prds").json()
+    }
     assert states[team["prd"]] == "in_review" and states[other] is None
 
 
@@ -106,13 +159,18 @@ def test_needs_my_approval_lists_prds_waiting_on_my_decision(team, db):
 
 def test_superseded_rounds_dont_need_approval(team, db):
     submit(team, db)
-    db.execute("update review_round set state = 'superseded' where prd_id = %s", (team["prd"],))
+    db.execute(
+        "update review_round set state = 'superseded' where prd_id = %s", (team["prd"],)
+    )
     assert listed(team["rae"], "needs_my_approval") == []
 
 
 def test_reviewers_who_lost_access_dont_see_it(team, db):
     submit(team, db)
-    db.execute("update organization_member set active = false where user_id = %s", (team["rae"].id,))
+    db.execute(
+        "update organization_member set active = false where user_id = %s",
+        (team["rae"].id,),
+    )
     assert listed(team["rae"], "needs_my_approval") == []
 
 

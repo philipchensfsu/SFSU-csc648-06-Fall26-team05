@@ -98,10 +98,16 @@ class SavedContext:
             return cls()
         stored = row.get("context_json") or {}
         lists = {key: stored.get(key) or [] for key in CONTEXT_LISTS}
-        if not isinstance(stored, dict) or any(not isinstance(value, list) for value in lists.values()):
-            raise GenerationInputError("The PRD's saved AI context isn't valid.", "invalid_context")
-        return cls(**{key: tuple(value) for key, value in lists.items()},
-                   running_summary=row.get("running_summary") or "")
+        if not isinstance(stored, dict) or any(
+            not isinstance(value, list) for value in lists.values()
+        ):
+            raise GenerationInputError(
+                "The PRD's saved AI context isn't valid.", "invalid_context"
+            )
+        return cls(
+            **{key: tuple(value) for key, value in lists.items()},
+            running_summary=row.get("running_summary") or "",
+        )
 
 
 @dataclass(frozen=True)
@@ -140,8 +146,10 @@ class GenerationInputError(ApiError):
 
 
 def _section_list() -> str:
-    return "\n".join(f"{index}. {section_type} ({section_title(section_type)})"
-                     for index, section_type in enumerate(section_types(), start=1))
+    return "\n".join(
+        f"{index}. {section_type} ({section_title(section_type)})"
+        for index, section_type in enumerate(section_types(), start=1)
+    )
 
 
 SYSTEM_INSTRUCTION = f"""\
@@ -188,7 +196,9 @@ def build_prompt(inputs: GenerationInput) -> str:
     data = {
         "working_title": inputs.title,
         "description": inputs.description,
-        "interview_answers": {key: (inputs.answers.get(key) or "") for key in INTAKE_KEYS},
+        "interview_answers": {
+            key: (inputs.answers.get(key) or "") for key in INTAKE_KEYS
+        },
         "saved_context": {
             **{key: list(getattr(inputs.context, key)) for key in CONTEXT_LISTS},
             "running_summary": inputs.context.running_summary,
@@ -200,15 +210,25 @@ def build_prompt(inputs: GenerationInput) -> str:
 def check_inputs(inputs: GenerationInput) -> None:
     unknown = set(inputs.answers) - set(INTAKE_KEYS)
     if unknown:
-        raise GenerationInputError("The interview answers include an unknown question.", "validation_error")
+        raise GenerationInputError(
+            "The interview answers include an unknown question.", "validation_error"
+        )
     for key in INTAKE_KEYS:
         answer = inputs.answers.get(key) or ""
         if not isinstance(answer, str):
-            raise GenerationInputError(f"The answer to {key} must be text.", "validation_error")
+            raise GenerationInputError(
+                f"The answer to {key} must be text.", "validation_error"
+            )
         if len(answer) > MAX_ANSWER_CHARS:
-            raise GenerationInputError(f"The answer to {key} is too long.", "validation_error")
+            raise GenerationInputError(
+                f"The answer to {key} is too long.", "validation_error"
+            )
     check_context(inputs.context)
-    missing = [key for key in REQUIRED_INTAKE_KEYS if not (inputs.answers.get(key) or "").strip()]
+    missing = [
+        key
+        for key in REQUIRED_INTAKE_KEYS
+        if not (inputs.answers.get(key) or "").strip()
+    ]
     if missing:
         raise GenerationInputError(
             "Answer the problem, target users and goals questions before generating.",
@@ -222,11 +242,17 @@ def check_context(context: SavedContext) -> None:
     for key in CONTEXT_LISTS:
         items = getattr(context, key)
         if len(items) > MAX_CONTEXT_ITEMS or any(
-                not isinstance(item, str) or not 1 <= len(item) <= MAX_CONTEXT_ITEM_CHARS for item in items):
-            raise GenerationInputError("The PRD's saved AI context isn't valid.", "invalid_context")
+            not isinstance(item, str) or not 1 <= len(item) <= MAX_CONTEXT_ITEM_CHARS
+            for item in items
+        ):
+            raise GenerationInputError(
+                "The PRD's saved AI context isn't valid.", "invalid_context"
+            )
     summary = context.running_summary
     if not isinstance(summary, str) or len(summary) > MAX_RUNNING_SUMMARY_CHARS:
-        raise GenerationInputError("The PRD's saved AI context isn't valid.", "invalid_context")
+        raise GenerationInputError(
+            "The PRD's saved AI context isn't valid.", "invalid_context"
+        )
 
 
 def generate_proposal(
@@ -268,9 +294,13 @@ def _checked_reply(result: GeminiResult) -> tuple[str, str, dict]:
     title, description, document = data["title"], data["description"], data["document"]
     errors: list[DocumentError] = list(validate_title(title))
     if not isinstance(description, str):
-        errors.append(DocumentError("invalid_type", "", "The description must be a string."))
+        errors.append(
+            DocumentError("invalid_type", "", "The description must be a string.")
+        )
     elif len(description) > load_spec()["limits"]["max_description_chars"]["value"]:
-        errors.append(DocumentError("description_too_long", "", "The description is too long."))
+        errors.append(
+            DocumentError("description_too_long", "", "The description is too long.")
+        )
     errors.extend(validate_generated_document(document))
     if errors:
         _reject(result.model, sorted({error.code for error in errors}))
@@ -279,7 +309,9 @@ def _checked_reply(result: GeminiResult) -> tuple[str, str, dict]:
 
 def _reject(model: str, codes: list[str]):
     # Codes only: the reply itself can echo the user's answers.
-    logger.warning("Gemini reply on %s failed generation checks: %s", model, ", ".join(codes))
+    logger.warning(
+        "Gemini reply on %s failed generation checks: %s", model, ", ".join(codes)
+    )
     raise AIError(502, "ai_invalid_output")
 
 
@@ -291,11 +323,17 @@ def with_ai_generated_marks(document: dict, generation_record_id: str) -> dict:
     rejects it in replies).
     """
     marked = copy.deepcopy(document)
-    mark = {"type": "ai_generated", "attrs": {"generation_record_id": generation_record_id}}
+    mark = {
+        "type": "ai_generated",
+        "attrs": {"generation_record_id": generation_record_id},
+    }
 
     def walk(node: dict) -> None:
         if node.get("type") == "text":
-            node["marks"] = [*node.get("marks", []), dict(mark, attrs=dict(mark["attrs"]))]
+            node["marks"] = [
+                *node.get("marks", []),
+                dict(mark, attrs=dict(mark["attrs"])),
+            ]
             return
         for child in node.get("content", []):
             walk(child)

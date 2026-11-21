@@ -28,9 +28,16 @@ def test_other_users_cannot_see_a_prd(make_user):
 def test_other_users_cannot_change_or_delete_a_prd(make_user):
     alice, ben = make_user(), make_user()
     prd = create_prd(alice)
-    r = ben.api("PUT", f"/prds/{prd['id']}", json={"revision": prd["revision"], "title": "Hijacked"})
+    r = ben.api(
+        "PUT",
+        f"/prds/{prd['id']}",
+        json={"revision": prd["revision"], "title": "Hijacked"},
+    )
     assert r.status_code == 404
-    assert ben.rest("PATCH", f"prd?id=eq.{prd['id']}", json={"title": "Hijacked"}).json() == []
+    assert (
+        ben.rest("PATCH", f"prd?id=eq.{prd['id']}", json={"title": "Hijacked"}).json()
+        == []
+    )
     assert ben.api("DELETE", f"/prds/{prd['id']}").status_code == 404
     assert alice.api("GET", f"/prds/{prd['id']}").json()["title"] == "Test PRD"
 
@@ -44,9 +51,17 @@ def test_signed_out_callers_see_nothing(make_user):
 def test_stale_revision_is_rejected(make_user):
     alice = make_user()
     prd = create_prd(alice)
-    first = alice.api("PUT", f"/prds/{prd['id']}", json={"revision": prd["revision"], "title": "First"})
+    first = alice.api(
+        "PUT",
+        f"/prds/{prd['id']}",
+        json={"revision": prd["revision"], "title": "First"},
+    )
     assert first.status_code == 200
-    second = alice.api("PUT", f"/prds/{prd['id']}", json={"revision": prd["revision"], "title": "Second"})
+    second = alice.api(
+        "PUT",
+        f"/prds/{prd['id']}",
+        json={"revision": prd["revision"], "title": "Second"},
+    )
     assert second.status_code == 409
     assert alice.api("GET", f"/prds/{prd['id']}").json()["title"] == "First"
 
@@ -54,7 +69,11 @@ def test_stale_revision_is_rejected(make_user):
 def test_intake_answers_are_private_to_the_owner(make_user):
     alice, ben = make_user(), make_user()
     prd = create_prd(alice)
-    r = alice.api("PUT", f"/prds/{prd['id']}/intake/problem", json={"answer_text": "Students can't find groups"})
+    r = alice.api(
+        "PUT",
+        f"/prds/{prd['id']}/intake/problem",
+        json={"answer_text": "Students can't find groups"},
+    )
     assert r.status_code == 200
     assert len(alice.api("GET", f"/prds/{prd['id']}/intake").json()) == 1
     assert ben.api("GET", f"/prds/{prd['id']}/intake").json() == []

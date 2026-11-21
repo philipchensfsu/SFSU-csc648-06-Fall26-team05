@@ -40,17 +40,41 @@ class TeamMembersOut(BaseModel):
 # Errors raised by the member functions (P0001 with a fixed message).
 MEMBER_ERRORS = {
     "prd_not_found": (404, "PRD not found", None),
-    "prd_manage_forbidden": (403, "Only the PRD's owners and org admins can change who's on it.", None),
-    "invalid_role": (422, "The role must be owner, editor or viewer.", "validation_error"),
-    "not_in_organization": (422, "That person isn't an active member of this PRD's organization.", "not_in_organization"),
-    "owner_required": (409, "A PRD needs at least one owner. Add another owner first.", "owner_required"),
+    "prd_manage_forbidden": (
+        403,
+        "Only the PRD's owners and org admins can change who's on it.",
+        None,
+    ),
+    "invalid_role": (
+        422,
+        "The role must be owner, editor or viewer.",
+        "validation_error",
+    ),
+    "not_in_organization": (
+        422,
+        "That person isn't an active member of this PRD's organization.",
+        "not_in_organization",
+    ),
+    "owner_required": (
+        409,
+        "A PRD needs at least one owner. Add another owner first.",
+        "owner_required",
+    ),
 }
 
 TEAM_ERRORS = {
     **MEMBER_ERRORS,
-    "invalid_team_role": (422, "A team can be added as editors or viewers.", "validation_error"),
+    "invalid_team_role": (
+        422,
+        "A team can be added as editors or viewers.",
+        "validation_error",
+    ),
     # 422, not 404: the team is a body field, like not_in_organization above.
-    "team_not_found": (422, "That team isn't an active team in this PRD's organization.", "team_not_found"),
+    "team_not_found": (
+        422,
+        "That team isn't an active team in this PRD's organization.",
+        "team_not_found",
+    ),
 }
 
 
@@ -59,8 +83,16 @@ def list_people(client, prd_id: UUID):
     # A PRD always has an owner, so no rows means the caller can't see it.
     if not rows:
         raise ApiError(404, "PRD not found")
-    return [{"user_id": r["user_id"], "name": r["full_name"], "role": r["role"],
-             "granted_by": r["granted_by"], "added_at": r["created_at"]} for r in rows]
+    return [
+        {
+            "user_id": r["user_id"],
+            "name": r["full_name"],
+            "role": r["role"],
+            "granted_by": r["granted_by"],
+            "added_at": r["created_at"],
+        }
+        for r in rows
+    ]
 
 
 @router.get("/api/prds/{prd_id}/members", response_model=list[PRDMemberOut])
@@ -70,38 +102,65 @@ def list_prd_members(prd_id: UUID, auth=Depends(get_current_user)):
 
 
 @router.put("/api/prds/{prd_id}/members/{user_id}", response_model=list[PRDMemberOut])
-def set_prd_member(prd_id: UUID, user_id: UUID, payload: PRDMemberIn, auth=Depends(get_current_user)):
+def set_prd_member(
+    prd_id: UUID, user_id: UUID, payload: PRDMemberIn, auth=Depends(get_current_user)
+):
     # Invites someone from the PRD's organization, or changes their role.
     # Owners and org admins only. Returns the updated list.
     client = auth["client"]
-    call_function(client, "set_prd_member",
-                  {"target_prd": str(prd_id), "target_user": str(user_id), "new_role": payload.role}, MEMBER_ERRORS)
+    call_function(
+        client,
+        "set_prd_member",
+        {
+            "target_prd": str(prd_id),
+            "target_user": str(user_id),
+            "new_role": payload.role,
+        },
+        MEMBER_ERRORS,
+    )
     return list_people(client, prd_id)
 
 
 @router.delete("/api/prds/{prd_id}/members/{user_id}", status_code=204)
 def remove_prd_member(prd_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
     # Owners and org admins remove anyone; anyone can remove themselves.
-    call_function(auth["client"], "remove_prd_member", {"target_prd": str(prd_id), "target_user": str(user_id)},
-                  MEMBER_ERRORS)
+    call_function(
+        auth["client"],
+        "remove_prd_member",
+        {"target_prd": str(prd_id), "target_user": str(user_id)},
+        MEMBER_ERRORS,
+    )
 
 
 @router.post("/api/prds/{prd_id}/members/teams", response_model=TeamMembersOut)
-def add_team_to_prd(prd_id: UUID, payload: TeamMembersIn, auth=Depends(get_current_user)):
+def add_team_to_prd(
+    prd_id: UUID, payload: TeamMembersIn, auth=Depends(get_current_user)
+):
     # Adds the team's current active members once (a snapshot), as editors or
     # viewers. People already on the PRD keep their role. Owners and org
     # admins only.
     client = auth["client"]
-    result = call_function(client, "add_team_to_prd", {
-        "target_prd": str(prd_id), "target_team": str(payload.team_id), "new_role": payload.role,
-    }, TEAM_ERRORS)
+    result = call_function(
+        client,
+        "add_team_to_prd",
+        {
+            "target_prd": str(prd_id),
+            "target_team": str(payload.team_id),
+            "new_role": payload.role,
+        },
+        TEAM_ERRORS,
+    )
     members = list_people(client, prd_id)
     by_id = {str(m["user_id"]): m for m in members}
 
     def pick(ids):
         return [by_id[i] for i in ids if i in by_id]
 
-    return {"added": pick(result["added"]), "skipped": pick(result["skipped"]), "members": members}
+    return {
+        "added": pick(result["added"]),
+        "skipped": pick(result["skipped"]),
+        "members": members,
+    }
 
 
 # AI-recommended teams (feature 08(b)), built on add_team_to_prd above. The
@@ -121,7 +180,9 @@ class TeamSelectionIn(RequestModel):
 class TeamRecommendationDecisionIn(RequestModel):
     decision: Literal["accepted", "rejected"]
     # Accepted: 1 to 3 of the recommended teams, each with a role. Rejected: none.
-    teams: Optional[list[TeamSelectionIn]] = Field(default=None, min_length=1, max_length=3)
+    teams: Optional[list[TeamSelectionIn]] = Field(
+        default=None, min_length=1, max_length=3
+    )
 
 
 class TeamAddedOut(BaseModel):
@@ -138,29 +199,64 @@ class TeamRecommendationDecisionOut(BaseModel):
 
 
 @router.post("/api/prds/{prd_id}/members/team-recommendations")
-def recommend_teams(prd_id: UUID, payload: TeamRecommendationIn, auth=Depends(get_current_user)):
+def recommend_teams(
+    prd_id: UUID, payload: TeamRecommendationIn, auth=Depends(get_current_user)
+):
     return team_recommendation.recommend_teams(
-        auth["client"], supabase, actor_id=auth["user"].id, prd_id=str(prd_id), revision=payload.revision,
-        budget=usage_gate.RequestBudget())
+        auth["client"],
+        supabase,
+        actor_id=auth["user"].id,
+        prd_id=str(prd_id),
+        revision=payload.revision,
+        budget=usage_gate.RequestBudget(),
+    )
 
 
-@router.put("/api/prds/{prd_id}/members/team-recommendations/{recommendation_id}/decision",
-            response_model=TeamRecommendationDecisionOut)
-def decide_team_recommendation(prd_id: UUID, recommendation_id: UUID, payload: TeamRecommendationDecisionIn,
-                               auth=Depends(get_current_user)):
+@router.put(
+    "/api/prds/{prd_id}/members/team-recommendations/{recommendation_id}/decision",
+    response_model=TeamRecommendationDecisionOut,
+)
+def decide_team_recommendation(
+    prd_id: UUID,
+    recommendation_id: UUID,
+    payload: TeamRecommendationDecisionIn,
+    auth=Depends(get_current_user),
+):
     if (payload.decision == "accepted") != (payload.teams is not None):
-        raise ApiError(422, "Send teams to accept a recommendation, and none to reject it.", "validation_error")
+        raise ApiError(
+            422,
+            "Send teams to accept a recommendation, and none to reject it.",
+            "validation_error",
+        )
     client = auth["client"]
-    selections = None if payload.teams is None else [
-        {"team_id": str(t.team_id), "role": t.role} for t in payload.teams]
-    result = team_recommendation.decide(client, str(prd_id), str(recommendation_id), decision=payload.decision,
-                                        selections=selections)
+    selections = (
+        None
+        if payload.teams is None
+        else [{"team_id": str(t.team_id), "role": t.role} for t in payload.teams]
+    )
+    result = team_recommendation.decide(
+        client,
+        str(prd_id),
+        str(recommendation_id),
+        decision=payload.decision,
+        selections=selections,
+    )
     members = list_people(client, prd_id)
     by_id = {str(m["user_id"]): m for m in members}
 
     def pick(ids):
         return [by_id[i] for i in ids if i in by_id]
 
-    return {"status": result["status"], "members": members,
-            "results": [{"team_id": r["team_id"], "role": r["role"], "added": pick(r["added"]),
-                         "skipped": pick(r["skipped"])} for r in result["results"]]}
+    return {
+        "status": result["status"],
+        "members": members,
+        "results": [
+            {
+                "team_id": r["team_id"],
+                "role": r["role"],
+                "added": pick(r["added"]),
+                "skipped": pick(r["skipped"]),
+            }
+            for r in result["results"]
+        ],
+    }

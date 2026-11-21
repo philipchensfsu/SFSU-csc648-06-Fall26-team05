@@ -32,16 +32,23 @@ def block_lines(node: dict) -> list[str]:
         return [line for item in node["content"] for line in _item_lines(item, "- ")]
     if node_type == "orderedList":
         start = (node.get("attrs") or {}).get("start") or 1
-        return [line for number, item in enumerate(node["content"], start)
-                for line in _item_lines(item, f"{number}. ")]
+        return [
+            line
+            for number, item in enumerate(node["content"], start)
+            for line in _item_lines(item, f"{number}. ")
+        ]
     if node_type == "blockquote":
         return ["> " + line for child in node["content"] for line in block_lines(child)]
     if node_type == "table":
         rows = []
         for row in node["content"]:
             # Escape "|" so a cell containing "a | b" doesn't read as two cells.
-            cells = [" ".join(line for block in cell["content"] for line in block_lines(block)).replace("|", "\\|")
-                     for cell in row["content"]]
+            cells = [
+                " ".join(
+                    line for block in cell["content"] for line in block_lines(block)
+                ).replace("|", "\\|")
+                for cell in row["content"]
+            ]
             if any(cell.strip() for cell in cells):
                 rows.append(" | ".join(cells))
         return rows

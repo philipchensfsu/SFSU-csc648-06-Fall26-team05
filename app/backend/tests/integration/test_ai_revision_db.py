@@ -15,10 +15,33 @@ from ai.acceptance import AcceptanceError
 from ai.gemini_client import GeminiResult
 from errors import ApiError
 from prd_save import SaveError, save_prd
-from test_ai_edit_db import DOC, NEW_GOALS, as_user, cast, doubles, proposal_status, service, state, verified  # noqa: F401
+from test_ai_edit_db import (
+    DOC,
+    NEW_GOALS,
+    as_user,
+    cast,
+    doubles,
+    proposal_status,
+    service,
+    state,
+    verified,
+)  # noqa: F401
 
-NEW_METRICS = {"type": "section", "attrs": {"type": "success_metrics"}, "content": [
-    {"type": "paragraph", "content": [{"type": "text", "text": "40% of new users finish a draft in their first week."}]}]}
+NEW_METRICS = {
+    "type": "section",
+    "attrs": {"type": "success_metrics"},
+    "content": [
+        {
+            "type": "paragraph",
+            "content": [
+                {
+                    "type": "text",
+                    "text": "40% of new users finish a draft in their first week.",
+                }
+            ],
+        }
+    ],
+}
 
 
 @pytest.fixture(autouse=True)
@@ -28,29 +51,56 @@ def ai_on_here(monkeypatch):
 
 
 def fake_model(prompt, **kwargs):
-    return GeminiResult(data={"sections": [NEW_GOALS, NEW_METRICS], "explanation": "Made both measurable."},
-                        model="fake", prompt_tokens=5, output_tokens=7)
+    return GeminiResult(
+        data={
+            "sections": [NEW_GOALS, NEW_METRICS],
+            "explanation": "Made both measurable.",
+        },
+        model="fake",
+        prompt_tokens=5,
+        output_tokens=7,
+    )
 
 
 def request_revision(user, prd, service, revision=2):
     return chat_revision.propose_revision(
-        as_user(user), service, actor_id=user.id, prd_id=prd, revision=revision,
-        instruction="Apply what we discussed.", session_messages=[{"role": "user", "content": "Measurable, please."}],
-        modules=doubles(), call_model=fake_model)
+        as_user(user),
+        service,
+        actor_id=user.id,
+        prd_id=prd,
+        revision=revision,
+        instruction="Apply what we discussed.",
+        session_messages=[{"role": "user", "content": "Measurable, please."}],
+        modules=doubles(),
+        call_model=fake_model,
+    )
 
 
 def accept(user, prd, service, body, content=None, **fields):
-    return save_prd(service, verified(service, user), prd, body["base_revision"],
-                    content_json=body["proposal"]["content_json"] if content is None else content,
-                    origin="ai_generated", generation_record_id=body["generation_record_id"], **fields)
+    return save_prd(
+        service,
+        verified(service, user),
+        prd,
+        body["base_revision"],
+        content_json=body["proposal"]["content_json"] if content is None else content,
+        origin="ai_generated",
+        generation_record_id=body["generation_record_id"],
+        **fields,
+    )
 
 
 def test_editor_previews_then_accepts_changes_across_sections(cast, db, service):
     before = state(db, cast["prd"])
     body = request_revision(cast["editor"], cast["prd"], service)
-    assert body["kind"] == "proposal" and body["proposal"]["section_types"] == ["goals", "success_metrics"]
+    assert body["kind"] == "proposal" and body["proposal"]["section_types"] == [
+        "goals",
+        "success_metrics",
+    ]
     assert state(db, cast["prd"]) == before  # nothing saved by the request
-    assert proposal_status(db, body["generation_record_id"]) == ("ai_revision", "pending")
+    assert proposal_status(db, body["generation_record_id"]) == (
+        "ai_revision",
+        "pending",
+    )
 
     saved = accept(cast["editor"], cast["prd"], service, body)
     assert saved["revision"] == 3
@@ -59,39 +109,80 @@ def test_editor_previews_then_accepts_changes_across_sections(cast, db, service)
             assert body["generation_record_id"] in json.dumps(new)
         else:
             assert new == old  # untouched sections survive exactly
-    assert proposal_status(db, body["generation_record_id"]) == ("ai_revision", "accepted")
-    version = db.execute("select origin, generation_record_id::text, changed_sections from prd_version "
-                         "where prd_id = %s order by version_no desc limit 1", (cast["prd"],)).fetchone()
-    assert version == ("ai_generated", body["generation_record_id"], ["goals", "success_metrics"])
+    assert proposal_status(db, body["generation_record_id"]) == (
+        "ai_revision",
+        "accepted",
+    )
+    version = db.execute(
+        "select origin, generation_record_id::text, changed_sections from prd_version "
+        "where prd_id = %s order by version_no desc limit 1",
+        (cast["prd"],),
+    ).fetchone()
+    assert version == (
+        "ai_generated",
+        body["generation_record_id"],
+        ["goals", "success_metrics"],
+    )
 
 
 @pytest.mark.parametrize("fields", [{"title": "Edit me"}, {"description": None}])
-def test_acceptance_refuses_title_and_description_even_unchanged(cast, db, service, fields):
+def test_acceptance_refuses_title_and_description_even_unchanged(
+    cast, db, service, fields
+):
     body = request_revision(cast["editor"], cast["prd"], service)
     with pytest.raises(AcceptanceError) as info:
         accept(cast["editor"], cast["prd"], service, body, **fields)
     assert info.value.code == "proposal_scope"
-    assert proposal_status(db, body["generation_record_id"]) == ("ai_revision", "pending")
+    assert proposal_status(db, body["generation_record_id"]) == (
+        "ai_revision",
+        "pending",
+    )
 
 
 def test_acceptance_cannot_slip_in_other_changes_or_go_stale(cast, db, service):
     body = request_revision(cast["editor"], cast["prd"], service)
     sneaky = copy.deepcopy(body["proposal"]["content_json"])
-    sneaky["content"][0]["content"][0]["content"][0]["text"] = "Changed problem statement."
+    sneaky["content"][0]["content"][0]["content"][0]["text"] = (
+        "Changed problem statement."
+    )
     with pytest.raises(AcceptanceError) as info:
         accept(cast["editor"], cast["prd"], service, body, content=sneaky)
     assert info.value.code == "proposal_scope"
 
-    save_prd(service, verified(service, cast["owner"]), cast["prd"], 2, title="Renamed meanwhile")
+    save_prd(
+        service,
+        verified(service, cast["owner"]),
+        cast["prd"],
+        2,
+        title="Renamed meanwhile",
+    )
     with pytest.raises(SaveError) as info:
         accept(cast["editor"], cast["prd"], service, body)
     assert info.value.code == "stale_revision"
-    assert proposal_status(db, body["generation_record_id"]) == ("ai_revision", "pending")
+    assert proposal_status(db, body["generation_record_id"]) == (
+        "ai_revision",
+        "pending",
+    )
 
 
-@pytest.mark.parametrize("request_change", [request_revision, lambda user, prd, service: section_edit.propose_section_edit(
-    as_user(user), service, actor_id=user.id, prd_id=prd, revision=2, section_type="goals", instruction="x",
-    session_messages=[], modules=doubles(), call_model=fake_model)])
+@pytest.mark.parametrize(
+    "request_change",
+    [
+        request_revision,
+        lambda user, prd, service: section_edit.propose_section_edit(
+            as_user(user),
+            service,
+            actor_id=user.id,
+            prd_id=prd,
+            revision=2,
+            section_type="goals",
+            instruction="x",
+            session_messages=[],
+            modules=doubles(),
+            call_model=fake_model,
+        ),
+    ],
+)
 def test_on_an_approved_prd_only_owners_may_ask(cast, db, service, request_change):
     db.execute("update prd set status = 'final' where id = %s", (cast["prd"],))
     with pytest.raises(ApiError) as info:
@@ -101,48 +192,86 @@ def test_on_an_approved_prd_only_owners_may_ask(cast, db, service, request_chang
         request_change(cast["viewer"], cast["prd"], service)
     assert (info.value.status_code, info.value.code) == (403, "forbidden")
     # Refused before the usage gate: nothing recorded, no quota used.
-    assert db.execute("select count(*) from generation_record where prd_id = %s", (cast["prd"],)).fetchone() == (0,)
+    assert db.execute(
+        "select count(*) from generation_record where prd_id = %s", (cast["prd"],)
+    ).fetchone() == (0,)
     for user in (cast["editor"], cast["viewer"]):
-        assert db.execute("select count(*) from ai_usage_gate where user_id = %s", (user.id,)).fetchone() == (0,)
+        assert db.execute(
+            "select count(*) from ai_usage_gate where user_id = %s", (user.id,)
+        ).fetchone() == (0,)
 
 
 def test_owners_may_still_ask_on_an_approved_prd(cast, db, service):
     db.execute("update prd set status = 'final' where id = %s", (cast["prd"],))
     body = request_revision(cast["owner"], cast["prd"], service)
     assert body["kind"] == "proposal"
-    assert proposal_status(db, body["generation_record_id"]) == ("ai_revision", "pending")
+    assert proposal_status(db, body["generation_record_id"]) == (
+        "ai_revision",
+        "pending",
+    )
 
 
 def test_the_database_accepts_only_known_proposal_kinds(db):
-    kinds = db.execute("select pg_get_constraintdef(oid) from pg_constraint "
-                       "where conname = 'ai_proposal_kind_check'").fetchone()[0]
+    kinds = db.execute(
+        "select pg_get_constraintdef(oid) from pg_constraint "
+        "where conname = 'ai_proposal_kind_check'"
+    ).fetchone()[0]
     for kind in ("generate", "ai_edit", "review_suggestion", "ai_revision"):
         assert f"'{kind}'" in kinds
 
 
 # --- request adjustments ---------------------------------------------------------
 
-NEW_RISKS = {"type": "section", "attrs": {"type": "risks"}, "content": [
-    {"type": "paragraph", "content": [{"type": "text", "text": "Low adoption in the first month."}]}]}
+NEW_RISKS = {
+    "type": "section",
+    "attrs": {"type": "risks"},
+    "content": [
+        {
+            "type": "paragraph",
+            "content": [{"type": "text", "text": "Low adoption in the first month."}],
+        }
+    ],
+}
 
 
 def adjust(user, prd, service, previous, revision=2):
     def risks_model(prompt, **kwargs):
-        return GeminiResult(data={"sections": [NEW_RISKS], "explanation": "Added the risk."}, model="fake",
-                            prompt_tokens=5, output_tokens=7)
+        return GeminiResult(
+            data={"sections": [NEW_RISKS], "explanation": "Added the risk."},
+            model="fake",
+            prompt_tokens=5,
+            output_tokens=7,
+        )
+
     return chat_revision.propose_revision(
-        as_user(user), service, actor_id=user.id, prd_id=prd, revision=revision,
-        instruction="Also add the adoption risk.", session_messages=[], previous_generation_record_id=previous,
-        modules=doubles(), call_model=risks_model)
+        as_user(user),
+        service,
+        actor_id=user.id,
+        prd_id=prd,
+        revision=revision,
+        instruction="Also add the adoption risk.",
+        session_messages=[],
+        previous_generation_record_id=previous,
+        modules=doubles(),
+        call_model=risks_model,
+    )
 
 
-def test_an_adjusted_proposal_replaces_the_first_and_accepts_every_change(cast, db, service):
+def test_an_adjusted_proposal_replaces_the_first_and_accepts_every_change(
+    cast, db, service
+):
     first = request_revision(cast["editor"], cast["prd"], service)
     second = adjust(cast["editor"], cast["prd"], service, first["generation_record_id"])
     assert second["base_revision"] == 2  # the original saved revision stays the base
     assert second["proposal"]["section_types"] == ["goals", "success_metrics", "risks"]
-    assert proposal_status(db, first["generation_record_id"]) == ("ai_revision", "rejected")
-    assert proposal_status(db, second["generation_record_id"]) == ("ai_revision", "pending")
+    assert proposal_status(db, first["generation_record_id"]) == (
+        "ai_revision",
+        "rejected",
+    )
+    assert proposal_status(db, second["generation_record_id"]) == (
+        "ai_revision",
+        "pending",
+    )
 
     with pytest.raises(AcceptanceError) as info:  # the replaced proposal can't be used
         accept(cast["editor"], cast["prd"], service, first)
@@ -158,30 +287,54 @@ def test_an_adjusted_proposal_replaces_the_first_and_accepts_every_change(cast, 
 
 def test_someone_elses_or_an_expired_proposal_cant_be_adjusted(cast, db, service):
     first = request_revision(cast["editor"], cast["prd"], service)
-    with pytest.raises(ApiError) as info:  # the owner can't adjust the editor's proposal
+    with pytest.raises(
+        ApiError
+    ) as info:  # the owner can't adjust the editor's proposal
         adjust(cast["owner"], cast["prd"], service, first["generation_record_id"])
     assert info.value.code == "proposal_unavailable"
-    db.execute("update ai_proposal set expires_at = now() - interval '1 minute' where generation_record_id = %s",
-               (first["generation_record_id"],))
+    db.execute(
+        "update ai_proposal set expires_at = now() - interval '1 minute' where generation_record_id = %s",
+        (first["generation_record_id"],),
+    )
     with pytest.raises(ApiError) as info:
         adjust(cast["editor"], cast["prd"], service, first["generation_record_id"])
     assert info.value.code == "proposal_unavailable"
-    assert db.execute("select count(*) from ai_proposal a join prd p on p.id = a.prd_id where p.id = %s",
-                      (cast["prd"],)).fetchone() == (1,)  # nothing new staged
+    assert db.execute(
+        "select count(*) from ai_proposal a join prd p on p.id = a.prd_id where p.id = %s",
+        (cast["prd"],),
+    ).fetchone() == (1,)  # nothing new staged
 
 
-def test_a_section_put_back_by_an_adjustment_is_saved_without_the_ai_mark(cast, db, service):
-    saved_goals = copy.deepcopy(next(s for s in DOC["content"] if s["attrs"]["type"] == "goals"))
-    first = request_revision(cast["editor"], cast["prd"], service)  # changes goals and metrics
+def test_a_section_put_back_by_an_adjustment_is_saved_without_the_ai_mark(
+    cast, db, service
+):
+    saved_goals = copy.deepcopy(
+        next(s for s in DOC["content"] if s["attrs"]["type"] == "goals")
+    )
+    first = request_revision(
+        cast["editor"], cast["prd"], service
+    )  # changes goals and metrics
 
     def restore_goals(prompt, **kwargs):
-        return GeminiResult(data={"sections": [saved_goals], "explanation": "Put the goals back."}, model="fake",
-                            prompt_tokens=5, output_tokens=7)
+        return GeminiResult(
+            data={"sections": [saved_goals], "explanation": "Put the goals back."},
+            model="fake",
+            prompt_tokens=5,
+            output_tokens=7,
+        )
 
     second = chat_revision.propose_revision(
-        as_user(cast["editor"]), service, actor_id=cast["editor"].id, prd_id=cast["prd"], revision=2,
-        instruction="Keep the original goals.", session_messages=[],
-        previous_generation_record_id=first["generation_record_id"], modules=doubles(), call_model=restore_goals)
+        as_user(cast["editor"]),
+        service,
+        actor_id=cast["editor"].id,
+        prd_id=cast["prd"],
+        revision=2,
+        instruction="Keep the original goals.",
+        session_messages=[],
+        previous_generation_record_id=first["generation_record_id"],
+        modules=doubles(),
+        call_model=restore_goals,
+    )
     assert second["proposal"]["section_types"] == ["success_metrics"]
 
     saved = accept(cast["editor"], cast["prd"], service, second)

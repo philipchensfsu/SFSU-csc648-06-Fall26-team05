@@ -32,8 +32,13 @@ class Query:
 def sign_in(tables=None, rpc=None):
     tables = tables or {}
     user = SimpleNamespace(id=USER_ID, email="alice@example.com")
-    fake = SimpleNamespace(table=lambda name: tables.get(name, Query([])), rpc=lambda name, params: rpc)
-    main.app.dependency_overrides[auth.get_current_user] = lambda: {"user": user, "client": fake}
+    fake = SimpleNamespace(
+        table=lambda name: tables.get(name, Query([])), rpc=lambda name, params: rpc
+    )
+    main.app.dependency_overrides[auth.get_current_user] = lambda: {
+        "user": user,
+        "client": fake,
+    }
 
 
 @pytest.fixture(autouse=True)
@@ -60,20 +65,38 @@ def test_other_database_errors_stay_generic():
     assert r.status_code == 500 and r.json()["code"] == "database_error"
 
 
-@pytest.mark.parametrize("body", [{"name": "   "}, {"name": "x" * 201}, {}, {"name": "Acme", "owner": "x"}])
+@pytest.mark.parametrize(
+    "body", [{"name": "   "}, {"name": "x" * 201}, {}, {"name": "Acme", "owner": "x"}]
+)
 def test_invalid_bodies_are_422(body):
     sign_in(rpc=Query([]))
     assert client.post("/api/organizations", json=body).status_code == 422
 
 
 def test_me_returns_the_organization():
-    sign_in(tables={
-        "profile": Query([{"full_name": "Alice PM"}]),
-        "organization_member": Query([{"organization_id": ORG_A, "access_role": "admin", "organization": {"name": "Acme"}}]),
-    })
+    sign_in(
+        tables={
+            "profile": Query([{"full_name": "Alice PM"}]),
+            "organization_member": Query(
+                [
+                    {
+                        "organization_id": ORG_A,
+                        "access_role": "admin",
+                        "organization": {"name": "Acme"},
+                    }
+                ]
+            ),
+        }
+    )
     assert client.get("/api/me").json() == {
-        "id": USER_ID, "email": "alice@example.com", "full_name": "Alice PM",
-        "organization": {"organization_id": ORG_A, "name": "Acme", "access_role": "admin"},
+        "id": USER_ID,
+        "email": "alice@example.com",
+        "full_name": "Alice PM",
+        "organization": {
+            "organization_id": ORG_A,
+            "name": "Acme",
+            "access_role": "admin",
+        },
     }
 
 
