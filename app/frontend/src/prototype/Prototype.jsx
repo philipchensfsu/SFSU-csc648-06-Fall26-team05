@@ -14,6 +14,7 @@ import { chatMessages, updateChatLog } from "../nautilus/app/editor/chatLog";
 import {
   acceptProposal,
   requestAdjustment,
+  requestFeedbackAlternatives,
   requestFeedbackRevision,
   requestRevision,
 } from "../nautilus/app/editor/proposal";
@@ -86,6 +87,9 @@ function Prototype({
   // no longer open is dropped (editor/chatLog.js).
   const openPrdIdRef = useRef(null);
   const [aiProposal, setAiProposal] = useState(null);
+  // Feature 09: two options addressing review comments ({ prdId, options }).
+  // While it's set, aiProposal is the option that's open.
+  const [aiOptions, setAiOptions] = useState(null);
   // Where the details screen is: { tab: "overview" | "activity" | "history", versionId?, compare? }.
   const [detailsView, setDetailsView] = useState({ tab: "overview" });
   // The editor's side panel to open on: closed (null) unless something asked
@@ -214,6 +218,7 @@ function Prototype({
     if (prdId !== activePrdId) {
       setChatLog(null);
       setAiProposal(null);
+      setAiOptions(null);
     }
     setActivePrdId(prdId);
     setScreen(nextScreen);
@@ -227,6 +232,7 @@ function Prototype({
     setActivePrdId(null);
     setChatLog(null);
     setAiProposal(null);
+    setAiOptions(null);
     setScreen("dashboard");
   }, []);
 
@@ -593,8 +599,32 @@ function Prototype({
     const prd = prds.find((p) => p.id === id);
     if (!prd) throw new Error("This PRD is no longer in your list.");
     const result = await requestFeedbackRevision(api, id, { revision: prd.revision, feedbackIds: commentIds, instruction });
+    setAiOptions(null);
     openProposal(id, result.proposal);
     return result;
+  }
+
+  // Two options for the same comments (feature 09). The first one opens.
+  async function requestFeedbackOptions(id, commentIds, instruction) {
+    const prd = prds.find((p) => p.id === id);
+    if (!prd) throw new Error("This PRD is no longer in your list.");
+    const result = await requestFeedbackAlternatives(api, id, {
+      revision: prd.revision,
+      feedbackIds: commentIds,
+      instruction,
+    });
+    if (!result.options.length) throw new Error("Nautilus couldn’t write usable options this time. Try again.");
+    if (openPrdIdRef.current !== id) return result;
+    setAiOptions({ prdId: id, options: result.options });
+    openProposal(id, result.options[0]);
+    return result;
+  }
+
+  // Opens another option of the set.
+  function selectOption(id, option) {
+    if (aiOptions?.prdId !== id) return;
+    const chosen = aiOptions.options.find((item) => item.option === option);
+    if (chosen) openProposal(id, chosen);
   }
 
   // Request adjustments to the open proposal: the adjusted one replaces it,
@@ -602,7 +632,11 @@ function Prototype({
   async function adjustAiProposal(id, instruction, sessionMessages) {
     if (aiProposal?.prdId !== id) throw new Error("This proposal is no longer open.");
     const result = await requestAdjustment(api, id, aiProposal, { instruction, sessionMessages });
-    if (result.kind === "proposal") openProposal(id, result.proposal);
+    if (result.kind === "proposal") {
+      // An adjusted option replaces the whole set: none of it can be accepted now.
+      setAiOptions(null);
+      openProposal(id, result.proposal);
+    }
     return result;
   }
 
@@ -614,6 +648,7 @@ function Prototype({
     const saved = await acceptProposal(api, id, aiProposal, { confirmedReviewerIds });
     applyRow(saved);
     setAiProposal(null);
+    setAiOptions(null);
     loadDetail(id);
     setEditorVersion((version) => version + 1);
   }
@@ -784,8 +819,18 @@ function Prototype({
           onRequestFeedbackProposal={(commentIds, instruction) =>
             requestFeedbackProposal(activePrd.id, commentIds, instruction)
           }
+          proposalOptions={
+            aiOptions?.prdId === activePrd.id && aiProposal?.prdId === activePrd.id ? aiOptions.options : null
+          }
+          onRequestFeedbackOptions={(commentIds, instruction) =>
+            requestFeedbackOptions(activePrd.id, commentIds, instruction)
+          }
+          onSelectOption={(option) => selectOption(activePrd.id, option)}
           onAcceptProposal={(confirmedReviewerIds) => acceptAiProposal(activePrd.id, confirmedReviewerIds)}
-          onDiscardProposal={() => setAiProposal(null)}
+          onDiscardProposal={() => {
+            setAiProposal(null);
+            setAiOptions(null);
+          }}
           onAdjustProposal={(instruction, sessionMessages) => adjustAiProposal(activePrd.id, instruction, sessionMessages)}
           onReload={() => reloadPrd(activePrd.id)}
           onOpenAnswers={() => openAnswers(activePrd.id)}

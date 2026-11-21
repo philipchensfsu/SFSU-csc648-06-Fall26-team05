@@ -119,8 +119,9 @@ export const api = {
 
   // One proposal across the PRD from the chat (Marco, #138). Nothing is
   // saved; accept it through updatePrd (see editor/proposal.js).
-  // With previousGenerationRecordId, adjusts that pending proposal instead.
-  requestAiRevision: (prdId, { revision, instruction, sessionMessages = [], previousGenerationRecordId }) =>
+  // With previousGenerationRecordId, adjusts that pending proposal instead;
+  // previousOption names the option, when it was one of a set of alternatives.
+  requestAiRevision: (prdId, { revision, instruction, sessionMessages = [], previousGenerationRecordId, previousOption }) =>
     request(`/prds/${prdId}/ai-revisions`, {
       method: "POST",
       body: JSON.stringify({
@@ -128,6 +129,7 @@ export const api = {
         instruction,
         session_messages: sessionMessages,
         ...(previousGenerationRecordId ? { previous_generation_record_id: previousGenerationRecordId } : {}),
+        ...(previousGenerationRecordId && previousOption ? { previous_option: previousOption } : {}),
       }),
     }),
 
@@ -135,6 +137,14 @@ export const api = {
   // owners only). Nothing is saved; accept it like an AI revision.
   requestReviewSuggestion: (prdId, { revision, feedbackIds, instruction }) =>
     request(`/prds/${prdId}/review-suggestions`, {
+      method: "POST",
+      body: JSON.stringify({ revision, feedback_ids: feedbackIds, ...(instruction ? { instruction } : {}) }),
+    }),
+
+  // Two different ways to address the same comments, from one AI request
+  // (feature 09, owners only). Accept one through updatePrd with its option.
+  requestReviewAlternatives: (prdId, { revision, feedbackIds, instruction }) =>
+    request(`/prds/${prdId}/review-alternatives`, {
       method: "POST",
       body: JSON.stringify({ revision, feedback_ids: feedbackIds, ...(instruction ? { instruction } : {}) }),
     }),

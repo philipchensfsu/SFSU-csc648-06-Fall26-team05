@@ -6,6 +6,7 @@ import {
   mustAskAgain,
   needsReapproval,
   requestAdjustment,
+  requestFeedbackAlternatives,
   requestFeedbackRevision,
   requestRevision,
   sessionMessagesFrom,
@@ -118,6 +119,63 @@ describe("requestFeedbackRevision", () => {
   });
 });
 
+describe("requestFeedbackAlternatives", () => {
+  const optionsReply = {
+    base_revision: 4,
+    generation_record_id: "rec-3",
+    options: [
+      {
+        option: 1,
+        title: "Tighten the goal",
+        explanation: "Makes the goal measurable.",
+        tradeoffs: ["Quick to review."],
+        proposal: { section_types: ["goals"], sections: [], content_json: proposed },
+      },
+      {
+        option: 2,
+        title: "Phase the release",
+        explanation: "Moves reviews to phase two.",
+        tradeoffs: ["Bigger change."],
+        proposal: { section_types: ["goals", "risks"], sections: [], content_json: saved },
+      },
+    ],
+  };
+
+  it("turns each option into a proposal against the same fresh read", async () => {
+    const api = fakeApi({ requestReviewAlternatives: vi.fn().mockResolvedValue(optionsReply) });
+    const result = await requestFeedbackAlternatives(api, "p1", { revision: 4, feedbackIds: ["c1"], instruction: "Keep scope" });
+    expect(api.requestReviewAlternatives).toHaveBeenCalledWith("p1", { revision: 4, feedbackIds: ["c1"], instruction: "Keep scope" });
+    expect(api.getPrd).toHaveBeenCalledTimes(1);
+    expect(result.options).toHaveLength(2);
+    expect(result.options[0]).toMatchObject({
+      option: 1,
+      title: "Tighten the goal",
+      explanation: "Makes the goal measurable.",
+      tradeoffs: ["Quick to review."],
+      baseRevision: 4,
+      generationRecordId: "rec-3",
+      originalDocument: saved,
+      proposedDocument: proposed,
+      sectionTypes: ["goals"],
+      feedbackIds: ["c1"],
+      instruction: "Keep scope",
+    });
+    // One request, one record: both options carry it.
+    expect(result.options[1]).toMatchObject({ option: 2, generationRecordId: "rec-3", sectionTypes: ["goals", "risks"] });
+  });
+
+  it("refuses before asking when the PRD moved on", async () => {
+    const api = fakeApi({
+      getPrd: vi.fn().mockResolvedValue({ id: "p1", revision: 6, content_json: saved }),
+      requestReviewAlternatives: vi.fn(),
+    });
+    await expect(requestFeedbackAlternatives(api, "p1", { revision: 4, feedbackIds: ["c1"] })).rejects.toMatchObject({
+      code: "stale_revision",
+    });
+    expect(api.requestReviewAlternatives).not.toHaveBeenCalled();
+  });
+});
+
 describe("requestAdjustment", () => {
   const pending = {
     baseRevision: 4,
@@ -157,6 +215,24 @@ describe("requestAdjustment", () => {
     });
   });
 
+  it("names the option when adjusting one of a set, and returns a single proposal", async () => {
+    const api = fakeApi({
+      requestAiRevision: vi.fn().mockResolvedValue({
+        kind: "proposal",
+        message: "Adjusted.",
+        proposal: { section_types: ["goals"], sections: [], content_json: proposed },
+        base_revision: 4,
+        generation_record_id: "rec-4",
+      }),
+    });
+    const option = { ...pending, option: 2, title: "Phase the release", tradeoffs: ["Bigger change."] };
+    const result = await requestAdjustment(api, "p1", option, { instruction: "Keep SMS", sessionMessages: [] });
+    expect(api.requestAiRevision.mock.calls[0][1]).toMatchObject({ previousGenerationRecordId: "rec-1", previousOption: 2 });
+    expect(result.proposal.option).toBeUndefined();
+    expect(result.proposal.title).toBeUndefined();
+    expect(result.proposal.generationRecordId).toBe("rec-4");
+  });
+
   it("passes on a refusal, leaving the proposal as it was", async () => {
     const api = fakeApi({ requestAiRevision: vi.fn().mockResolvedValue({ kind: "blocked", message: "Only this PRD." }) });
     expect(await requestAdjustment(api, "p1", pending, { instruction: "x" })).toEqual({
@@ -178,6 +254,15 @@ describe("accepting", () => {
       confirmed_reviewer_ids: ["ben"],
     });
     expect(acceptBody(proposal).content_json).toBe(proposed);
+  });
+
+  it("names the option when accepting one of a set", () => {
+    expect(acceptBody({ ...proposal, option: 2 })).toEqual({
+      revision: 4,
+      content_json: proposed,
+      generation_record_id: "rec-1",
+      option: 2,
+    });
   });
 
   it("sends the same save again when the first got no answer", async () => {
