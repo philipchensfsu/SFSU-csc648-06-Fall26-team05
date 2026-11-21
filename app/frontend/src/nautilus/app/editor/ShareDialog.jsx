@@ -2,6 +2,7 @@ import { useEffect, useId, useState } from "react";
 import { api } from "../../../../lib/api";
 import { initialsOf } from "../format";
 import { Alert, Avatar, Modal } from "../ui";
+import SuggestedTeams from "./SuggestedTeams";
 // For the "A person / A whole team" switch, shared with the comparison view.
 import "./comparison.css";
 
@@ -96,8 +97,9 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
   }, [prd.id, organizationId, attempt]);
 
   // `request` resolves to the updated list. Capabilities can change with any
-  // of these, so the PRD's details are read again afterwards.
-  async function change(request) {
+  // of these, so the PRD's details are read again afterwards. With `quiet`,
+  // the caller shows its own error.
+  async function change(request, { quiet = false } = {}) {
     setBusy(true);
     setError("");
     setConfirming(null);
@@ -107,7 +109,7 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
       await onChanged();
       return true;
     } catch (cause) {
-      setError(describeError(cause));
+      if (!quiet) setError(describeError(cause));
       return false;
     } finally {
       setBusy(false);
@@ -285,6 +287,13 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
         ) : null}
         {mode === "team" ? (
           <>
+            <SuggestedTeams
+              prdId={prd.id}
+              revision={prd.revision}
+              busy={busy}
+              apply={change}
+              canAsk={teams.some((team) => team.newPeople > 0)}
+            />
             <div className="ne-share-add">
               <select
                 className="nw-select ne-share-pick"

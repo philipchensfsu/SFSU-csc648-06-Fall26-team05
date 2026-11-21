@@ -550,6 +550,79 @@
 .ne-share-result strong {
   font-weight: 600;
 }
+/* AI-suggested teams (feature 08b), above the manual team picker. */
+.ne-suggest {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ne-suggest.is-open {
+  padding: 12px 14px;
+  border: 1px solid #C3DADE;
+  border-radius: 12px;
+  background: #F7FBFC;
+}
+.ne-suggest-ask {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
+.ne-suggest-title {
+  margin: 0;
+  color: #102C33;
+  font-size: 14px;
+  font-weight: 650;
+}
+.ne-suggest-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ne-suggest-team {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 12px;
+  padding: 10px 12px;
+  border: 1px solid #DCEBEE;
+  border-radius: 10px;
+  background: #FFFFFF;
+}
+.ne-suggest-team.is-picked {
+  border-color: #1D6F7A;
+}
+.ne-suggest-pick {
+  flex: 1 1 180px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-width: 0;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.ne-suggest-adds {
+  color: #557479;
+  font-size: 13px;
+  white-space: nowrap;
+}
+.ne-suggest-reason {
+  flex: 1 1 100%;
+  margin: 0;
+  color: #3E5A60;
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.ne-suggest-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
 .ne-alert-action {
   padding: 0;
   border: 0;
