@@ -39,6 +39,21 @@ def load(env=None) -> Settings:
         discord_token=env["DISCORD_BOT_TOKEN"].strip(),
         api_url=api_url,
         bot_secret=env["BOT_API_SECRET"].strip(),
-        request_timeout=float(env.get("BOT_REQUEST_TIMEOUT_SECONDS") or 20),
-        summary_timeout=float(env.get("BOT_SUMMARY_TIMEOUT_SECONDS") or 290),
+        request_timeout=_seconds(env, "BOT_REQUEST_TIMEOUT_SECONDS", 20.0),
+        summary_timeout=_seconds(env, "BOT_SUMMARY_TIMEOUT_SECONDS", 290.0),
     )
+
+
+def _seconds(env, name: str, default: float) -> float:
+    """An optional timeout in seconds: unset or blank means the default; anything
+    else must be a positive number, or startup stops with a clear ConfigError."""
+    raw = (env.get(name) or "").strip()
+    if not raw:
+        return default
+    try:
+        value = float(raw)
+    except ValueError:
+        raise ConfigError(f"{name} must be a number of seconds") from None
+    if not 0 < value < float("inf"):
+        raise ConfigError(f"{name} must be a positive number of seconds")
+    return value

@@ -50,3 +50,21 @@ def test_configuration_names_whats_missing_but_never_values():
         load({"DISCORD_BOT_TOKEN": "t", "NAUTILUS_API_URL": "http://example.com", "BOT_API_SECRET": "s"})
     settings = load({"DISCORD_BOT_TOKEN": "tok-123", "NAUTILUS_API_URL": "https://n.test/", "BOT_API_SECRET": "s"})
     assert settings.api_url == "https://n.test" and "tok-123" not in repr(settings)
+
+
+@pytest.mark.parametrize("raw", ["20s", "abc", "0", "-5", "nan", "inf"])
+def test_bad_timeout_gives_a_config_error_not_a_traceback(raw):
+    env = {"DISCORD_BOT_TOKEN": "t", "NAUTILUS_API_URL": "https://n.test", "BOT_API_SECRET": "s",
+           "BOT_REQUEST_TIMEOUT_SECONDS": raw}
+    with pytest.raises(ConfigError) as info:
+        load(env)
+    assert "BOT_REQUEST_TIMEOUT_SECONDS" in str(info.value)
+
+
+def test_timeouts_default_when_unset_or_blank_and_accept_numbers():
+    base = {"DISCORD_BOT_TOKEN": "t", "NAUTILUS_API_URL": "https://n.test", "BOT_API_SECRET": "s"}
+    assert (load(base).request_timeout, load(base).summary_timeout) == (20.0, 290.0)
+    blank = load({**base, "BOT_REQUEST_TIMEOUT_SECONDS": " ", "BOT_SUMMARY_TIMEOUT_SECONDS": ""})
+    assert (blank.request_timeout, blank.summary_timeout) == (20.0, 290.0)
+    custom = load({**base, "BOT_REQUEST_TIMEOUT_SECONDS": "7.5", "BOT_SUMMARY_TIMEOUT_SECONDS": "120"})
+    assert (custom.request_timeout, custom.summary_timeout) == (7.5, 120.0)
