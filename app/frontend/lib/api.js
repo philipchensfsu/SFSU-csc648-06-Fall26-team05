@@ -139,6 +139,12 @@ export const api = {
       body: JSON.stringify({ revision, feedback_ids: feedbackIds, ...(instruction ? { instruction } : {}) }),
     }),
 
+  // Linking a Discord account (feature 04). A one-time code the person runs as
+  // /link in Discord; the bot then links it. Poll getDiscordLink to see it land.
+  createDiscordLinkCode: () => request("/integrations/discord/link-code", { method: "POST" }),
+  getDiscordLink: () => request("/integrations/discord/link"),
+  unlinkDiscord: () => request("/integrations/discord/link", { method: "DELETE" }),
+
   listIntakeAnswers: (prdId) => request(`/prds/${prdId}/intake`),
   saveIntakeAnswer: (prdId, questionKey, answerText, skipped) =>
     request(`/prds/${prdId}/intake/${questionKey}`, {
