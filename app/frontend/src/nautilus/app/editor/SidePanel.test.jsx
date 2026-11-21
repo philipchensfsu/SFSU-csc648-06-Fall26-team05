@@ -69,7 +69,8 @@ const click = (button) => act(async () => button.click());
 // The Review button carries a count when there are assumptions to confirm.
 const reviewButton = () =>
   [...host.querySelectorAll(".ne-bar button")].find((button) => button.textContent.trim().startsWith("Review"));
-const panel = () => host.querySelector(".ne-panel");
+// The open panel. Once opened it stays in the page, hidden while closed.
+const panel = () => host.querySelector(".ne-panel:not([hidden])");
 const grip = () => host.querySelector('[role="separator"]');
 const keyOn = (element, key) =>
   act(async () => element.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));

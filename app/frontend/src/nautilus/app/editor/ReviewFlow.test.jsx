@@ -407,6 +407,20 @@ describe("opening the editor on a side tab", () => {
     expect(reviewButton().getAttribute("aria-pressed")).toBe("false");
   });
 
+  it("keeps a comment being typed when the panel is closed and opened again", async () => {
+    await show({ detail: { ...owner, currentVersion: { id: "v1" } }, initialRailTab: null });
+    await click(buttonNamed("Comments"));
+    await typeInto(host.querySelector(".ne-comment-box"), "This needs a number.");
+    // The same button closes it: one misclick.
+    await click(buttonNamed("Comments"));
+    expect(host.querySelector(".ne-panel").hidden).toBe(true);
+    expect(host.querySelector(".ne-panel-rail")).not.toBeNull();
+    await click(buttonNamed("Comments"));
+    expect(host.querySelector(".ne-comment-box").value).toBe("This needs a number.");
+    // Comments were read once, not again on reopening.
+    expect(api.listPrdComments).toHaveBeenCalledTimes(1);
+  });
+
   it("opens Review from the top bar, and a reviewer's decision opens it too", async () => {
     await show({ detail: reviewer, initialRailTab: null });
     expect(host.textContent).not.toContain("Your review");
@@ -502,6 +516,36 @@ describe("managing reviewers on an open round", () => {
     // Alice owns it; Ben and Erin are on the round already. Nobody else is left.
     expect(dialog.textContent).toContain("Everyone else in your organization is already a reviewer");
     expect(lastButtonNamed("Replace reviewer").disabled).toBe(true);
+  });
+
+  it("offers an owner as the replacement only when the round lets owners review", async () => {
+    // Alice and Fay own the PRD; Ben and Erin are on the round.
+    api.getDirectory.mockResolvedValue({
+      organization: { id: "org", name: "Campus Apps" },
+      members: [...members, { user_id: "fay", name: "Fay Designer", email: "fay@example.com" }],
+    });
+    const detail = {
+      ...managing,
+      owners: [
+        { id: "alice", name: "Alice PM" },
+        { id: "fay", name: "Fay Designer" },
+      ],
+    };
+    const openReplace = () =>
+      click([...rowOf("Erin Engineer").querySelectorAll("button")].find((b) => b.textContent.startsWith("Replace")));
+
+    api.listReviews.mockResolvedValue({ items: [{ id: "r1", owner_review_allowed: false, reviewers: [] }] });
+    await show({ detail, userId: "alice", onReplaceReviewer: vi.fn(), onRemoveReviewer: vi.fn() });
+    await openReplace();
+    expect(openDialog().textContent).not.toContain("Fay Designer");
+    await act(async () => root.unmount());
+    host.remove();
+
+    api.listReviews.mockResolvedValue({ items: [{ id: "r1", owner_review_allowed: true, reviewers: [] }] });
+    await show({ detail, userId: "alice", onReplaceReviewer: vi.fn(), onRemoveReviewer: vi.fn() });
+    await openReplace();
+    expect(api.listReviews).toHaveBeenLastCalledWith("p1", { limit: 1 });
+    expect(openDialog().textContent).toContain("Fay Designer");
   });
 
   it("sends the chosen replacement and closes the dialog", async () => {
