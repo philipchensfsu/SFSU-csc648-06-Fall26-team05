@@ -52,6 +52,7 @@ async function openAt(path, session) {
 
 beforeEach(() => {
   authListener = null;
+  window.sessionStorage.clear();
 });
 
 afterEach(() => {
@@ -99,6 +100,21 @@ describe("dashboard URL", () => {
     await openAt("/prds/p1/edit", null);
     expect(container.textContent).toContain("SIGN IN");
     expect(window.location.pathname).toBe("/signin");
+  });
+
+  it("goes on to the PRD link once sign-in succeeds, then forgets it", async () => {
+    await openAt("/prds/p1/edit", null);
+    expect(window.location.pathname).toBe("/signin");
+    await act(async () => authListener("SIGNED_IN", SESSION));
+    expect(container.textContent).toContain("DASHBOARD");
+    expect(window.location.pathname).toBe("/prds/p1/edit");
+    expect(window.sessionStorage.length).toBe(0);
+  });
+
+  it("ignores a saved link that isn't a PRD page", async () => {
+    window.sessionStorage.setItem("nautilus.afterSignIn", "https://example.com/");
+    await openAt("/signin", SESSION);
+    expect(window.location.pathname).toBe("/dashboard");
   });
 
   it("leaves the public pages alone", async () => {

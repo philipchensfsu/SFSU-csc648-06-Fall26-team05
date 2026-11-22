@@ -21,6 +21,27 @@ const OPENED_RESET_LINK =
   typeof window !== "undefined" &&
   window.location.hash.includes("type=recovery");
 
+// A PRD link opened while signed out, so signing in goes on to it instead of
+// the dashboard. Session storage, so it survives Google's round trip in this
+// tab; storage can be blocked, which only means landing on the dashboard.
+const RETURN_KEY = "nautilus.afterSignIn";
+function readReturn() {
+  try {
+    const saved = window.sessionStorage.getItem(RETURN_KEY);
+    return saved && parsePrdPath(saved) ? saved : null;
+  } catch {
+    return null;
+  }
+}
+function writeReturn(path) {
+  try {
+    if (path) window.sessionStorage.setItem(RETURN_KEY, path);
+    else window.sessionStorage.removeItem(RETURN_KEY);
+  } catch {
+    // Blocked storage: sign-in lands on the dashboard.
+  }
+}
+
 function App() {
   const [session, setSession] = useState(null);
   // Without Supabase there is no session to wait for, so start off resolved.
@@ -81,11 +102,17 @@ function App() {
     !checkedSession || recovering
       ? null
       : session && onAuthPage
-        ? links.dashboard
+        ? (readReturn() ?? links.dashboard)
         : !session && onAppPage
           ? links.signIn
           : null;
+  if (redirect === links.signIn && parsePrdPath(path)) writeReturn(path);
   if (redirect) setPath(redirect);
+
+  // Once signed in and past the auth pages, the saved link has been used.
+  useEffect(() => {
+    if (session && !onAuthPage) writeReturn(null);
+  }, [session, onAuthPage]);
 
   // Only a redirect leaves the address bar behind path (navigate and Back
   // keep them equal). replaceState, so Back doesn't return to a page that
