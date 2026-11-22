@@ -27,11 +27,15 @@ router = APIRouter()
 
 
 class GenerateRequest(RequestModel):
+    """Request body for generating a PRD draft; revision is the PRD revision the caller sees."""
+
     # The revision the client last saw; the draft is built for it.
     revision: int = Field(..., ge=1)
 
 
 class ChatMessage(RequestModel):
+    """One earlier chat message kept by the browser."""
+
     role: Literal["user", "assistant"]
     # Earlier assistant replies can be up to MAX_ANSWER_CHARS, so history
     # items allow that; a new message is still capped at MAX_MESSAGE_CHARS.
@@ -39,6 +43,8 @@ class ChatMessage(RequestModel):
 
 
 class AiEditRequest(RequestModel):
+    """Request body for an AI edit of one section."""
+
     revision: int = Field(..., ge=1)
     section_type: str
     instruction: str = Field(
@@ -51,6 +57,8 @@ class AiEditRequest(RequestModel):
 
 
 class AiRevisionRequest(RequestModel):
+    """Request body for an AI revision of the whole PRD, optionally adjusting an earlier proposal."""
+
     revision: int = Field(..., ge=1)
     # What to change, read together with the recent conversation.
     instruction: str = Field(
@@ -67,6 +75,8 @@ class AiRevisionRequest(RequestModel):
 
 
 class ReviewSuggestionRequest(RequestModel):
+    """Request body naming the review comments the AI should address."""
+
     revision: int = Field(..., ge=1)
     # prd_comment ids on the PRD's current version (E06; change-request
     # explanations are comments too).
@@ -79,15 +89,21 @@ class ReviewSuggestionRequest(RequestModel):
 
 
 class DiscussionSummaryRequest(RequestModel):
+    """Request body for a discussion summary; leave version_id out for the current version."""
+
     # A saved version of this PRD; the current one when left out.
     version_id: Optional[UUID] = None
 
 
 class ClassificationRequest(RequestModel):
+    """Request body for an AI routing suggestion (owning team and priority)."""
+
     revision: int = Field(..., ge=1)
 
 
 class ClassificationDecision(RequestModel):
+    """Request body for accepting or rejecting a routing suggestion, optionally adjusted."""
+
     decision: Literal["accepted", "rejected"]
     # Only with "accepted": adjust the suggestion before it's applied.
     team_id: Optional[UUID] = None
@@ -95,11 +111,15 @@ class ClassificationDecision(RequestModel):
 
 
 class RoutingUpdate(RequestModel):
+    """Request body for setting a PRD's owning team and priority by hand."""
+
     owning_team_id: Optional[UUID]
     priority: Optional[Literal["low", "medium", "high", "critical"]]
 
 
 class ChatRequest(RequestModel):
+    """Request body for asking the AI chatbot a question about a PRD."""
+
     revision: int = Field(..., ge=1)
     message: str = Field(..., min_length=1, max_length=chat.MAX_MESSAGE_CHARS)
     # Recent messages kept by the browser for this PRD only (no chat table).
@@ -117,6 +137,7 @@ class ChatRequest(RequestModel):
 def generate_prd_preview(
     prd_id: UUID, payload: GenerateRequest, auth=Depends(get_current_user)
 ):
+    """Generate a PRD draft from the intake answers as a preview; nothing is saved."""
     return preview.generate_preview(
         auth["client"],
         supabase,
@@ -131,6 +152,7 @@ def generate_prd_preview(
 # guardrail and prompt modules are in place (see ai/chat.py).
 @router.post("/api/prds/{prd_id}/ai/chat")
 def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_user)):
+    """Answer a question about the PRD with the AI chatbot; the PRD is never changed."""
     return chat.answer_chat(
         auth["client"],
         supabase,
@@ -147,6 +169,10 @@ def chat_with_prd(prd_id: UUID, payload: ChatRequest, auth=Depends(get_current_u
 def request_review_suggestion(
     prd_id: UUID, payload: ReviewSuggestionRequest, auth=Depends(get_current_user)
 ):
+    """Propose revisions that address chosen review comments (E12).
+
+    Nothing is saved; the owner accepts the proposal by saving it.
+    """
     # E12: a preview of revisions that address chosen review comments.
     # Nothing is saved; accept through PUT with generation_record_id.
     return review_suggestion.propose_review_suggestion(
@@ -171,6 +197,7 @@ def summarize_discussion(
     payload: Optional[DiscussionSummaryRequest] = None,
     auth=Depends(get_current_user),
 ):
+    """Summarize the comments and review discussion on a PRD version (feature 05)."""
     version_id = payload.version_id if payload else None
     return discussion_summary.summarize_discussion(
         auth["client"],
@@ -186,6 +213,10 @@ def summarize_discussion(
 def request_review_alternatives(
     prd_id: UUID, payload: ReviewSuggestionRequest, auth=Depends(get_current_user)
 ):
+    """Propose two different ways to address chosen review comments (feature 09).
+
+    Nothing is saved; accepting one option retires the other.
+    """
     # Feature 09: two different ways to address chosen review comments, from
     # one model call. Nothing is saved; accept one option through PUT with
     # generation_record_id and option, which retires the other.
@@ -208,6 +239,7 @@ def request_review_alternatives(
 def request_ai_edit(
     prd_id: UUID, payload: AiEditRequest, auth=Depends(get_current_user)
 ):
+    """Propose an AI edit to one section, using the recent chat as context."""
     return section_edit.propose_section_edit(
         auth["client"],
         supabase,
@@ -230,6 +262,7 @@ def request_ai_edit(
 def request_ai_revision(
     prd_id: UUID, payload: AiRevisionRequest, auth=Depends(get_current_user)
 ):
+    """Propose an AI revision of the PRD from an instruction and the recent chat."""
     return chat_revision.propose_revision(
         auth["client"],
         supabase,
@@ -254,6 +287,7 @@ def request_ai_revision(
 def suggest_prd_routing(
     prd_id: UUID, payload: ClassificationRequest, auth=Depends(get_current_user)
 ):
+    """Ask the AI to suggest an owning team and priority for the PRD."""
     return classification.suggest_routing(
         auth["client"],
         supabase,
@@ -273,6 +307,11 @@ def decide_prd_routing(
     payload: ClassificationDecision,
     auth=Depends(get_current_user),
 ):
+    """Accept or reject an AI routing suggestion.
+
+    Raises:
+        ApiError: 422 if a team or priority is sent with a rejection.
+    """
     sent = payload.model_fields_set
     if payload.decision == "rejected" and ({"team_id", "priority"} & sent):
         raise ApiError(
@@ -314,6 +353,7 @@ ROUTING_ERRORS = {
 def set_prd_routing(
     prd_id: UUID, payload: RoutingUpdate, auth=Depends(get_current_user)
 ):
+    """Set a PRD's owning team and priority by hand (owners and org admins only)."""
     # Owners and org admins, an active team of the PRD's org (or none). The
     # database function checks both under the PRD lock; clients can't write
     # these columns directly (S02 grants).

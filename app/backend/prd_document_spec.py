@@ -25,22 +25,28 @@ class DocumentError:
     message: str
 
     def to_dict(self) -> dict:
+        """Return the error as a JSON-ready dict."""
         return {"code": self.code, "path": self.path, "message": self.message}
 
 
 class InvalidDocument(ValueError):
+    """Raised when a PRD document fails validation; holds every error found."""
+
     def __init__(self, errors: list[DocumentError]):
+        """Create the exception from the list of document errors."""
         self.errors = errors
         super().__init__(f"Invalid PRD document ({len(errors)} error(s))")
 
 
 @lru_cache(maxsize=1)
 def load_spec() -> dict:
+    """Load the PRD document spec (JSON) once and cache it."""
     with SPEC_PATH.open(encoding="utf-8") as spec_file:
         return json.load(spec_file)
 
 
 def limit(name: str) -> int:
+    """Return a named limit from the document spec, such as max_depth."""
     return load_spec()["limits"][name]["value"]
 
 
@@ -50,6 +56,11 @@ def section_types() -> list[str]:
 
 
 def section_title(section_type: str) -> str:
+    """Return the display title of a section type.
+
+    Raises:
+        KeyError: If the section type is not in the spec.
+    """
     for entry in load_spec()["section_types"]["values"]:
         if entry["type"] == section_type:
             return entry["title"]
@@ -57,6 +68,7 @@ def section_title(section_type: str) -> str:
 
 
 def section_type_of(node):
+    """Return a section node's type, or None if the node is not a section."""
     if (
         isinstance(node, dict)
         and node.get("type") == "section"

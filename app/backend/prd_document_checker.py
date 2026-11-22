@@ -31,16 +31,22 @@ def _show(value) -> str:
 
 
 class TooManyErrors(Exception):
+    """Raised internally to stop checking once the error limit is reached."""
+
     pass
 
 
 class Checker:
+    """Validates a PRD document against the document spec and collects every error found."""
+
     def __init__(self):
+        """Load the spec and start with an empty error list."""
         self.spec = load_spec()
         self.errors: list[DocumentError] = []
         self.max_errors = _limit("max_errors")
 
     def add(self, code: str, path: str, message: str) -> None:
+        """Record an error; stop the check with TooManyErrors once the limit is reached."""
         if len(self.errors) == self.max_errors - 1:
             self.errors.append(
                 DocumentError(
@@ -55,6 +61,7 @@ class Checker:
     # --- nodes ------------------------------------------------------------
 
     def check_root(self, document) -> None:
+        """Check the whole document: a JSON object in version 2 format, within the size limit."""
         if not isinstance(document, dict):
             self.add("invalid_type", "", "The document must be a JSON object.")
             return
@@ -97,6 +104,7 @@ class Checker:
         self.check_sections(document)
 
     def check_node(self, node, path: str, allowed, parent, depth: int) -> None:
+        """Check one node: its type, where it is allowed, nesting depth, attributes and children."""
         if not isinstance(node, dict):
             self.add("invalid_type", path, "Each node must be a JSON object.")
             return
@@ -185,6 +193,7 @@ class Checker:
             )
 
     def check_text(self, node: dict, path: str) -> None:
+        """Check a text node: its fields, non-empty text and its marks."""
         for key in node:
             if key not in TEXT_KEYS:
                 self.add(
@@ -221,6 +230,7 @@ class Checker:
             seen.add(mark_type)
 
     def check_mark(self, mark, path: str):
+        """Check one mark (such as bold or link) and return its type, or None if it is invalid."""
         if not isinstance(mark, dict):
             self.add("invalid_type", path, "Each mark must be a JSON object.")
             return None
@@ -265,6 +275,7 @@ class Checker:
     def check_attrs(
         self, attrs, attr_specs: dict, path: str, owner: str, present: bool
     ) -> None:
+        """Check a node's or mark's attributes against the spec: no unknown ones, required ones present, valid values."""
         if not present or attrs is None:
             attrs = {}
         elif not isinstance(attrs, dict):
@@ -294,6 +305,7 @@ class Checker:
                 self.add("invalid_attr", f"{path}/{name}", f"{owner}.{name} {problem}.")
 
     def attr_problem(self, value, attr_spec: dict):
+        """Return what is wrong with one attribute value, or None if it is valid."""
         kind = attr_spec["kind"]
         if kind == "section_type":
             if value not in section_types() or not isinstance(value, str):
@@ -340,6 +352,7 @@ class Checker:
     # --- document-level rules --------------------------------------------
 
     def check_sections(self, document: dict) -> None:
+        """Check the top-level sections: no duplicates and in the standard order, when those rules are enforced."""
         children = document.get("content")
         if not isinstance(children, list):
             return

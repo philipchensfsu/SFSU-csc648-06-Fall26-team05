@@ -57,11 +57,15 @@ REVISION_SCOPE = (
 
 
 class AcceptanceError(ApiError):
+    """Raised when an AI proposal cannot be accepted, for example because it is stale."""
+
     pass
 
 
 @dataclass(frozen=True)
 class Acceptance:
+    """What saving an accepted AI proposal should do: the document to save and the context to apply."""
+
     content_json: object  # the document to save (marked), or the caller's UNSET
     apply_context_patch: bool
     marked_sections: tuple[str, ...]

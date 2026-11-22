@@ -1,3 +1,5 @@
+"""PRD comment routes: list comments and post a comment on a PRD version or section."""
+
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -14,17 +16,23 @@ router = APIRouter()
 
 
 class CommentAuthor(BaseModel):
+    """Who wrote a comment, with their department at the time."""
+
     id: Optional[UUID]
     name: Optional[str]
     department: Optional[str]
 
 
 class CommentMention(BaseModel):
+    """A person @mentioned in a comment."""
+
     id: UUID
     name: Optional[str]  # their name when they were mentioned
 
 
 class CommentOut(BaseModel):
+    """A comment as returned by the API."""
+
     id: UUID
     prd_id: UUID
     version_id: UUID
@@ -37,6 +45,8 @@ class CommentOut(BaseModel):
 
 
 class CommentIn(RequestModel):
+    """Request body for posting a comment."""
+
     version_id: UUID
     section_type: Optional[str] = None
     body: str = Field(..., min_length=1, max_length=5000)
@@ -86,6 +96,7 @@ COMMENT_COLUMNS = (
 
 
 def comment_item(row):
+    """Convert a prd_comment row into the CommentOut shape."""
     return {
         "id": row["id"],
         "prd_id": row["prd_id"],
@@ -113,6 +124,20 @@ def list_comments(
     params: PageParams = Depends(),
     auth=Depends(get_current_user),
 ):
+    """List a PRD's comments, oldest first.
+
+    Args:
+        prd_id: The PRD whose comments to list.
+        version_id: If given, only comments on that version.
+        params: Page size and cursor.
+        auth: The signed-in user and their Supabase client.
+
+    Returns:
+        One page of comments and the cursor for the next page.
+
+    Raises:
+        ApiError: 404 if the PRD does not exist or the caller cannot see it.
+    """
     # Oldest first. Without version_id, every comment on the PRD.
     client = auth["client"]
     if not client.table("prd").select("id").eq("id", str(prd_id)).execute().data:
@@ -131,6 +156,16 @@ def list_comments(
 
 @router.post("/api/prds/{prd_id}/comments", response_model=CommentOut, status_code=201)
 def add_comment(prd_id: UUID, payload: CommentIn, auth=Depends(get_current_user)):
+    """Post a comment on the PRD's current version and notify mentioned people.
+
+    Args:
+        prd_id: The PRD to comment on.
+        payload: The version, optional section, body and mentioned users.
+        auth: The signed-in user and their Supabase client.
+
+    Returns:
+        The new comment.
+    """
     # Anyone who can view the PRD comments on its current version.
     client = auth["client"]
     comment_id = call_function(

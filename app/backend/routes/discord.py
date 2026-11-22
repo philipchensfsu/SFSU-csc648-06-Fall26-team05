@@ -18,11 +18,15 @@ router = APIRouter()
 
 
 class LinkCode(BaseModel):
+    """A one-time Discord link code and when it expires."""
+
     code: str
     expires_at: datetime
 
 
 class DiscordLink(BaseModel):
+    """Whether the caller has a linked Discord account."""
+
     linked: bool
     discord_user_id: Optional[str] = None
     linked_at: Optional[datetime] = None
@@ -30,6 +34,10 @@ class DiscordLink(BaseModel):
 
 @router.post("/api/integrations/discord/link-code", response_model=LinkCode)
 def create_link_code(auth=Depends(get_current_user)):
+    """Create a one-time code (valid 10 minutes) for linking a Discord account.
+
+    A new code replaces any earlier one.
+    """
     # A new code for the caller, valid for 10 minutes and used once. It
     # replaces any earlier code; only this response ever contains it.
     (row,) = auth["client"].rpc("create_discord_link_code", {}).execute().data
@@ -38,6 +46,7 @@ def create_link_code(auth=Depends(get_current_user)):
 
 @router.get("/api/integrations/discord/link", response_model=DiscordLink)
 def get_link(auth=Depends(get_current_user)):
+    """Return whether the caller has linked a Discord account."""
     # RLS shows people only their own link.
     rows = (
         auth["client"]
@@ -53,6 +62,7 @@ def get_link(auth=Depends(get_current_user)):
 
 @router.delete("/api/integrations/discord/link", status_code=204)
 def unlink(auth=Depends(get_current_user)):
+    """Unlink the caller's Discord account; succeeds even if none is linked."""
     # Unlinking an account that isn't linked also succeeds.
     auth["client"].table("discord_link").delete().eq(
         "profile_id", str(auth["user"].id)

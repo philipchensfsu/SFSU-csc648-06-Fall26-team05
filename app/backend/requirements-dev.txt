@@ -9,3 +9,5 @@ psycopg[binary]
 pytest-cov
 # Linter that enforces the backend coding style (ruff check in CI).
 ruff==0.17.5
+# Generates the HTML API docs from docstrings (docs.yml workflow).
+pdoc==16.0.0

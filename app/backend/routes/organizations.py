@@ -1,3 +1,5 @@
+"""Organization routes: create or join an organization, the caller's identity, and join codes."""
+
 from typing import Annotated, Optional
 from uuid import UUID
 
@@ -13,17 +15,26 @@ router = APIRouter()
 
 
 class OrganizationCreate(RequestModel):
+    """Request body for creating an organization."""
+
     name: Annotated[
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
     ]
 
 
 class OrganizationCreated(BaseModel):
+    """The id of a newly created organization."""
+
     organization_id: UUID
 
 
 @router.post("/api/organizations", response_model=OrganizationCreated, status_code=201)
 def create_organization(payload: OrganizationCreate, auth=Depends(get_current_user)):
+    """Create an organization and make the caller its admin (E01).
+
+    Raises:
+        ApiError: 409 if the account already belongs to an organization.
+    """
     # Called by the sign-up screen right after the account is created: the
     # new account becomes the organization's admin (E01). No department or
     # team is created; admins add whatever structure their org uses.
@@ -44,12 +55,16 @@ def create_organization(payload: OrganizationCreate, auth=Depends(get_current_us
 
 
 class Membership(BaseModel):
+    """The caller's organization and access role."""
+
     organization_id: UUID
     name: str
     access_role: str
 
 
 class MeOut(BaseModel):
+    """The signed-in user's identity and organization."""
+
     id: UUID
     email: Optional[str]
     full_name: Optional[str]
@@ -58,6 +73,10 @@ class MeOut(BaseModel):
 
 @router.get("/api/me", response_model=MeOut)
 def get_me(auth=Depends(get_current_user)):
+    """Return the signed-in user's profile and organization.
+
+    The organization is null when the account has not created or joined one yet.
+    """
     # Identity plus the account's organization (one per account). null means
     # it has none yet, so the frontend shows "Create your organization".
     client = auth["client"]
@@ -90,24 +109,37 @@ def get_me(auth=Depends(get_current_user)):
 
 
 class JoinRequest(RequestModel):
+    """Request body for joining an organization with a join code."""
+
     code: str = Field(..., max_length=50)
 
 
 class JoinedOrganization(BaseModel):
+    """The id of the organization just joined."""
+
     organization_id: UUID
 
 
 class JoinCode(BaseModel):
+    """An organization's join code, shown in groups of four."""
+
     join_code: str
 
 
 def format_join_code(code):
+    """Format a 12-character join code as three groups of four."""
     # Stored as 12 characters; shown in groups of four.
     return "-".join(code[i : i + 4] for i in range(0, len(code), 4))
 
 
 @router.post("/api/organizations/join", response_model=JoinedOrganization)
 def join_organization(payload: JoinRequest, auth=Depends(get_current_user)):
+    """Join an organization as a member using its join code.
+
+    Raises:
+        ApiError: 404 for an unknown code, 403 if the membership was deactivated,
+            409 if the account already belongs to another organization.
+    """
     # The member sign-up: joins the organization with this code as a member,
     # with no department or team. Joining again while active is a no-op.
     client = auth["client"]
@@ -137,6 +169,17 @@ def join_organization(payload: JoinRequest, auth=Depends(get_current_user)):
 
 
 def admin_join_code(client, org_id: UUID, function: str):
+    """Run a join-code database function and format its result.
+
+    Args:
+        client: The caller's Supabase client.
+        org_id: The organization.
+        function: The database function to call (read or regenerate the code).
+
+    Raises:
+        ApiError: 403 if the caller is a member but not an admin, 404 if the
+            organization does not exist or is hidden.
+    """
     # Members can see the organization but not its code (403); anyone else
     # gets 404, so the route doesn't reveal which organizations exist.
     org = str(org_id)
@@ -150,10 +193,12 @@ def admin_join_code(client, org_id: UUID, function: str):
 
 @router.get("/api/organizations/{org_id}/join-code", response_model=JoinCode)
 def get_join_code(org_id: UUID, auth=Depends(get_current_user)):
+    """Return the organization's join code (org admins only)."""
     return admin_join_code(auth["client"], org_id, "org_join_code")
 
 
 @router.post("/api/organizations/{org_id}/join-code", response_model=JoinCode)
 def regenerate_join_code(org_id: UUID, auth=Depends(get_current_user)):
+    """Replace the organization's join code; the old code stops working (org admins only)."""
     # The old code stops working immediately.
     return admin_join_code(auth["client"], org_id, "regenerate_join_code")

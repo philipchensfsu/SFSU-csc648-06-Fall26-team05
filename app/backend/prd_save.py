@@ -101,6 +101,7 @@ class SaveError(ApiError):
     def __init__(
         self, status_code: int, detail: str, code: str, errors: list[dict] | None = None
     ):
+        """Create the error; any document validation errors are added to the response body."""
         super().__init__(status_code, detail, code)
         self.errors = errors or []
         if self.errors:

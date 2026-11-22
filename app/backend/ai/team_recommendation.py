@@ -242,6 +242,7 @@ def candidate_teams(user_client, prd_id: str) -> list[dict]:
 
 
 def build_prompt(prd: dict, teams: list[dict], context: SavedContext) -> str:
+    """Build the JSON prompt for team suggestions from the PRD and the organization's teams."""
     text = prd.get("content_text") or ""
     data = {
         "prd": {
@@ -271,6 +272,7 @@ def build_prompt(prd: dict, teams: list[dict], context: SavedContext) -> str:
 
 
 def response_schema(team_ids: list[str]) -> dict:
+    """Return the JSON schema the model's team suggestions must follow."""
     return {
         "type": "object",
         "properties": {

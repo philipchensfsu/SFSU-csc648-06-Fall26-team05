@@ -109,6 +109,7 @@ def response_schema() -> dict:
 
 
 def without_array_counts(node):
+    """Return a copy of a JSON schema without minItems and maxItems, which Gemini can reject."""
     if isinstance(node, dict):
         return {
             k: without_array_counts(v)
@@ -289,6 +290,7 @@ def propose_alternatives(
 def build_prompt(
     prd: dict, document: dict, feedback: list[dict], instruction: str | None
 ) -> str:
+    """Build the JSON prompt for alternative revisions from the document and chosen review feedback."""
     data = {
         "title": prd["title"],
         "description": prd["description"],

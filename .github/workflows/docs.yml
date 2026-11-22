@@ -1,0 +1,60 @@
+# Backend API documentation: pdoc turns the backend's Google-style docstrings
+# into an HTML site. Every PR builds it (download it from the run's Artifacts);
+# every push to develop also publishes it to GitHub Pages.
+name: Docs
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths: ["app/backend/**", ".github/workflows/docs.yml"]
+  push:
+    branches: [develop]
+    paths: ["app/backend/**", ".github/workflows/docs.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build backend docs
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - name: Generate HTML with pdoc
+        # pdoc imports each module, and supabase_client.py reads these at import
+        # time. Placeholders only: nothing connects to Supabase while building.
+        env:
+          PYTHONPATH: .
+          SUPABASE_URL: http://127.0.0.1:54321
+          SUPABASE_SERVICE_ROLE_KEY: docs-build-placeholder
+          SUPABASE_ANON_KEY: docs-build-placeholder
+          SUPABASE_JWT_SECRET: docs-build-placeholder
+        run: pdoc --docformat google --output-directory ../../site $(ls *.py | sed 's/\.py$//') ai routes
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    name: Publish docs to GitHub Pages
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,3 +1,5 @@
+"""Organization directory route: the org chart data the People page draws."""
+
 from typing import Optional
 from uuid import UUID
 
@@ -10,11 +12,15 @@ router = APIRouter()
 
 
 class DirectoryOrganization(BaseModel):
+    """The organization's id and name."""
+
     id: UUID
     name: str
 
 
 class DirectoryDepartment(BaseModel):
+    """A department in the organization directory."""
+
     id: UUID
     name: str
     head_id: Optional[UUID]
@@ -22,6 +28,8 @@ class DirectoryDepartment(BaseModel):
 
 
 class DirectoryTeam(BaseModel):
+    """A team in the organization directory."""
+
     id: UUID
     name: str
     # Teams may have no department (orgs choose their own structure).
@@ -31,6 +39,8 @@ class DirectoryTeam(BaseModel):
 
 
 class DirectoryMember(BaseModel):
+    """A member in the organization directory; email is shown to org admins only."""
+
     user_id: UUID
     name: Optional[str]
     # Only org admins see emails; everyone else gets null.
@@ -43,6 +53,8 @@ class DirectoryMember(BaseModel):
 
 
 class DirectoryOut(BaseModel):
+    """The whole organization directory in one response."""
+
     organization: DirectoryOrganization
     departments: list[DirectoryDepartment]
     teams: list[DirectoryTeam]
@@ -50,12 +62,20 @@ class DirectoryOut(BaseModel):
 
 
 def with_archived_flag(row):
+    """Replace a row's archived_at timestamp with an archived boolean."""
     archived_at = row.pop("archived_at")
     return {**row, "archived": archived_at is not None}
 
 
 @router.get("/api/organizations/{org_id}/directory", response_model=DirectoryOut)
 def get_directory(org_id: UUID, auth=Depends(get_current_user)):
+    """Return an organization's departments, teams and members.
+
+    Row Level Security limits the data to organizations the caller belongs to.
+
+    Raises:
+        HTTPException: 404 if the organization does not exist or is hidden.
+    """
     # Everything the frontend needs to draw the org chart in one response.
     # RLS limits every query to organizations the caller is an active member of.
     client = auth["client"]

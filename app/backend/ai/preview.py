@@ -136,6 +136,11 @@ def generate_preview(
 
 
 def load_state(user_client, prd_id: str) -> PreviewState:
+    """Load the PRD, its intake answers and saved context for generating a preview.
+
+    Raises:
+        ApiError: 404 if the PRD does not exist or the caller cannot see it.
+    """
     prd = user_client.table("prd").select("*").eq("id", prd_id).execute().data
     if not prd:
         raise ApiError(404, "PRD not found")
@@ -178,6 +183,7 @@ def can_edit(user_client, prd_id: str) -> bool:
 
 
 def require_edit(user_client, prd_id: str) -> None:
+    """Check the caller may edit the PRD before generating a draft."""
     edit_access.require_edit_request(user_client, prd_id, CANNOT_EDIT)
 
 

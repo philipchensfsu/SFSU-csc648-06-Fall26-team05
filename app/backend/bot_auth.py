@@ -47,6 +47,11 @@ def check_bot_secret(x_bot_secret: Optional[str] = Header(default=None)) -> None
 
 
 def discord_user_id(x_discord_user_id: Optional[str] = Header(default=None)) -> str:
+    """Read and check the Discord user id the bot sends in the X-Discord-User-Id header.
+
+    Raises:
+        ApiError: 422 if the header is missing or not a Discord id.
+    """
     if not x_discord_user_id or not SNOWFLAKE.match(x_discord_user_id):
         raise ApiError(
             422,
@@ -88,6 +93,7 @@ def get_bot_user(
 
 
 def sign_token(user_id: str) -> str:
+    """Sign a short-lived Supabase access token for a linked user, so the bot acts as them."""
     now = int(time.time())
     claims = {
         "sub": str(user_id),
@@ -100,6 +106,7 @@ def sign_token(user_id: str) -> str:
 
 
 def banned(user) -> bool:
+    """Return True if the user's account is currently banned."""
     until = getattr(user, "banned_until", None)
     if not until:
         return False
@@ -109,6 +116,7 @@ def banned(user) -> bool:
 
 
 def not_linked() -> ApiError:
+    """Return the error for a Discord account that is not linked to Nautilus."""
     return ApiError(
         403,
         "This Discord account isn't linked to Nautilus. Run /link with a code from your Nautilus "

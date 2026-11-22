@@ -13,6 +13,8 @@ router = APIRouter()
 
 
 class ReplacementIn(RequestModel):
+    """Request body naming the new reviewer."""
+
     reviewer_id: UUID
 
 
@@ -57,6 +59,15 @@ ROSTER_ERRORS = {
 
 
 def change(auth, prd_id: UUID, round_id: UUID, user_id: UUID, replacement=None):
+    """Remove or replace a reviewer in an open round, then return the updated round.
+
+    Args:
+        auth: The signed-in user and their Supabase client.
+        prd_id: The PRD.
+        round_id: The open review round.
+        user_id: The reviewer to remove or replace.
+        replacement: The new reviewer's id, or None to just remove.
+    """
     client = auth["client"]
     call_function(
         client,
@@ -87,6 +98,10 @@ def change(auth, prd_id: UUID, round_id: UUID, user_id: UUID, replacement=None):
 def remove_reviewer(
     prd_id: UUID, round_id: UUID, user_id: UUID, auth=Depends(get_current_user)
 ):
+    """Remove a reviewer from an open round.
+
+    If everyone left has approved, the round is approved and the PRD becomes final.
+    """
     # If everyone left has approved, the round is approved and the PRD final.
     return change(auth, prd_id, round_id, user_id)
 
@@ -102,5 +117,6 @@ def replace_reviewer(
     payload: ReplacementIn,
     auth=Depends(get_current_user),
 ):
+    """Replace a reviewer in an open round; the new reviewer starts pending and is notified."""
     # The new reviewer starts pending and is notified.
     return change(auth, prd_id, round_id, user_id, payload.reviewer_id)

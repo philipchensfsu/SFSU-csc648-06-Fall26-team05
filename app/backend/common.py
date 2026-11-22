@@ -9,6 +9,8 @@ from errors import ApiError
 # Request bodies reject unknown fields with a 422 instead of silently
 # dropping them, so a typo or an unsupported field is caught early (S01).
 class RequestModel(BaseModel):
+    """Base model for request bodies; unknown fields are rejected."""
+
     model_config = ConfigDict(extra="forbid")
 
 

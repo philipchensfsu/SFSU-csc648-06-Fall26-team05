@@ -1,3 +1,5 @@
+"""PRD routes: create, list, read (with approval and permissions) and delete PRDs."""
+
 import re
 from datetime import datetime
 from typing import Literal, Optional
@@ -16,11 +18,15 @@ router = APIRouter()
 
 
 class PRDCreate(RequestModel):
+    """Request body for creating a PRD."""
+
     title: str = Field(..., max_length=200)
     project_id: Optional[UUID] = None
 
 
 class PRDOut(BaseModel):
+    """A PRD as returned by the API, including the caller's role on it."""
+
     id: UUID
     title: str
     description: Optional[str] = None
@@ -81,6 +87,11 @@ def with_my_role(client, user_id, rows):
 
 @router.post("/api/prds", response_model=PRDOut, status_code=201)
 def create_prd(payload: PRDCreate, auth=Depends(get_current_user)):
+    """Create a PRD in the caller's organization, optionally inside one of their projects.
+
+    Raises:
+        ApiError: 403 if the caller has no organization.
+    """
     client = auth["client"]
     # A new PRD belongs to the creator's organization (one per account).
     membership = (
@@ -136,6 +147,14 @@ def list_prds(
     ] = None,
     auth=Depends(get_current_user),
 ):
+    """List the PRDs the caller can see, most recently updated first.
+
+    Args:
+        search: Text to find in the title or content.
+        view: owned, shared, needs_my_approval or waiting_for_approval; none
+            returns everything the caller can see.
+        auth: The signed-in user and their Supabase client.
+    """
     # view=owned: PRDs the caller owns. view=shared: PRDs they were invited
     # to as an editor or viewer ("Shared with me"). view=needs_my_approval:
     # PRDs whose open round is waiting on the caller's decision.
@@ -179,6 +198,8 @@ def list_prds(
 
 
 class ApprovalSummary(BaseModel):
+    """The current review round's progress: how many reviewers approved, and each reviewer."""
+
     round_id: Optional[UUID]
     round_no: Optional[int]
     version_id: Optional[UUID]
@@ -189,6 +210,8 @@ class ApprovalSummary(BaseModel):
 
 
 class Capabilities(BaseModel):
+    """What the caller may do on this PRD now, using the same rules the routes enforce."""
+
     can_view: bool
     can_comment: bool
     can_edit: bool
@@ -207,21 +230,29 @@ class Capabilities(BaseModel):
 
 
 class VersionRef(BaseModel):
+    """A reference to a saved version."""
+
     id: UUID
     version_no: Optional[int]
 
 
 class ProjectRef(BaseModel):
+    """A reference to a project (id and name)."""
+
     id: UUID
     name: str
 
 
 class PersonRef(BaseModel):
+    """A reference to a person (id and name)."""
+
     id: UUID
     name: Optional[str]
 
 
 class PRDDetailOut(PRDOut):
+    """The PRD details page data: the PRD plus approval, permissions, current version, project and owners."""
+
     approval: ApprovalSummary
     # What the caller may do now (E03); the same rules the routes enforce.
     capabilities: Capabilities
@@ -270,6 +301,11 @@ def approval_summary(client, prd_id: UUID):
 
 @router.get("/api/prds/{prd_id}", response_model=PRDDetailOut)
 def get_prd(prd_id: UUID, auth=Depends(get_current_user)):
+    """Return one PRD with the caller's role, approval summary and permissions.
+
+    Raises:
+        HTTPException: 404 if the PRD does not exist or the caller cannot see it.
+    """
     # The PRD with the caller's role and its approval summary (E11).
     client = auth["client"]
     response = client.table("prd").select("*").eq("id", str(prd_id)).execute()
@@ -323,6 +359,11 @@ def read_model(client, prd_id) -> dict:
 
 @router.delete("/api/prds/{prd_id}", status_code=204)
 def delete_prd(prd_id: UUID, auth=Depends(get_current_user)):
+    """Delete a PRD.
+
+    Raises:
+        HTTPException: 404 if the PRD does not exist or the caller cannot delete it.
+    """
     client = auth["client"]
     response = client.table("prd").delete().eq("id", str(prd_id)).execute()
     if not response.data:

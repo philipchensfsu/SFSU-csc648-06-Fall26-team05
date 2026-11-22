@@ -1,3 +1,5 @@
+"""Review routes: submit a PRD for review, list review rounds and record reviewer decisions."""
+
 from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
@@ -14,6 +16,8 @@ router = APIRouter()
 
 
 class ReviewerOut(BaseModel):
+    """One reviewer in a round and their decision."""
+
     user_id: UUID
     name: Optional[str]
     department: Optional[str]
@@ -24,6 +28,8 @@ class ReviewerOut(BaseModel):
 
 
 class RemovedReviewerOut(BaseModel):
+    """A reviewer taken off a round, and why."""
+
     user_id: Optional[UUID]
     name: Optional[str]
     department: Optional[str]
@@ -35,6 +41,8 @@ class RemovedReviewerOut(BaseModel):
 
 
 class ReviewRoundOut(BaseModel):
+    """One review round with its reviewers."""
+
     id: UUID
     prd_id: UUID
     round_no: int
@@ -50,12 +58,16 @@ class ReviewRoundOut(BaseModel):
 
 
 class ReviewSubmitIn(RequestModel):
+    """Request body for submitting a saved version to chosen reviewers."""
+
     revision: int = Field(..., ge=1)
     version_id: UUID
     reviewer_ids: list[UUID] = Field(..., min_length=1, max_length=50)
 
 
 class ReviewResult(BaseModel):
+    """A review round plus the PRD's new revision and status."""
+
     round: ReviewRoundOut
     revision: int
     status: str
@@ -118,6 +130,7 @@ ROUND_COLUMNS = (
 
 
 def round_item(row):
+    """Convert a review_round row and its reviewer slots into the ReviewRoundOut shape."""
     reviewers = [
         {
             "user_id": s["reviewer_id"],
@@ -172,6 +185,11 @@ def round_item(row):
 def list_review_rounds(
     prd_id: UUID, params: PageParams = Depends(), auth=Depends(get_current_user)
 ):
+    """List a PRD's review rounds, newest first, including superseded ones.
+
+    Raises:
+        ApiError: 404 if the PRD does not exist or the caller cannot see it.
+    """
     # Every round, newest first, superseded ones included.
     client = auth["client"]
     if not client.table("prd").select("id").eq("id", str(prd_id)).execute().data:
@@ -188,6 +206,10 @@ def list_review_rounds(
 def submit_review(
     prd_id: UUID, payload: ReviewSubmitIn, auth=Depends(get_current_user)
 ):
+    """Submit the current version for review; the PRD moves to in_review.
+
+    Owners and org admins only.
+    """
     # Owners and org admins submit the current version to the reviewers they
     # choose; the PRD moves to in_review.
     client = auth["client"]
@@ -214,6 +236,8 @@ def submit_review(
 
 
 class ReviewDecisionIn(RequestModel):
+    """Request body for a reviewer's decision; requesting changes needs an explanation."""
+
     version_id: UUID
     decision: Literal["approved", "changes_requested"]
     explanation: Optional[str] = Field(default=None, max_length=5000)
@@ -272,6 +296,12 @@ def decide_review(
     payload: ReviewDecisionIn,
     auth=Depends(get_current_user),
 ):
+    """Record a reviewer's approval or request for changes.
+
+    Returns:
+        The round and the PRD's status, which becomes final once every
+        reviewer has approved.
+    """
     # A reviewer approves or requests changes on the round's version. Returns
     # the round and the PRD's status (final once every reviewer approved).
     client = auth["client"]

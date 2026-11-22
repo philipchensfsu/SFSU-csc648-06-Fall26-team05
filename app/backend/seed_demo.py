@@ -74,6 +74,7 @@ MEMBERS = [
 
 
 def member_email(member):
+    """Return a demo member's email address, built from the demo account's address and their tag."""
     local, domain = DEMO_EMAIL.split("@", 1)
     return f"{local}+{member['tag']}@{domain}"
 
@@ -158,6 +159,11 @@ def check_documents():
 
 
 def require_local_target(allow_hosted):
+    """Refuse to seed anything but a local Supabase stack unless allow_hosted is set.
+
+    Raises:
+        SystemExit: If SUPABASE_URL is not local and hosted seeding was not allowed.
+    """
     host = urlparse(os.environ.get("SUPABASE_URL", "")).hostname
     if host not in LOCAL_HOSTS and not allow_hosted:
         raise SystemExit(
@@ -167,6 +173,7 @@ def require_local_target(allow_hosted):
 
 
 def find_user(supabase, email):
+    """Return the auth user with this email, or None."""
     for user in supabase.auth.admin.list_users(per_page=1000):
         if user.email == email:
             return user
@@ -174,6 +181,7 @@ def find_user(supabase, email):
 
 
 def find_demo_user(supabase):
+    """Return the demo account's auth user, or None."""
     return find_user(supabase, DEMO_EMAIL)
 
 
@@ -210,6 +218,7 @@ def ensure_account(supabase, email, name):
 
 
 def ensure_demo_user(supabase):
+    """Create the demo account if needed and return it with a note on what happened."""
     return ensure_account(supabase, DEMO_EMAIL, DEMO_NAME)
 
 
@@ -283,6 +292,14 @@ def ensure_members(supabase, org_id):
 
 
 def seed(supabase, allow_hosted=False):
+    """Reset and refill the demo account's organization, projects and PRDs.
+
+    Only the demo account's own rows are deleted and recreated.
+
+    Args:
+        supabase: The service-role Supabase client.
+        allow_hosted: Allow seeding a non-local Supabase project.
+    """
     import prd_save
 
     require_local_target(allow_hosted)
@@ -373,6 +390,7 @@ def seed(supabase, allow_hosted=False):
 
 
 def main(argv=None):
+    """Run the demo seed from the command line."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
         "--allow-hosted",

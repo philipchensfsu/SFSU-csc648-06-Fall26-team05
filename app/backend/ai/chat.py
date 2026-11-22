@@ -82,6 +82,8 @@ STALE_REVISION = (
 
 @dataclass(frozen=True)
 class ChatModules:
+    """The guardrails and prompt modules the chat features need."""
+
     guardrails: object
     prompts: object
 
@@ -127,6 +129,27 @@ def answer_chat(
     modules: ChatModules | None = None,
     call_model: Callable[..., GeminiResult] | None = None,
 ) -> dict:
+    """Answer a question about a PRD with the AI chatbot, without changing the PRD.
+
+    Checks the message against the guardrails, calls the model within the
+    request budget and records the outcome.
+
+    Args:
+        user_client: The caller's Supabase client.
+        service_client: The service-role client for audit records.
+        actor_id: The caller's user id.
+        prd_id: The PRD the question is about.
+        revision: The PRD revision the caller sees.
+        message: The new question.
+        history: Recent messages from the browser, treated as data.
+        budget: The request's time budget.
+        modules: The guardrails and prompts; loaded if not given.
+        call_model: The model call, replaceable in tests.
+
+    Raises:
+        ApiError: 503 if chat is unavailable, 422 for an empty message, 409 if
+            the revision is stale.
+    """
     modules = modules or load_modules()
     if modules is None:
         raise ApiError(*CHAT_UNAVAILABLE)

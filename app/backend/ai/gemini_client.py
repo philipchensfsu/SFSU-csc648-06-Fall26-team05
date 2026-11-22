@@ -72,12 +72,15 @@ class AIError(HTTPException):
     """
 
     def __init__(self, status_code: int, code: str):
+        """Create the error with the user-facing message for its code."""
         super().__init__(status_code=status_code, detail=MESSAGES[code])
         self.code = code
 
 
 @dataclass(frozen=True)
 class GeminiResult:
+    """A parsed Gemini reply with the model name and token counts."""
+
     data: object  # the parsed JSON reply: usually a dict
     model: str  # for generation_record.model
     prompt_tokens: int | None
@@ -85,11 +88,13 @@ class GeminiResult:
 
 
 def ai_enabled() -> bool:
+    """Return False when AI_ENABLED turns the AI features off."""
     value = os.environ.get("AI_ENABLED", "true").strip().lower()
     return value not in {"false", "0", "off", "no"}
 
 
 def model_name() -> str:
+    """Return the Gemini model to use (GEMINI_MODEL, or the default)."""
     return os.environ.get("GEMINI_MODEL", "").strip() or DEFAULT_MODEL
 
 

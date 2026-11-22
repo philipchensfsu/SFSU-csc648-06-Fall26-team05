@@ -1,3 +1,5 @@
+"""PRD save route (PUT /api/prds/{id}): the legacy update and the S03 save behind PRD_SAVE_V2."""
+
 import os
 from typing import Optional
 from uuid import UUID
@@ -16,6 +18,12 @@ router = APIRouter()
 
 
 class PRDUpdate(RequestModel):
+    """Request body for saving a PRD.
+
+    revision is the caller's last-known revision; a save based on an older
+    revision is rejected with 409. Some fields only work with the S03 save.
+    """
+
     # The client's last-known revision; the update is rejected with 409 if
     # the row has moved on since (see Section 1.4 of the M2 report).
     revision: int
@@ -52,6 +60,7 @@ SAVE_CORE_ONLY_FIELDS = (
 
 
 def prd_save_v2_enabled() -> bool:
+    """Return True when the PRD_SAVE_V2 environment switch turns on the S03 save."""
     return os.environ.get("PRD_SAVE_V2", "").strip().lower() in {
         "true",
         "1",
@@ -66,6 +75,15 @@ def prd_save_v2_enabled() -> bool:
 # Data API call could bump it and fail other editors' saves (Om, #102 review).
 @router.put("/api/prds/{prd_id}", response_model=PRDOut)
 def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user)):
+    """Save changes to a PRD.
+
+    Uses the S03 save when PRD_SAVE_V2 is on, otherwise the legacy update.
+    Status can only change through review, never through this route.
+
+    Raises:
+        ApiError: 422 if status or an S03-only field is sent, 409 if the
+            revision is stale.
+    """
     sent = payload.model_fields_set
     if prd_save_v2_enabled():
         return save_prd_v2(prd_id, payload, sent, auth)

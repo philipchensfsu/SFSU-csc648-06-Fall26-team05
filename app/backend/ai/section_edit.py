@@ -148,6 +148,12 @@ def propose_section_edit(
     modules: chat.ChatModules | None = None,
     call_model: Callable[..., GeminiResult] | None = None,
 ) -> dict:
+    """Propose an AI edit to one section; nothing is saved until the editor accepts it.
+
+    Raises:
+        ApiError: 503 if chat is unavailable, 422 for an unknown section or empty
+            instruction, 403 if the caller cannot edit, 409 if the revision is stale.
+    """
     modules = modules or chat.load_modules()
     if modules is None:
         raise ApiError(*chat.CHAT_UNAVAILABLE)
@@ -268,6 +274,7 @@ def build_prompt(
     instruction: str,
     session_messages: list[dict],
 ) -> str:
+    """Build the JSON prompt for a section edit from the PRD, the current section and the chat."""
     data = {
         "title": prd["title"],
         "description": prd["description"],

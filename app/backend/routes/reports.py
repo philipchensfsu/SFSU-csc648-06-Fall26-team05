@@ -14,33 +14,45 @@ router = APIRouter()
 
 
 class Person(BaseModel):
+    """A person in a progress report."""
+
     id: UUID
     name: Optional[str]
 
 
 class Team(BaseModel):
+    """A team in a progress report."""
+
     id: UUID
     name: Optional[str]
 
 
 class OwnerCount(BaseModel):
+    """How many PRDs one owner has, by status."""
+
     owner: Person
     total: int
     by_status: dict[str, int]
 
 
 class TeamCount(BaseModel):
+    """How many PRDs one owning team has, by status."""
+
     team: Optional[Team]  # null: PRDs with no owning team
     total: int
     by_status: dict[str, int]
 
 
 class ActivityOut(EventOut):
+    """A recent activity event with the PRD it belongs to."""
+
     prd_id: UUID
     prd_title: str
 
 
 class ProgressReport(BaseModel):
+    """Progress report counts by status, work status, priority, owner and team, plus recent activity."""
+
     total: int
     by_status: dict[str, int]
     # progress_report() maps a null priority to "none" but not work_status: work_status is
@@ -54,6 +66,11 @@ class ProgressReport(BaseModel):
 
 
 def directory_names(client, user_id, report) -> dict:
+    """Look up names of people in the caller's organization when the report needs them.
+
+    Returns:
+        A map of user id to full name; empty when no name is needed.
+    """
     # Everyone in the caller's organization, including people who have left.
     # Fetched only when an owner row or an activity payload needs a name.
     if not report["by_owner"] and not any(
@@ -87,6 +104,15 @@ def progress_report(
     activity_limit: int = Query(20, ge=1, le=50),
     auth=Depends(get_current_user),
 ):
+    """Return the progress report over the PRDs the caller can see (feature 10).
+
+    Args:
+        team_id: Only PRDs owned by this team.
+        project_id: Only PRDs in this project.
+        owner_id: Only PRDs owned by this person.
+        activity_limit: How many recent events to include.
+        auth: The signed-in user and their Supabase client.
+    """
     # Counts and recent activity over the PRDs the caller can see (all of the
     # org's for an admin), optionally narrowed by owning team, project or owner.
     client = auth["client"]

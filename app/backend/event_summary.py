@@ -45,6 +45,7 @@ PEOPLE_LIST_KEYS = ("user_ids",)
 
 
 def people_in(payload: dict) -> set[str]:
+    """Return the ids of everyone an event's payload mentions."""
     people = {payload[key] for key in PERSON_KEYS if payload.get(key)}
     for key in PEOPLE_LIST_KEYS:
         people.update(payload.get(key) or [])
@@ -52,6 +53,12 @@ def people_in(payload: dict) -> set[str]:
 
 
 def summarize(event: dict, names: dict) -> str:
+    """Write a one-line, readable summary of a PRD event, such as who did what.
+
+    Args:
+        event: The prd_event row.
+        names: A map of user id to current name for people in the payload.
+    """
     event_type, payload = event["event_type"], event.get("payload") or {}
     # The name stored when it happened. A deleted account keeps its stored
     # name; with neither id nor name it was a system action.
