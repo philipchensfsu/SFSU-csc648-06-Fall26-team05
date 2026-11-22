@@ -1,7 +1,7 @@
 
 import { useId, useState } from "react";
 import { api } from "../../../lib/api";
-import { memberChanges, memberErrorMessage, personName } from "./people";
+import { memberChanges, memberErrorMessage, personName, teamChanges } from "./people";
 import { Modal } from "./ui";
 
 // Mounted only while the dialog is open, so each opening starts from the
@@ -10,6 +10,7 @@ function EditMemberForm({
   member,
   organizationId,
   departments,
+  teams,
   members,
   userId,
   recheckOrganization,
@@ -24,6 +25,7 @@ function EditMemberForm({
     managerId: member.manager_id ?? "",
     title: member.title ?? "",
   });
+  const [teamIds, setTeamIds] = useState(member.team_ids ?? []);
   const [error, setError] = useState("");
   const [confirming, setConfirming] = useState(false);
   const ids = useId();
@@ -33,6 +35,15 @@ function EditMemberForm({
       ...current,
       [field]: event.target.value,
     }));
+    setConfirming(false);
+  };
+
+  // Archived teams hold nobody, so only active ones can be ticked.
+  const activeTeams = teams.filter((team) => !team.archived);
+  const toggleTeam = (teamId) => (event) => {
+    setTeamIds((current) =>
+      event.target.checked ? [...current, teamId] : current.filter((id) => id !== teamId),
+    );
     setConfirming(false);
   };
 
@@ -47,16 +58,26 @@ function EditMemberForm({
 
   async function saveChanges() {
     const changes = memberChanges(member, form);
+    const { add, remove } = teamChanges(member.team_ids ?? [], teamIds);
 
     setBusy(true);
     setError("");
 
     try {
-      await api.updateMember(
-        organizationId,
-        member.user_id,
-        changes,
-      );
+      // Teams first: they need admin rights, which a self-demotion removes.
+      for (const teamId of add) {
+        await api.addTeamMember(organizationId, teamId, member.user_id);
+      }
+      for (const teamId of remove) {
+        await api.removeTeamMember(organizationId, teamId, member.user_id);
+      }
+      if (Object.keys(changes).length) {
+        await api.updateMember(
+          organizationId,
+          member.user_id,
+          changes,
+        );
+      }
 
       // Refresh permissions immediately after changing your own role.
       if (isSelfDemotion) {
@@ -68,6 +89,8 @@ function EditMemberForm({
     } catch (cause) {
       setError(memberErrorMessage(cause));
       setConfirming(false);
+      // Some team changes may have gone through; show where things stand.
+      if (add.length || remove.length) await onSaved();
     } finally {
       setBusy(false);
     }
@@ -79,8 +102,9 @@ function EditMemberForm({
     if (busy) return;
 
     const changes = memberChanges(member, form);
+    const { add, remove } = teamChanges(member.team_ids ?? [], teamIds);
 
-    if (!Object.keys(changes).length) {
+    if (!Object.keys(changes).length && !add.length && !remove.length) {
       onClose();
       return;
     }
@@ -122,6 +146,7 @@ function EditMemberForm({
           className="nw-select nw-people-pick"
           value={form.departmentId}
           disabled={busy}
+          aria-describedby={`${ids}-department-hint`}
           onChange={set("departmentId")}
         >
           <option value="">No department</option>
@@ -133,7 +158,28 @@ function EditMemberForm({
               </option>
             ))}
         </select>
+        <p id={`${ids}-department-hint`} className="nw-hint">
+          To add one, use New department in the Departments section below.
+        </p>
       </div>
+
+      <fieldset className="nw-field nw-people-teams" disabled={busy}>
+        <legend className="nw-label">Teams</legend>
+        {activeTeams.length ? (
+          activeTeams.map((team) => (
+            <label key={team.id} className="nw-people-team">
+              <input
+                type="checkbox"
+                checked={teamIds.includes(team.id)}
+                onChange={toggleTeam(team.id)}
+              />
+              {team.name}
+            </label>
+          ))
+        ) : (
+          <p className="nw-hint">No teams yet. Add them in the Teams section below.</p>
+        )}
+      </fieldset>
 
       <div className="nw-field">
         <label htmlFor={`${ids}-manager`} className="nw-label">
@@ -227,11 +273,12 @@ function EditMemberForm({
   );
 }
 
-// Changes someone's org role, department, manager and title.
+// Changes someone's org role, department, teams, manager and title.
 function EditMemberDialog({
   member,
   organizationId,
   departments,
+  teams = [],
   members,
   userId,
   recheckOrganization,
@@ -251,6 +298,7 @@ function EditMemberDialog({
         member={member}
         organizationId={organizationId}
         departments={departments}
+        teams={teams}
         members={members}
         userId={userId}
         recheckOrganization={recheckOrganization}

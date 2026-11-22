@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { api } from "../../../lib/api";
 import "./people.css";
 import DeactivateDialog from "./DeactivateDialog";
+import DepartmentsSection from "./DepartmentsSection";
+import TeamsSection from "./TeamsSection";
 import EditMemberDialog from "./EditMemberDialog";
 import InviteCard from "./InviteCard";
 import { initialsOf } from "./format";
@@ -29,8 +31,9 @@ function Placement({ member, departments, teams }) {
   );
 }
 
-// People (admins only): the join code, and everyone in the organization with
-// their org role, department, manager and title. The directory lists active
+// People (admins only): the join code, everyone in the organization with
+// their org role, department, teams, manager and title, and the departments
+// and teams themselves. The directory lists active
 // members only and no route lists deactivated ones, so someone deactivated
 // here stays visible until the page is left, and can't be reactivated yet.
 function PeoplePage({ organization, userId, recheckOrganization }) {
@@ -225,11 +228,32 @@ function PeoplePage({ organization, userId, recheckOrganization }) {
         )}
       </section>
 
+      {members ? (
+        <DepartmentsSection
+          organizationId={orgId}
+          departments={departments}
+          members={members}
+          teams={teams}
+          onChanged={reload}
+        />
+      ) : null}
+
+      {members ? (
+        <TeamsSection
+          organizationId={orgId}
+          departments={departments}
+          members={members}
+          teams={teams}
+          onChanged={reload}
+        />
+      ) : null}
+
       {editing ? (
         <EditMemberDialog
           member={editing}
           organizationId={orgId}
           departments={departments}
+          teams={teams}
           members={members}
           userId={userId}
           recheckOrganization={recheckOrganization}
