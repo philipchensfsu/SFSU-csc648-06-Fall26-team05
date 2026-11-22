@@ -160,7 +160,14 @@ describe("profile helpers", () => {
     expect(signsInWithPassword({ app_metadata: { provider: "google", providers: ["google", "email"] } })).toBe(true);
     expect(signsInWithPassword({ app_metadata: { provider: "google", providers: ["google"] } })).toBe(false);
     expect(signsInWithPassword({ app_metadata: { provider: "email" } })).toBe(true);
-    expect(signsInWithPassword(undefined)).toBe(false);
+    expect(signsInWithPassword({ app_metadata: { provider: "google" } })).toBe(false);
+  });
+
+  it("assumes a password when the session doesn't say how you sign in", () => {
+    expect(signsInWithPassword({ app_metadata: {} })).toBe(true);
+    expect(signsInWithPassword({ app_metadata: { providers: [] } })).toBe(true);
+    expect(signsInWithPassword({})).toBe(true);
+    expect(signsInWithPassword(undefined)).toBe(true);
   });
 
   it("finds the first problem with a new password", () => {
