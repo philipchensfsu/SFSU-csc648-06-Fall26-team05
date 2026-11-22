@@ -60,24 +60,43 @@ def get_directory(org_id: UUID, auth=Depends(get_current_user)):
     # RLS limits every query to organizations the caller is an active member of.
     client = auth["client"]
     org = str(org_id)
-    organization = client.table("organization").select("id, name").eq("id", org).execute()
+    organization = (
+        client.table("organization").select("id, name").eq("id", org).execute()
+    )
     if not organization.data:
         raise HTTPException(status_code=404, detail="Organization not found")
 
     departments = (
-        client.table("department").select("id, name, head_id, archived_at")
-        .eq("organization_id", org).order("name").execute().data
+        client.table("department")
+        .select("id, name, head_id, archived_at")
+        .eq("organization_id", org)
+        .order("name")
+        .execute()
+        .data
     )
     teams = (
-        client.table("team").select("id, name, department_id, lead_id, archived_at")
-        .eq("organization_id", org).order("name").execute().data
+        client.table("team")
+        .select("id, name, department_id, lead_id, archived_at")
+        .eq("organization_id", org)
+        .order("name")
+        .execute()
+        .data
     )
     members = (
         client.table("organization_member")
         .select("user_id, department_id, access_role, manager_id, title")
-        .eq("organization_id", org).eq("active", True).execute().data
+        .eq("organization_id", org)
+        .eq("active", True)
+        .execute()
+        .data
     )
-    links = client.table("team_member").select("team_id, user_id").eq("organization_id", org).execute().data
+    links = (
+        client.table("team_member")
+        .select("team_id, user_id")
+        .eq("organization_id", org)
+        .execute()
+        .data
+    )
     people = {
         p["user_id"]: p
         for p in client.rpc("org_directory_people", {"target_org": org}).execute().data

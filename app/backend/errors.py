@@ -38,7 +38,9 @@ class ApiError(HTTPException):
         self.code = code or DEFAULT_CODES.get(status_code, "error")
 
 
-def error_response(status_code: int, detail: str, code: str | None = None, headers=None, **extra):
+def error_response(
+    status_code: int, detail: str, code: str | None = None, headers=None, **extra
+):
     code = code or DEFAULT_CODES.get(status_code, "error")
     content = {"detail": detail, "code": code, **extra}
     return JSONResponse(status_code=status_code, content=content, headers=headers)
@@ -49,7 +51,9 @@ async def http_error_handler(request, exc: StarletteHTTPException):
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
     # Extra body fields a route error defines, such as retry_after on AI 429s.
     extra = getattr(exc, "extra", None) or {}
-    return error_response(exc.status_code, detail, getattr(exc, "code", None), exc.headers, **extra)
+    return error_response(
+        exc.status_code, detail, getattr(exc, "code", None), exc.headers, **extra
+    )
 
 
 async def validation_error_handler(request, exc: RequestValidationError):
@@ -78,9 +82,19 @@ async def postgrest_error_handler(request, exc: APIError):
     # Postgres messages name tables and constraints and can echo the
     # submitted value, so clients get a fixed message instead.
     if pg_code.startswith(("22", "23")):
-        logger.info("Rejected value on %s %s: postgres %s", request.method, request.url.path, pg_code)
+        logger.info(
+            "Rejected value on %s %s: postgres %s",
+            request.method,
+            request.url.path,
+            pg_code,
+        )
         return error_response(400, "Invalid value")
-    logger.error("Database error on %s %s: postgres %s", request.method, request.url.path, pg_code or "unknown")
+    logger.error(
+        "Database error on %s %s: postgres %s",
+        request.method,
+        request.url.path,
+        pg_code or "unknown",
+    )
     return error_response(500, "Database error", code="database_error")
 
 
@@ -88,9 +102,18 @@ async def unexpected_error_handler(request, exc: Exception):
     # A transport failure reaching Supabase is an outage (503); anything
     # else is a bug (500), so real bugs aren't reported as outages.
     if isinstance(exc, httpx.TransportError):
-        logger.error("Upstream unavailable on %s %s: %s", request.method, request.url.path, type(exc).__name__)
-        return error_response(503, "Service temporarily unavailable. Try again shortly.")
-    logger.error("Unexpected %s on %s %s", type(exc).__name__, request.method, request.url.path)
+        logger.error(
+            "Upstream unavailable on %s %s: %s",
+            request.method,
+            request.url.path,
+            type(exc).__name__,
+        )
+        return error_response(
+            503, "Service temporarily unavailable. Try again shortly."
+        )
+    logger.error(
+        "Unexpected %s on %s %s", type(exc).__name__, request.method, request.url.path
+    )
     return error_response(500, "Something went wrong")
 
 

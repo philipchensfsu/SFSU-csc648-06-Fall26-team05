@@ -11,7 +11,9 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 
-SPEC_PATH = Path(__file__).resolve().parent.parent / "shared" / "prd_document_schema.v2.json"
+SPEC_PATH = (
+    Path(__file__).resolve().parent.parent / "shared" / "prd_document_schema.v2.json"
+)
 
 
 @dataclass(frozen=True)
@@ -55,7 +57,11 @@ def section_title(section_type: str) -> str:
 
 
 def section_type_of(node):
-    if isinstance(node, dict) and node.get("type") == "section" and isinstance(node.get("attrs"), dict):
+    if (
+        isinstance(node, dict)
+        and node.get("type") == "section"
+        and isinstance(node.get("attrs"), dict)
+    ):
         section_type = node["attrs"].get("type")
         return section_type if isinstance(section_type, str) else None
     return None

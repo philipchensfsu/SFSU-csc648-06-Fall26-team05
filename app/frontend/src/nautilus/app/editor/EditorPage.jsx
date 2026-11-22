@@ -292,6 +292,11 @@ function EditorPage({
   // The side panel on the right: "ai" (Ask Nautilus), "comments", "review",
   // or null when it's closed. Its width (a share of the page) is dragged.
   const [panel, setPanel] = useState(initialRailTab);
+  // Once opened, the panel stays mounted and is only hidden when closed, so a
+  // comment being typed survives closing it (Comments is one click away from
+  // closing). Until then nothing in it loads.
+  const [panelSeen, setPanelSeen] = useState(Boolean(initialRailTab));
+  if (panel && !panelSeen) setPanelSeen(true);
   const [panelPct, setPanelPct] = useState(readPanelPct);
   const bodyRef = useRef(null);
   const rootRef = useRef(null);
@@ -633,6 +638,7 @@ function EditorPage({
     detail?.capabilities?.can_assign === true && onReplaceReviewer && onRemoveReviewer
       ? {
           organizationId,
+          prdId: prd.id,
           owners: detail?.owners ?? [],
           onReplace: (reviewerId, newId) => changeReviewer(() => onReplaceReviewer(reviewerId, newId)),
           onRemove: (reviewerId) => changeReviewer(() => onRemoveReviewer(reviewerId)),
@@ -1415,8 +1421,13 @@ function EditorPage({
         </div>
         </div>
 
-        {panel ? (
-          <aside className="ne-panel" style={{ flexBasis: `${panelPct}%` }} aria-label={PANEL_TITLES[panel]}>
+        {panelSeen && (panel || !aiDraft) ? (
+          <aside
+            className="ne-panel"
+            hidden={!panel}
+            style={{ flexBasis: `${panelPct}%` }}
+            aria-label={PANEL_TITLES[panel] ?? "Side panel"}
+          >
             {/* The divider: drag it, or focus it and use the arrow keys.
                 Double-click puts it back. */}
             <div
@@ -1437,7 +1448,7 @@ function EditorPage({
             />
             {/* The chat brings its own header; Comments and Review cards carry
                 their own visible titles, so this one is for screen readers. */}
-            {panel === "ai" ? null : (
+            {!panel || panel === "ai" ? null : (
               <div className="ne-panel-head">
                 <h2 id={`${ids}-panel-title`} className="nw-sr">
                   {PANEL_TITLES[panel]}
@@ -1469,9 +1480,9 @@ function EditorPage({
               proposeError={proposeError}
             />
           ) : null}
-          {/* Mounted while the panel is open, so a draft comment survives a
-              look at another view. Not on an unsaved draft: comments belong
-              to a saved version. */}
+          {/* Stays mounted, also while the panel is closed, so a draft comment
+              survives a look at another view or closing the panel. Not on an
+              unsaved draft: comments belong to a saved version. */}
           {aiDraft ? null : (
             <CommentsPanel
               key={`comments-${prd.id}`}
@@ -1581,7 +1592,8 @@ function EditorPage({
           ) : null}
             </div>
           </aside>
-        ) : aiDraft ? null : (
+        ) : null}
+        {panel || aiDraft ? null : (
           // Closed: a slim rail on the right edge opens Nautilus again.
           <aside className="ne-panel-rail" aria-label="Side panel">
             <button

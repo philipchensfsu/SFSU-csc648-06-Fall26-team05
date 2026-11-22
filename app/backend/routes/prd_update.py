@@ -43,11 +43,21 @@ class PRDUpdate(RequestModel):
 # Until that cutover, PUT keeps the legacy update. Set PRD_SAVE_V2=true to
 # switch.
 LEGACY_ONLY_FIELDS = ("content_text", "status")
-SAVE_CORE_ONLY_FIELDS = ("description", "generation_record_id", "confirmed_reviewer_ids", "option")
+SAVE_CORE_ONLY_FIELDS = (
+    "description",
+    "generation_record_id",
+    "confirmed_reviewer_ids",
+    "option",
+)
 
 
 def prd_save_v2_enabled() -> bool:
-    return os.environ.get("PRD_SAVE_V2", "").strip().lower() in {"true", "1", "on", "yes"}
+    return os.environ.get("PRD_SAVE_V2", "").strip().lower() in {
+        "true",
+        "1",
+        "on",
+        "yes",
+    }
 
 
 # Once PRD_SAVE_V2 is the only save path, remove the legacy update below and
@@ -61,11 +71,16 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
         return save_prd_v2(prd_id, payload, sent, auth)
     if "status" in sent:
         # Same refusal as the S03 save: status changes only through review.
-        raise ApiError(422, "A PRD's status changes only through review. Don't send status when saving.",
-                       code="status_not_allowed")
+        raise ApiError(
+            422,
+            "A PRD's status changes only through review. Don't send status when saving.",
+            code="status_not_allowed",
+        )
     unsupported = [name for name in SAVE_CORE_ONLY_FIELDS if name in sent]
     if unsupported:
-        raise ApiError(422, f"{unsupported[0]} can't be saved yet", code="validation_error")
+        raise ApiError(
+            422, f"{unsupported[0]} can't be saved yet", code="validation_error"
+        )
     client = auth["client"]
     update_fields = payload.model_dump(exclude={"revision"}, exclude_unset=True)
     update_fields["revision"] = payload.revision + 1
@@ -81,7 +96,9 @@ def update_prd(prd_id: UUID, payload: PRDUpdate, auth=Depends(get_current_user))
         # No row matched: the PRD is missing or hidden from this user (404),
         # visible but not editable by them (403, same revision), or its
         # revision has moved on (409).
-        visible = client.table("prd").select("id, revision").eq("id", str(prd_id)).execute()
+        visible = (
+            client.table("prd").select("id, revision").eq("id", str(prd_id)).execute()
+        )
         if not visible.data:
             raise ApiError(404, "PRD not found")
         if visible.data[0]["revision"] == payload.revision:
@@ -98,11 +115,22 @@ def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict
     """The S03 save: only the fields sent change, in one transaction with a
     revision check and a version snapshot. The actor is the verified user."""
     if "status" in sent:
-        raise ApiError(422, "Status can't be changed by saving. It changes through the review workflow.",
-                       code="status_not_allowed")
+        raise ApiError(
+            422,
+            "Status can't be changed by saving. It changes through the review workflow.",
+            code="status_not_allowed",
+        )
     if "content_text" in sent:
-        raise ApiError(422, "content_text is derived by the server; don't send it", code="validation_error")
-    fields = {name: getattr(payload, name) for name in ("title", "description", "content_json") if name in sent}
+        raise ApiError(
+            422,
+            "content_text is derived by the server; don't send it",
+            code="validation_error",
+        )
+    fields = {
+        name: getattr(payload, name)
+        for name in ("title", "description", "content_json")
+        if name in sent
+    }
     if payload.generation_record_id is not None:
         # Accepting an AI proposal (A05): the same save, which checks the
         # proposal (the requester's, this PRD, this base revision), marks
@@ -113,9 +141,13 @@ def save_prd_v2(prd_id: UUID, payload: PRDUpdate, sent: set, auth: dict) -> dict
         if payload.option is not None:
             fields["option"] = payload.option
     elif payload.option is not None:
-        raise ApiError(422, "option needs generation_record_id", code="validation_error")
+        raise ApiError(
+            422, "option needs generation_record_id", code="validation_error"
+        )
     if payload.confirmed_reviewer_ids is not None:
         fields["confirmed_reviewer_ids"] = payload.confirmed_reviewer_ids
-    saved = prd_save.save_prd(supabase, auth["user"], str(prd_id), payload.revision, **fields)
+    saved = prd_save.save_prd(
+        supabase, auth["user"], str(prd_id), payload.revision, **fields
+    )
     # Like every PRD response, it carries the caller's role, read as them.
     return with_my_role(auth["client"], auth["user"].id, [saved])[0]

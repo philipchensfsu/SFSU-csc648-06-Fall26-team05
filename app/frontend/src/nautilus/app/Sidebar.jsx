@@ -12,6 +12,7 @@ import {
   IconSearch,
   IconSignOut,
   IconSliders,
+  IconUser,
   IconX,
 } from "./icons";
 
@@ -178,7 +179,10 @@ function Sidebar({
             label="Account"
             className="nw-icon-btn nw-account-btn"
             heading={account.email}
-            items={[{ label: "Sign out", icon: <IconSignOut />, onSelect: onSignOut }]}
+            items={[
+              { label: "Profile", icon: <IconUser />, onSelect: () => onNavigate({ page: "profile" }) },
+              { label: "Sign out", icon: <IconSignOut />, onSelect: onSignOut },
+            ]}
           >
             <IconSliders />
           </MenuButton>

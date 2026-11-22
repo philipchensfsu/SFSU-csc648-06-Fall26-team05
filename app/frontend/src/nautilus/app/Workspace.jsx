@@ -5,13 +5,21 @@ import "./inbox.css";
 import DashboardPage from "./DashboardPage";
 import InboxPage from "./InboxPage";
 import PeoplePage from "./PeoplePage";
+import ProfilePage from "./ProfilePage";
 import ProjectsPage from "./ProjectsPage";
 import SearchPage from "./SearchPage";
 import Sidebar from "./Sidebar";
 import { searchShortcutLabel } from "./format";
 import { Alert } from "./ui";
 
-const PAGE_TITLES = { dashboard: "Dashboard", inbox: "Inbox", projects: "Projects", search: "Search", people: "People" };
+const PAGE_TITLES = {
+  dashboard: "Dashboard",
+  inbox: "Inbox",
+  projects: "Projects",
+  search: "Search",
+  people: "People",
+  profile: "Profile",
+};
 // The backend has no live updates, so the unread count is read on every move
 // between pages and on this timer.
 const UNREAD_REFRESH_MS = 60000;
@@ -20,7 +28,7 @@ const UNREAD_REFRESH_MS = 60000;
 // It holds no data of its own; Prototype.jsx passes the real PRDs and
 // projects from the API and the handlers that change them.
 //
-// view: { page: "dashboard" | "inbox" | "projects" | "search", projectId?, query?,
+// view: { page: "dashboard" | "inbox" | "projects" | "search" | "people" | "profile", projectId?, query?,
 //         anchor?: "prds", visit } — `visit` changes on every navigation.
 function Workspace({
   view,
@@ -140,6 +148,8 @@ function Workspace({
     recheckOrganization={recheckOrganization}
   />
 );
+  } else if (page === "profile") {
+    content = <ProfilePage account={account} organization={organization} onSignOut={onSignOut} />;
   } else if (page === "inbox") {
     content = <InboxPage onUnreadChange={setUnreadCount} onOpenPrdById={onOpenPrdById} />;
   } else if (page === "projects") {

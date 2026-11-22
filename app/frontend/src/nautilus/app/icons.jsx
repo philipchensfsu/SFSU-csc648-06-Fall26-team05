@@ -208,6 +208,15 @@ export function IconSignOut(props) {
   );
 }
 
+export function IconUser(props) {
+  return (
+    <Svg size={16} strokeWidth={1.8} {...props}>
+      <circle cx="12" cy="8" r="3.5" />
+      <path d="M5 20a7 7 0 0 1 14 0" />
+    </Svg>
+  );
+}
+
 export function IconOpen(props) {
   return (
     <Svg size={16} strokeWidth={1.8} {...props}>

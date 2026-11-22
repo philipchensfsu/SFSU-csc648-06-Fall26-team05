@@ -1280,6 +1280,10 @@
   border-left: 1px solid #DCEBEE;
   background: #F5F9FA;
 }
+/* Closed but kept mounted, so a comment being typed isn't lost. */
+.ne-panel[hidden] {
+  display: none;
+}
 .ne-panel-head {
   display: flex;
   justify-content: flex-end;

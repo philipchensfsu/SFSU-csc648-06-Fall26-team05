@@ -38,12 +38,32 @@ ORIGINS = ("pm_edit", "ai_generated")
 DATABASE_ERRORS = {
     "NT404": (404, "PRD not found", "not_found"),
     "NT403": (403, "You can view this PRD but not edit it", "forbidden"),
-    "NT409": (409, "This PRD changed since you last loaded it. Refresh and try again.", "stale_revision"),
-    "NT422": (422, "The AI content in this save doesn't match a successful generation", "invalid_generation_record"),
-    "NTREV": (409, "This PRD is approved. Confirm its reviewers to save your edits; they'll be asked to approve "
-                   "again.", "reapproval_required"),
-    "NTOWN": (403, "Only the PRD's owners can edit it after approval.", "owner_required"),
-    "NTCRL": (422, "Only an approved PRD takes a confirmed reviewer list.", "confirmed_reviewers_not_allowed"),
+    "NT409": (
+        409,
+        "This PRD changed since you last loaded it. Refresh and try again.",
+        "stale_revision",
+    ),
+    "NT422": (
+        422,
+        "The AI content in this save doesn't match a successful generation",
+        "invalid_generation_record",
+    ),
+    "NTREV": (
+        409,
+        "This PRD is approved. Confirm its reviewers to save your edits; they'll be asked to approve "
+        "again.",
+        "reapproval_required",
+    ),
+    "NTOWN": (
+        403,
+        "Only the PRD's owners can edit it after approval.",
+        "owner_required",
+    ),
+    "NTCRL": (
+        422,
+        "Only an approved PRD takes a confirmed reviewer list.",
+        "confirmed_reviewers_not_allowed",
+    ),
     "NTPRP": acceptance.PROPOSAL_UNAVAILABLE,
 }
 
@@ -53,10 +73,21 @@ DATABASE_ERRORS = {
 REVIEW_ERRORS = {
     # Same codes as submitting a review (POST /reviews), so both reviewer
     # pickers handle errors the same way.
-    "no_reviewers": (422, "Choose at least one reviewer for the new approval.", "validation_error"),
-    "reviewer_not_in_organization": (422, "Every reviewer must be an active member of the PRD's organization.",
-                                     "not_in_organization"),
-    "owner_cannot_review": (422, "Owners can't review their own PRD.", "owner_cannot_review"),
+    "no_reviewers": (
+        422,
+        "Choose at least one reviewer for the new approval.",
+        "validation_error",
+    ),
+    "reviewer_not_in_organization": (
+        422,
+        "Every reviewer must be an active member of the PRD's organization.",
+        "not_in_organization",
+    ),
+    "owner_cannot_review": (
+        422,
+        "Owners can't review their own PRD.",
+        "owner_cannot_review",
+    ),
     "empty_prd": (422, "An approved PRD can't be resubmitted empty.", "empty_prd"),
     "approved_round_needs_owner": DATABASE_ERRORS["NTREV"],
 }
@@ -67,7 +98,9 @@ MAX_CONFIRMED_REVIEWERS = 50
 class SaveError(ApiError):
     """An ApiError that may also carry per-field or per-node errors."""
 
-    def __init__(self, status_code: int, detail: str, code: str, errors: list[dict] | None = None):
+    def __init__(
+        self, status_code: int, detail: str, code: str, errors: list[dict] | None = None
+    ):
         super().__init__(status_code, detail, code)
         self.errors = errors or []
         if self.errors:
@@ -75,9 +108,20 @@ class SaveError(ApiError):
             self.extra = {"errors": self.errors}
 
 
-def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title=UNSET, description=UNSET,
-             content_json=UNSET, origin: str = "pm_edit", generation_record_id=None,
-             confirmed_reviewer_ids=None, option: int | None = None) -> dict:
+def save_prd(
+    service_client,
+    verified_user,
+    prd_id,
+    base_revision: int,
+    *,
+    title=UNSET,
+    description=UNSET,
+    content_json=UNSET,
+    origin: str = "pm_edit",
+    generation_record_id=None,
+    confirmed_reviewer_ids=None,
+    option: int | None = None,
+) -> dict:
     """Saves the given fields of one PRD and returns the saved row.
 
     verified_user is auth["user"] from get_current_user: the actor comes from
@@ -94,36 +138,63 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
     unavailable in the same transaction.
     """
     actor_id = verified_actor_id(verified_user)
-    if isinstance(base_revision, bool) or not isinstance(base_revision, int) or base_revision < 1:
+    if (
+        isinstance(base_revision, bool)
+        or not isinstance(base_revision, int)
+        or base_revision < 1
+    ):
         raise SaveError(422, "Invalid base revision", "validation_error")
     if origin not in ORIGINS:
         raise SaveError(422, "Unknown save origin", "validation_error")
     if (origin == "ai_generated") != (generation_record_id is not None):
-        raise SaveError(422, "Only an AI save names a generation record, and it must", "validation_error")
-    if option is not None and (generation_record_id is None or isinstance(option, bool)
-                               or not isinstance(option, int) or not 1 <= option <= 3):
-        raise SaveError(422, "option names one of an AI call's options (1 to 3) and needs generation_record_id",
-                        "validation_error")
+        raise SaveError(
+            422,
+            "Only an AI save names a generation record, and it must",
+            "validation_error",
+        )
+    if option is not None and (
+        generation_record_id is None
+        or isinstance(option, bool)
+        or not isinstance(option, int)
+        or not 1 <= option <= 3
+    ):
+        raise SaveError(
+            422,
+            "option names one of an AI call's options (1 to 3) and needs generation_record_id",
+            "validation_error",
+        )
 
     reviewers = None
     if confirmed_reviewer_ids is not None:
         try:
             reviewers = [str(UUID(str(r))) for r in confirmed_reviewer_ids]
         except (TypeError, ValueError):
-            raise SaveError(422, "confirmed_reviewer_ids must be user ids", "validation_error") from None
+            raise SaveError(
+                422, "confirmed_reviewer_ids must be user ids", "validation_error"
+            ) from None
         if len(reviewers) > MAX_CONFIRMED_REVIEWERS:
-            raise SaveError(422, f"At most {MAX_CONFIRMED_REVIEWERS} reviewers", "validation_error")
+            raise SaveError(
+                422, f"At most {MAX_CONFIRMED_REVIEWERS} reviewers", "validation_error"
+            )
 
     if title is not UNSET:
         problems = validate_title(title)
         if problems:
-            raise SaveError(422, problems[0].message, "invalid_title", [p.to_dict() for p in problems])
+            raise SaveError(
+                422,
+                problems[0].message,
+                "invalid_title",
+                [p.to_dict() for p in problems],
+            )
 
     if description is not UNSET and description is not None:
         limit = load_spec()["limits"]["max_description_chars"]["value"]
         if not isinstance(description, str) or len(description) > limit:
-            raise SaveError(422, f"The description must be text of at most {limit} characters",
-                            "invalid_description")
+            raise SaveError(
+                422,
+                f"The description must be text of at most {limit} characters",
+                "invalid_description",
+            )
 
     content_text = None
     ai_ids = []
@@ -131,15 +202,27 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
         try:
             content_text = derive_content_text(content_json)
         except InvalidDocument as invalid:
-            raise SaveError(422, "The PRD document isn't valid", "invalid_document",
-                            [error.to_dict() for error in invalid.errors]) from None
+            raise SaveError(
+                422,
+                "The PRD document isn't valid",
+                "invalid_document",
+                [error.to_dict() for error in invalid.errors],
+            ) from None
 
     apply_context_patch = False
     if generation_record_id is not None:
-        accepted = acceptance.prepare(service_client, actor_id=actor_id, prd_id=prd_id,
-                                      base_revision=base_revision, generation_record_id=generation_record_id,
-                                      title=title, description=description, content_json=content_json,
-                                      unset=UNSET, option=option)
+        accepted = acceptance.prepare(
+            service_client,
+            actor_id=actor_id,
+            prd_id=prd_id,
+            base_revision=base_revision,
+            generation_record_id=generation_record_id,
+            title=title,
+            description=description,
+            content_json=content_json,
+            unset=UNSET,
+            option=option,
+        )
         content_json = accepted.content_json
         apply_context_patch = accepted.apply_context_patch
         if content_json is not UNSET:
@@ -161,7 +244,9 @@ def save_prd(service_client, verified_user, prd_id, base_revision: int, *, title
         "p_content_text": content_text,
         "p_ai_generation_ids": ai_ids,
         "p_origin": origin,
-        "p_generation_record_id": None if generation_record_id is None else str(generation_record_id),
+        "p_generation_record_id": None
+        if generation_record_id is None
+        else str(generation_record_id),
         "p_apply_context_patch": apply_context_patch,
         "p_confirmed_reviewers": reviewers,
         "p_option": option,
@@ -191,7 +276,14 @@ def _with_review_status(service_client, prd_id, row):
     never saw."""
     if not isinstance(row, dict) or row.get("status") in (None, "draft"):
         return row  # nothing to correct
-    fresh = (service_client.table("prd").select("revision, status").eq("id", str(prd_id)).execute().data or [None])[0]
+    fresh = (
+        service_client.table("prd")
+        .select("revision, status")
+        .eq("id", str(prd_id))
+        .execute()
+        .data
+        or [None]
+    )[0]
     if fresh and fresh["revision"] == row.get("revision"):
         return {**row, "status": fresh["status"]}
     return row
@@ -201,7 +293,9 @@ def verified_actor_id(verified_user) -> str:
     """The id of the user object get_current_user verified. A plain id or
     string is refused, so a value from the request can't be passed by
     mistake."""
-    if isinstance(verified_user, (str, bytes, UUID)) or not getattr(verified_user, "id", None):
+    if isinstance(verified_user, (str, bytes, UUID)) or not getattr(
+        verified_user, "id", None
+    ):
         raise TypeError("save_prd needs the verified auth['user'], not an id")
     return str(verified_user.id)
 

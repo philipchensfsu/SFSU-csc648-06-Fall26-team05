@@ -10,7 +10,9 @@ class NoCalls:
 
 def test_no_directory_fetch_when_no_name_is_needed():
     report = {"by_owner": [], "activity": [{"payload": {}}, {"payload": None}]}
-    assert directory_names(NoCalls(), "00000000-0000-0000-0000-00000000000a", report) == {}
+    assert (
+        directory_names(NoCalls(), "00000000-0000-0000-0000-00000000000a", report) == {}
+    )
 
 
 class Directory:
@@ -47,5 +49,10 @@ def test_the_directory_is_fetched_when_an_owner_or_a_payload_needs_a_name():
     owners_only = {"by_owner": [{"user_id": BEN}], "activity": []}
     for report in (named_in_activity, owners_only):
         client = Directory()
-        assert directory_names(client, "00000000-0000-0000-0000-00000000000a", report) == {BEN: "Ben Lee"}
-        assert client.calls == ["organization_member", ("org_directory_people", {"target_org": "org-1"})]
+        assert directory_names(
+            client, "00000000-0000-0000-0000-00000000000a", report
+        ) == {BEN: "Ben Lee"}
+        assert client.calls == [
+            "organization_member",
+            ("org_directory_people", {"target_org": "org-1"}),
+        ]

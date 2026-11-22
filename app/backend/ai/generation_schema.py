@@ -20,7 +20,9 @@ def text_node_schema() -> dict:
                 "type": "array",
                 "items": {
                     "type": "object",
-                    "properties": {"type": {"type": "string", "enum": ["bold", "italic"]}},
+                    "properties": {
+                        "type": {"type": "string", "enum": ["bold", "italic"]}
+                    },
                     "required": ["type"],
                 },
             },
@@ -95,8 +97,14 @@ def _response_schema() -> dict:
             },
             "content": {
                 "type": "array",
-                "items": {"anyOf": [paragraph_schema(), heading_schema(), list_schema("bulletList"),
-                                    list_schema("orderedList")]},
+                "items": {
+                    "anyOf": [
+                        paragraph_schema(),
+                        heading_schema(),
+                        list_schema("bulletList"),
+                        list_schema("orderedList"),
+                    ]
+                },
                 "minItems": 1,
             },
         },
@@ -106,14 +114,25 @@ def _response_schema() -> dict:
     return {
         "type": "object",
         "properties": {
-            "title": {"type": "string", "minLength": 1, "maxLength": limits["max_title_chars"]["value"]},
-            "description": {"type": "string", "maxLength": limits["max_description_chars"]["value"]},
+            "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": limits["max_title_chars"]["value"],
+            },
+            "description": {
+                "type": "string",
+                "maxLength": limits["max_description_chars"]["value"],
+            },
             "document": {
                 "type": "object",
                 "properties": {
                     "type": {"type": "string", "enum": ["doc"]},
-                    "content": {"type": "array", "items": section,
-                                "minItems": len(section_types()), "maxItems": len(section_types())},
+                    "content": {
+                        "type": "array",
+                        "items": section,
+                        "minItems": len(section_types()),
+                        "maxItems": len(section_types()),
+                    },
                 },
                 "required": ["type", "content"],
             },

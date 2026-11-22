@@ -31,14 +31,33 @@ if __name__ == "__main__":
     sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from prd_document_checker import Checker, TooManyErrors
-from prd_document_spec import (SPEC_PATH, DocumentError, InvalidDocument, limit as _limit, load_spec, section_title,
-                               section_type_of, section_types)
+from prd_document_spec import (
+    SPEC_PATH,
+    DocumentError,
+    InvalidDocument,
+    limit as _limit,
+    load_spec,
+    section_title,
+    section_type_of,
+    section_types,
+)
 from prd_document_text import block_lines, iter_marks, plain_text
 
 # Re-exported: callers import all of these from prd_document.
 __all__ = [
-    "SPEC_PATH", "DocumentError", "InvalidDocument", "derive_content_text", "iter_marks", "load_spec", "main",
-    "plain_text", "section_title", "section_type_of", "section_types", "validate_document", "validate_title",
+    "SPEC_PATH",
+    "DocumentError",
+    "InvalidDocument",
+    "derive_content_text",
+    "iter_marks",
+    "load_spec",
+    "main",
+    "plain_text",
+    "section_title",
+    "section_type_of",
+    "section_types",
+    "validate_document",
+    "validate_title",
 ]
 
 
@@ -59,8 +78,13 @@ def validate_title(title) -> list[DocumentError]:
     if not title.strip():
         return [DocumentError("title_required", "", "The title can't be blank.")]
     if len(title) > _limit("max_title_chars"):
-        return [DocumentError("title_too_long", "",
-                              f"The title is longer than {_limit('max_title_chars')} characters.")]
+        return [
+            DocumentError(
+                "title_too_long",
+                "",
+                f"The title is longer than {_limit('max_title_chars')} characters.",
+            )
+        ]
     return []
 
 
@@ -107,7 +131,9 @@ def main(argv=None) -> int:
             for error in errors:
                 print(f"  {error.code} at {error.path or '/'}: {error.message}")
         else:
-            print(f"{path}: valid\n--- content_text ---\n{derive_content_text(document)}")
+            print(
+                f"{path}: valid\n--- content_text ---\n{derive_content_text(document)}"
+            )
     return 1 if failed else 0
 
 
