@@ -1,3 +1,6 @@
 # Ruff formatter (#188): formatting only. GitHub's blame view skips this commit.
 # Locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
 f76e35616421c1e2efcdddbf2b02ef68558720a7
+
+# Ruff formatter for the Discord bot (#194): formatting only.
+5e4c300531b0ab8752b8bab37eb0aed78feb2f3c
