@@ -11,6 +11,8 @@ vi.mock("../../../lib/api", () => ({
     getDirectory: vi.fn(),
     getJoinCode: vi.fn(),
     updateMember: vi.fn(),
+    createDepartment: vi.fn(),
+    updateDepartment: vi.fn(),
   },
 }));
 
@@ -332,5 +334,129 @@ describe("people helpers", () => {
     const member = person("ben", "Ben", { department_id: "d1", title: "Lead" });
     const form = { accessRole: "member", departmentId: "", managerId: "", title: "  Lead " };
     expect(memberChanges(member, form)).toEqual({ department_id: null });
+  });
+});
+
+
+describe("departments", () => {
+  const section = () => host.querySelector('section[aria-labelledby="nw-departments-h"]');
+  const departmentRow = (name) =>
+    [...section().querySelectorAll("tbody tr")].find((row) => row.querySelector("td").textContent === name);
+  const departmentAction = async (name, action) => {
+    await click(departmentRow(name).querySelector("button[aria-haspopup]"));
+    await click(buttonWith(action));
+  };
+
+  it("lists active departments first with their people and teams, archived ones greyed", async () => {
+    await show();
+    const rows = [...section().querySelectorAll("tbody tr")].map((row) => row.textContent);
+    expect(rows[0]).toContain("Product");
+    expect(rows[0]).toContain("1 person");
+    expect(rows[0]).toContain("1 team");
+    expect(rows[0]).toContain("Active");
+    expect(rows[1]).toContain("Old Dept");
+    expect(rows[1]).toContain("Archived");
+    expect(departmentRow("Old Dept").querySelector("td").className).toContain("nw-people-archived");
+  });
+
+  it("says how to start when there are none", async () => {
+    api.getDirectory.mockResolvedValue({ ...directory(), departments: [], teams: [] });
+    await show();
+    expect(section().textContent).toContain("No departments yet.");
+  });
+
+  it("creates one, then reads the directory again so the Edit picker has it", async () => {
+    const after = directory();
+    after.departments.push({ id: "d3", name: "Design", head_id: null, archived: false });
+    api.getDirectory.mockResolvedValueOnce(directory()).mockResolvedValue(after);
+    api.createDepartment.mockResolvedValue(after.departments[2]);
+    await show();
+
+    await click(buttonWith("New department"));
+    await choose(fieldNamed("Department name"), "  Design  ");
+    await click(buttonWith("Create department"));
+
+    expect(api.createDepartment).toHaveBeenCalledWith("org", "Design");
+    expect(api.getDirectory).toHaveBeenCalledTimes(2);
+    expect(dialog()).toBeNull();
+    expect(departmentRow("Design").textContent).toContain("0 people");
+
+    await openAction("Ben PM", "Edit");
+    const options = [...fieldNamed("Department").options].map((option) => option.textContent);
+    expect(options).toEqual(["No department", "Product", "Design"]);
+  });
+
+  it("doesn't send a blank name", async () => {
+    await show();
+    await click(buttonWith("New department"));
+    await choose(fieldNamed("Department name"), "   ");
+    await click(buttonWith("Create department"));
+    expect(api.createDepartment).not.toHaveBeenCalled();
+    expect(dialog().textContent).toContain("Department name is required.");
+  });
+
+  it("stays open with a readable message when the name is taken", async () => {
+    api.createDepartment.mockRejectedValue(refusal("name_taken"));
+    await show();
+    await click(buttonWith("New department"));
+    await choose(fieldNamed("Department name"), "product");
+    await click(buttonWith("Create department"));
+    expect(dialog().textContent).toContain("That name is already in use.");
+    expect(dialog().textContent).not.toContain("raw name_taken");
+    expect(api.getDirectory).toHaveBeenCalledTimes(1);
+  });
+
+  it("renames one, starting from its current name", async () => {
+    api.updateDepartment.mockResolvedValue({});
+    await show();
+    await departmentAction("Product", "Rename");
+    expect(fieldNamed("Department name").value).toBe("Product");
+    await choose(fieldNamed("Department name"), "Product Management");
+    await click(buttonWith("Save"));
+    expect(api.updateDepartment).toHaveBeenCalledWith("org", "d1", { name: "Product Management" });
+    expect(dialog()).toBeNull();
+  });
+
+  it("warns before archiving a department that still has people and shows the refusal", async () => {
+    api.updateDepartment.mockRejectedValue(refusal("department_not_empty"));
+    await show();
+    await departmentAction("Product", "Archive");
+    expect(dialog().textContent).toContain("It still has 1 person and 1 team.");
+    await click(buttonWith("Archive"));
+    expect(api.updateDepartment).toHaveBeenCalledWith("org", "d1", { archived: true });
+    expect(dialog().textContent).toContain("Move its people and teams out before archiving it.");
+  });
+
+  it("archives an empty one", async () => {
+    api.getDirectory.mockResolvedValue({
+      ...directory(),
+      departments: [{ id: "d1", name: "Product", head_id: null, archived: false }],
+      teams: [],
+      members: [person("alice", "Alice PM", { access_role: "admin" })],
+    });
+    api.updateDepartment.mockResolvedValue({});
+    await show();
+    await departmentAction("Product", "Archive");
+    expect(dialog().textContent).toContain("You can restore it later");
+    await click(buttonWith("Archive"));
+    expect(api.updateDepartment).toHaveBeenCalledWith("org", "d1", { archived: true });
+    expect(dialog()).toBeNull();
+    expect(api.getDirectory).toHaveBeenCalledTimes(2);
+  });
+
+  it("restores an archived one, and explains if its name is now taken", async () => {
+    api.updateDepartment.mockResolvedValueOnce({}).mockRejectedValueOnce(refusal("name_taken"));
+    await show();
+    await departmentAction("Old Dept", "Restore");
+    expect(api.updateDepartment).toHaveBeenCalledWith("org", "d2", { archived: false });
+    expect(section().querySelector('[role="alert"]')).toBeNull();
+
+    await departmentAction("Old Dept", "Restore");
+    expect(section().querySelector('[role="alert"]').textContent).toBe(
+      "Couldn’t restore Old Dept. That name is already in use.",
+    );
+
+    await click(buttonWith("New department"));
+    expect(section().querySelector('[role="alert"]')).toBeNull();
   });
 });
