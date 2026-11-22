@@ -92,6 +92,9 @@ function Prototype({
   const [aiOptions, setAiOptions] = useState(null);
   // Where the details screen is: { tab: "overview" | "activity" | "history", versionId?, compare? }.
   const [detailsView, setDetailsView] = useState({ tab: "overview" });
+  // Where the details screen was opened from: "editor" gives it a "Back to
+  // editor" button; "workspace" (the dashboard's PRD list) needs none.
+  const [detailsFrom, setDetailsFrom] = useState("workspace");
   // The editor's side panel to open on: closed (null) unless something asked
   // for a view, like an activity line's "View comment".
   const [editorRailTab, setEditorRailTab] = useState(null);
@@ -307,9 +310,10 @@ function Prototype({
   }
 
   // The details page (overview and history) for a PRD from any list.
-  function openDetails(prd, view = { tab: "overview" }) {
+  function openDetails(prd, view = { tab: "overview" }, from = "workspace") {
     setPrds((current) => (current.some((p) => p.id === prd.id) ? current : [prd, ...current]));
     setDetailsView(view);
+    setDetailsFrom(from);
     go("details", prd.id);
   }
 
@@ -776,6 +780,7 @@ function Prototype({
           }}
           onOpenEditor={(options) => openPrd(activePrd, options)}
           onHome={() => showHome({ page: "dashboard" })}
+          onBack={detailsFrom === "editor" ? () => openPrd(activePrd) : undefined}
         />
       </Suspense>
     );
@@ -834,7 +839,7 @@ function Prototype({
           onAdjustProposal={(instruction, sessionMessages) => adjustAiProposal(activePrd.id, instruction, sessionMessages)}
           onReload={() => reloadPrd(activePrd.id)}
           onOpenAnswers={() => openAnswers(activePrd.id)}
-          onOpenDetails={() => openDetails(activePrd)}
+          onOpenDetails={() => openDetails(activePrd, undefined, "editor")}
           onExit={() => showHome({ page: "dashboard" })}
           onHome={() => showHome({ page: "dashboard" })}
         />
