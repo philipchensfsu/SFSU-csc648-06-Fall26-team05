@@ -26,6 +26,7 @@ import { isAnswered } from "../nautilus/app/questions";
 import { createDraftCreator } from "../nautilus/app/flow/draftCreation";
 import GeneratingPage from "../nautilus/app/editor/GeneratingPage";
 import { draftFromAnswers } from "../nautilus/app/editor/draftFromAnswers";
+import { prdPath, usePrdUrl } from "../nautilus/app/prdUrl";
 
 // The editor carries TipTap, so it loads only when a PRD is opened.
 const EditorPage = lazy(() => import("../nautilus/app/editor/EditorPage"));
@@ -63,6 +64,9 @@ function Prototype({
   const draftCreator = useRef(null);
   const [projectsError, setProjectsError] = useState(null);
   const [prdsError, setPrdsError] = useState(null);
+  // A PRD link that couldn't be opened. Kept apart from prdsError, which the
+  // workspace's reload on every visit clears; the next navigation clears it.
+  const [openError, setOpenError] = useState(null);
   const latestLoad = useRef(0);
   const visits = useRef(0);
   const answersRequested = useRef(new Set());
@@ -232,6 +236,7 @@ function Prototype({
   const showHome = useCallback((next) => {
     visits.current += 1;
     setHome({ ...next, visit: visits.current });
+    setOpenError(null);
     setActivePrdId(null);
     setChatLog(null);
     setAiProposal(null);
@@ -319,8 +324,16 @@ function Prototype({
 
   // The inbox only knows a PRD's id. Rejects if this person can't open it.
   async function openPrdById(id) {
-    const known = prds.find((prd) => prd.id === id);
-    openPrd(known ?? fromApiPrd(await api.getPrd(id)));
+    openPrd(await prdById(id));
+  }
+
+  // The details page for a PRD URL (prdUrl.js). Rejects the same way.
+  async function openDetailsById(id) {
+    openDetails(await prdById(id));
+  }
+
+  async function prdById(id) {
+    return prds.find((prd) => prd.id === id) ?? fromApiPrd(await api.getPrd(id));
   }
 
   // Renaming uses the same optimistic-concurrency check as saving content;
@@ -681,6 +694,18 @@ function Prototype({
     });
   }
 
+  // The details page's and editor's URLs, and the browser's Back and Forward
+  // buttons (prdUrl.js). The workspace is the page they were opened from.
+  const followUrl = usePrdUrl({
+    screen,
+    activePrdId,
+    prdsLoaded,
+    prdsError,
+    open: { editor: openPrdById, details: openDetailsById },
+    showWorkspace: () => showHome(home),
+    onOpenFailed: (error) => setOpenError(`Couldn’t open that PRD. ${error.message}`),
+  });
+
   // These screens include their own top bar; auth remains owned by App.
   if (screen === "create") {
     return <CreatePrdPage
@@ -842,6 +867,8 @@ function Prototype({
           onOpenDetails={() => openDetails(activePrd, undefined, "editor")}
           onExit={() => showHome({ page: "dashboard" })}
           onHome={() => showHome({ page: "dashboard" })}
+          browserPath={prdPath("editor", activePrd.id)}
+          onBrowserBack={followUrl}
         />
       </Suspense>
     );
@@ -858,7 +885,7 @@ function Prototype({
       userId={userId}
       prds={prds}
       prdsLoaded={prdsLoaded}
-      prdsError={prdsError}
+      prdsError={openError || prdsError}
       projects={projects}
       projectsLoaded={projectsLoaded}
       projectsError={projectsError}
@@ -881,6 +908,7 @@ function Prototype({
       onDismissError={() => {
         setPrdsError(null);
         setProjectsError(null);
+        setOpenError(null);
       }}
       onSignOut={signOut}
     />

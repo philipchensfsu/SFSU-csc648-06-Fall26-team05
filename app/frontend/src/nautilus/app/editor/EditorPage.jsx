@@ -18,6 +18,7 @@ import { approvalProgress, editedWhen, formatDate } from "../format";
 import { IconClock, IconPencil, IconPeople, IconPlus, IconX } from "../icons";
 import { Alert, MenuButton, Modal, StatusChip } from "../ui";
 import { IconBack, IconChat, IconCheck, IconDownload, IconSparkle } from "./editorIcons";
+import { depthOf } from "../prdUrl";
 import { exportMarkdown, exportPdf, exportWord } from "./exporters";
 import { cleanHtml, isEmptyHtml, sectionsToDocument } from "./html";
 import { SectionEditor } from "./SectionEditor";
@@ -265,6 +266,11 @@ function EditorPage({
   initialRailTab = null,
   onExit,
   onHome,
+  // The editor's URL (/prds/<id>/edit), and onBrowserBack() to show what the
+  // URL says once Back or Forward has left it. Without a browserPath, the
+  // browser's buttons are left alone (the AI preview).
+  browserPath = null,
+  onBrowserBack,
 }) {
   const [doc, setDoc] = useState(() => toDoc(prd));
   const [saved, setSaved] = useState(() => toDoc(prd));
@@ -379,6 +385,33 @@ function EditorPage({
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [unsaved]);
+
+  // The browser's Back and Forward buttons leave like the editor's own exits:
+  // with unsaved changes, the step is undone and the same question asked;
+  // leaving then takes the step again, without asking twice. Changes come
+  // after the editor's URL is pushed, so this entry's depth is known here.
+  const confirmedLeave = useRef(false);
+  useEffect(() => {
+    if (!browserPath) return undefined;
+    const ownDepth = depthOf(window.history.state);
+    function onPopState() {
+      if (window.location.pathname === browserPath) return;
+      if (unsaved && !confirmedLeave.current) {
+        const wentBack = depthOf(window.history.state) < ownDepth;
+        if (wentBack) window.history.forward();
+        else window.history.back();
+        setLeaving(() => () => {
+          confirmedLeave.current = true;
+          if (wentBack) window.history.back();
+          else window.history.forward();
+        });
+      } else {
+        onBrowserBack();
+      }
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [browserPath, onBrowserBack, unsaved]);
 
   // The contents list follows the section being read: the last one whose
   // top has passed 30% of the window.
