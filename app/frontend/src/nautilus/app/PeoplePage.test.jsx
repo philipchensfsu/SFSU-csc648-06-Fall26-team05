@@ -553,6 +553,32 @@ describe("teams", () => {
     expect(api.updateTeam).toHaveBeenCalledWith("org", "t9", { archived: false });
   });
 
+  it("asks to restore an archived department first instead of sending the restore", async () => {
+    api.getDirectory.mockResolvedValue({
+      ...directory(),
+      teams: [{ id: "t9", name: "Old Team", department_id: "d2", lead_id: null, archived: true }],
+    });
+    await show();
+    await teamAction("Old Team", "Restore");
+    expect(api.updateTeam).not.toHaveBeenCalled();
+    expect(section().querySelector('[role="alert"]').textContent).toBe(
+      "Old Team is in Old Dept, which is archived. Restore Old Dept first.",
+    );
+  });
+
+  it("explains a department refusal on restore in team terms, not the archive wording", async () => {
+    api.getDirectory.mockResolvedValue({
+      ...directory(),
+      teams: [{ id: "t9", name: "Old Team", department_id: "d1", lead_id: null, archived: true }],
+    });
+    api.updateTeam.mockRejectedValue(refusal("department_not_empty"));
+    await show();
+    await teamAction("Old Team", "Restore");
+    const alert = section().querySelector('[role="alert"]').textContent;
+    expect(alert).toBe("Couldn’t restore Old Team. Its department is archived. Restore the department first.");
+    expect(alert).not.toContain("before archiving");
+  });
+
   it("puts someone on a team from Edit member without touching their other fields", async () => {
     api.addTeamMember.mockResolvedValue();
     await show();

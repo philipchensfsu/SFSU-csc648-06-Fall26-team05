@@ -145,13 +145,27 @@ function TeamsSection({ organizationId, departments, members, teams, onChanged }
     await onChanged();
   }
 
+  // An archived department can't hold an active team, so restoring a team
+  // whose department was archived since is refused. Say so up front rather
+  // than letting the database's department_not_empty message through, which
+  // is about archiving a department and makes no sense here.
   async function restore(team) {
     setError("");
+    const department = departmentOf(team);
+    if (department?.archived) {
+      setError(`${team.name} is in ${department.name}, which is archived. Restore ${department.name} first.`);
+      return;
+    }
     try {
       await api.updateTeam(organizationId, team.id, { archived: false });
       await onChanged();
     } catch (cause) {
-      setError(`Couldn’t restore ${team.name}. ${memberErrorMessage(cause)}`);
+      // The same case when this page's directory was out of date.
+      const reason =
+        cause?.code === "department_not_empty"
+          ? "Its department is archived. Restore the department first."
+          : memberErrorMessage(cause);
+      setError(`Couldn’t restore ${team.name}. ${reason}`);
     }
   }
 
