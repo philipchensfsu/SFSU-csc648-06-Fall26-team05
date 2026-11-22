@@ -7,6 +7,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import EditorPage from "./EditorPage";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom doesn't implement the native dialog.
+HTMLDialogElement.prototype.showModal = function showModal() {
+  this.open = true;
+};
+HTMLDialogElement.prototype.close = function close() {
+  this.open = false;
+};
 
 const prd = {
   id: "p1",
@@ -55,6 +62,7 @@ const buttonNamed = (name) =>
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
 });
 
 describe("EditorPage access", () => {
@@ -144,5 +152,42 @@ describe("EditorPage save errors", () => {
     await saveRejectedWith(Object.assign(new Error("Stale"), { status: 409, code: "stale_revision" }));
     expect(host.textContent).toContain("This PRD changed since you opened it.");
     expect(buttonNamed("Load the latest version")).toBeDefined();
+  });
+});
+
+describe("EditorPage and the browser's Back button", () => {
+  // The editor's entry, one PRD page deep; Back lands on the workspace's.
+  const atEditor = () => window.history.replaceState({ nautilusPrdDepth: 1 }, "", "/prds/p1/edit");
+  const backToWorkspace = () =>
+    act(async () => {
+      window.history.replaceState(null, "", "/dashboard");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+  it("leaves at once with nothing unsaved", async () => {
+    atEditor();
+    const onBrowserBack = vi.fn();
+    await show({ detail: allowed, browserPath: "/prds/p1/edit", onBrowserBack });
+    await backToWorkspace();
+    expect(onBrowserBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("undoes the step and asks first with unsaved changes, then takes it again", async () => {
+    atEditor();
+    const onBrowserBack = vi.fn();
+    await show({ detail: allowed, browserPath: "/prds/p1/edit", onBrowserBack });
+    await act(async () => buttonNamed("Confirm").click());
+    const forward = vi.spyOn(window.history, "forward").mockImplementation(() => {});
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    await backToWorkspace();
+    expect(forward).toHaveBeenCalledTimes(1);
+    expect(onBrowserBack).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Leave without saving?");
+
+    await act(async () => buttonNamed("Discard changes").click());
+    expect(back).toHaveBeenCalledTimes(1);
+    // The step taken again isn't asked about twice.
+    await backToWorkspace();
+    expect(onBrowserBack).toHaveBeenCalledTimes(1);
   });
 });
