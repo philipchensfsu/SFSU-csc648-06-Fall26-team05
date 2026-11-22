@@ -4,6 +4,7 @@ import SignUpPage from "./nautilus/auth/SignUpPage";
 import ResetPasswordPage from "./nautilus/auth/ResetPasswordPage";
 import OrgGate from "./nautilus/auth/OrgGate";
 import links from "./nautilus/links";
+import { parsePrdPath } from "./nautilus/app/prdUrl";
 import { supabase } from "../lib/supabaseClient";
 
 const LandingPage = lazy(() => import("./nautilus/LandingPage"));
@@ -69,17 +70,19 @@ function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
-  // The dashboard lives at /dashboard: signed in, the auth pages move there;
-  // signed out, /dashboard moves to sign-in. Not while a reset link is open:
-  // that page comes first. Set during render, so React redraws before
+  // The dashboard lives at /dashboard, and its PRD pages at /prds/<id> and
+  // /prds/<id>/edit (prdUrl.js). Signed in, the auth pages move to
+  // /dashboard; signed out, these move to sign-in. Not while a reset link is
+  // open: that page comes first. Set during render, so React redraws before
   // painting and the wrong page never shows.
   const onAuthPage = path === links.signIn || path === links.signUp;
+  const onAppPage = path === links.dashboard || parsePrdPath(path) !== null;
   const redirect =
     !checkedSession || recovering
       ? null
       : session && onAuthPage
         ? links.dashboard
-        : !session && path === links.dashboard
+        : !session && onAppPage
           ? links.signIn
           : null;
   if (redirect) setPath(redirect);
@@ -165,7 +168,7 @@ function App() {
   // The dashboard, once the account is in an organization (OrgGate). The name
   // comes from sign-up (full_name) or Google (full_name / name); without one
   // the workspace falls back to the email address.
-  if (path === links.dashboard && session) {
+  if (onAppPage && session) {
     const profile = session.user.user_metadata ?? {};
     return (
       <OrgGate session={session} onLogOut={logOut}>

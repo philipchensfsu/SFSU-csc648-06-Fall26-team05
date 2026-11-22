@@ -25,6 +25,7 @@ import { isAnswered } from "../nautilus/app/questions";
 import { createDraftCreator } from "../nautilus/app/flow/draftCreation";
 import GeneratingPage from "../nautilus/app/editor/GeneratingPage";
 import { draftFromAnswers } from "../nautilus/app/editor/draftFromAnswers";
+import { prdPath, usePrdUrl } from "../nautilus/app/prdUrl";
 
 // The editor carries TipTap, so it loads only when a PRD is opened.
 const EditorPage = lazy(() => import("../nautilus/app/editor/EditorPage"));
@@ -309,8 +310,16 @@ function Prototype({
 
   // The inbox only knows a PRD's id. Rejects if this person can't open it.
   async function openPrdById(id) {
-    const known = prds.find((prd) => prd.id === id);
-    openPrd(known ?? fromApiPrd(await api.getPrd(id)));
+    openPrd(await prdById(id));
+  }
+
+  // The details page for a PRD URL (prdUrl.js). Rejects the same way.
+  async function openDetailsById(id) {
+    openDetails(await prdById(id));
+  }
+
+  async function prdById(id) {
+    return prds.find((prd) => prd.id === id) ?? fromApiPrd(await api.getPrd(id));
   }
 
   // Renaming uses the same optimistic-concurrency check as saving content;
@@ -642,6 +651,18 @@ function Prototype({
     });
   }
 
+  // The details page's and editor's URLs, and the browser's Back and Forward
+  // buttons (prdUrl.js). The workspace is the page they were opened from.
+  const followUrl = usePrdUrl({
+    screen,
+    activePrdId,
+    prdsLoaded,
+    prdsError,
+    open: { editor: openPrdById, details: openDetailsById },
+    showWorkspace: () => showHome(home),
+    onOpenFailed: (error) => setPrdsError(`Couldn’t open that PRD. ${error.message}`),
+  });
+
   // These screens include their own top bar; auth remains owned by App.
   if (screen === "create") {
     return <CreatePrdPage
@@ -792,6 +813,8 @@ function Prototype({
           onOpenDetails={() => openDetails(activePrd)}
           onExit={() => showHome({ page: "dashboard" })}
           onHome={() => showHome({ page: "dashboard" })}
+          browserPath={prdPath("editor", activePrd.id)}
+          onBrowserBack={followUrl}
         />
       </Suspense>
     );

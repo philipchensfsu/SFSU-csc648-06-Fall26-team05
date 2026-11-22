@@ -89,6 +89,18 @@ describe("dashboard URL", () => {
     expect(window.location.pathname).toBe("/dashboard");
   });
 
+  it.each(["/prds/p1", "/prds/p1/edit"])("shows the dashboard at %s when signed in", async (path) => {
+    await openAt(path, SESSION);
+    expect(container.textContent).toContain("DASHBOARD");
+    expect(window.location.pathname).toBe(path);
+  });
+
+  it("sends a signed-out visit to a PRD page to sign-in", async () => {
+    await openAt("/prds/p1/edit", null);
+    expect(container.textContent).toContain("SIGN IN");
+    expect(window.location.pathname).toBe("/signin");
+  });
+
   it("leaves the public pages alone", async () => {
     await openAt("/about", SESSION);
     expect(container.textContent).toContain("ABOUT");
