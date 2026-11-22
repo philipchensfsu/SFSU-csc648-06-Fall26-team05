@@ -1934,7 +1934,7 @@ body.ne-resizing {
 .ne-comment {
   padding: 12px 14px;
   border: 1px solid #DCEBEE;
-  border-radius: 10px;
+  border-radius: 12px;
   background: #FFFFFF;
 }
 .ne-comment-head {
@@ -1981,11 +1981,24 @@ body.ne-resizing {
   font-size: 12px;
 }
 .ne-comment-ver {
-  padding: 1px 6px;
-  border: 1px solid #C3DADE;
-  border-radius: 999px;
+  padding: 1px 7px;
+  border-radius: 6px;
+  background: #EEF3F4;
+  color: #3E5A60;
   font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 11.5px;
 }
+.ne-comment-section {
+  padding: 1px 8px;
+  border: 1px solid #DCEBEE;
+  border-radius: 6px;
+  color: #3E5A60;
+}
+/* Avatar tints, one per person. */
+.ne-comment-avatar.is-tint-0 { background: #E3F6F8; color: #155E68; }
+.ne-comment-avatar.is-tint-1 { background: #FFF1D6; color: #7A4A06; }
+.ne-comment-avatar.is-tint-2 { background: #E8EEFB; color: #2D4A8A; }
+.ne-comment-avatar.is-tint-3 { background: #F3E8F5; color: #6B2E78; }
 /* Plain text from the API: React escapes it, this keeps its line breaks. */
 .ne-comment-body {
   margin: 8px 0 0;
@@ -2015,6 +2028,92 @@ body.ne-resizing {
 .ne-comment-box:disabled {
   background: #F4F8F9;
   color: #557479;
+}
+/* The comment box: one bordered box holding the text, a small toolbar
+   (mention, which version, the shortcut) and the Comment button. */
+.ne-composer-form {
+  padding-top: 12px;
+  border-top: 1px solid #DCEBEE;
+}
+.ne-composer {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid #C3DADE;
+  border-radius: 12px;
+  background: #FFFFFF;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.ne-composer:focus-within {
+  border-color: #1D6F7A;
+  box-shadow: 0 0 0 3px rgba(29, 111, 122, 0.15);
+}
+.ne-composer.is-disabled {
+  background: #F4F8F9;
+}
+.ne-comment-box.ne-composer-box {
+  min-height: 56px;
+  max-height: 220px;
+  padding: 12px 14px 6px;
+  border: 0;
+  border-radius: 12px 12px 0 0;
+  background: transparent;
+  line-height: 1.5;
+  resize: none;
+  field-sizing: content;
+}
+.ne-comment-box.ne-composer-box:focus,
+.ne-comment-box.ne-composer-box:focus-visible {
+  outline: none;
+}
+.ne-composer .ne-mention-list {
+  margin: 0 8px 6px;
+}
+.ne-composer-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 8px 8px;
+}
+.ne-composer-tool {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #3E5A60;
+  cursor: pointer;
+}
+.ne-composer-tool:hover:not(:disabled) {
+  background: #EAF3F5;
+  color: #102C33;
+}
+.ne-composer-tool:disabled {
+  color: #9DB5B9;
+  cursor: not-allowed;
+}
+.ne-composer-hint {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: #557479;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ne-composer-count {
+  flex: none;
+  color: #557479;
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 11.5px;
+}
+.ne-composer-count.is-full {
+  color: #8C2F1D;
+}
+.ne-composer-send {
+  flex: none;
 }
 /* @mentions: the picker under the comment box, and names in posted comments. */
 .ne-mention {
@@ -2057,13 +2156,181 @@ body.ne-resizing {
 }
 .ne-comment-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
 }
 /* Picking comments for the AI to address (owners). */
-.ne-comments-ai {
-  margin-left: auto;
+/* "Address with AI" (owners): a card above the comments, ready, picking or
+   blocked until someone comments on the current version. */
+.ne-ai-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 12px 12px 14px;
+  border: 1px solid #B7E3E9;
+  border-radius: 14px;
+  background: #FFFFFF;
+}
+.ne-ai-card.is-picking {
+  border-color: #1D6F7A;
+  background: #F2FAFB;
+}
+.ne-ai-card.is-blocked {
+  align-items: flex-start;
+  border-color: #DCEBEE;
+}
+.ne-ai-card-icon {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: #E3F6F8;
+  color: #155E68;
+  display: grid;
+  place-items: center;
+}
+.ne-ai-card.is-blocked .ne-ai-card-icon {
+  background: #EEF3F4;
+  color: #557479;
+}
+.ne-ai-card-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ne-ai-card-title {
+  color: #102C33;
+  font-size: 14px;
+  font-weight: 600;
+}
+.ne-ai-card-sub {
+  color: #557479;
   font-size: 13px;
+  line-height: 1.45;
+}
+.ne-ai-card.is-picking .ne-ai-card-sub {
+  color: #3E5A60;
+}
+.ne-ai-card-btn {
+  flex: none;
+  height: 36px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 9px;
+  background: #102C33;
+  color: #FFFFFF;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ne-ai-card-btn:hover {
+  background: #1D3F47;
+}
+.ne-ai-card-btn:focus-visible {
+  outline: 2px solid #1D6F7A;
+  outline-offset: 2px;
+}
+.ne-ai-card-btn:disabled {
+  background: #E4ECEE;
+  color: #5F777C;
+  cursor: not-allowed;
+}
+/* Comments on the current version, or on earlier ones (kept for reference). */
+.ne-comment-tabs {
+  align-self: flex-start;
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid #DCEBEE;
+  border-radius: 10px;
+  background: #FFFFFF;
+}
+.ne-comment-tab {
+  height: 30px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #3E5A60;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.ne-comment-tab:hover {
+  color: #102C33;
+}
+/* How many comments are on that tab, as a badge so it can't read as "7.8". */
+.ne-comment-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.ne-comment-tab-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #EAF3F5;
+  color: #3E5A60;
+  font-size: 11.5px;
+  font-weight: 600;
+  line-height: 18px;
+  text-align: center;
+}
+.ne-comment-tab.is-active .ne-comment-tab-count {
+  background: rgba(255, 255, 255, 0.18);
+  color: #FFFFFF;
+}
+.ne-comment-tab.is-active {
+  background: #102C33;
+  color: #FFFFFF;
+  font-weight: 600;
+}
+.ne-comment-tab:focus-visible {
+  outline: 2px solid #1D6F7A;
+  outline-offset: 1px;
+}
+.ne-comment-earlier-note {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 9px;
+  background: #EEF3F4;
+  color: #3E5A60;
+  font-size: 13px;
+}
+.ne-comment-empty {
+  margin: 16px 0;
+  color: #557479;
+  font-size: 13px;
+  text-align: center;
+}
+/* Picking: the note and both AI actions, where the comment box was. */
+.ne-ai-tray {
+  padding-top: 12px;
+  border-top: 1px solid #DCEBEE;
+}
+.ne-ai-tray-optional {
+  color: #557479;
+  font-weight: 400;
+}
+.ne-ai-tray-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.ne-ai-tray-actions.is-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+.ne-ai-tray-actions .nw-btn {
+  height: 42px;
+}
+.ne-ai-tray-note {
+  margin: 0;
+  color: #557479;
+  font-size: 12px;
 }
 .ne-comment.is-picked {
   border-color: #1D6F7A;
@@ -2074,7 +2341,9 @@ body.ne-resizing {
   align-items: center;
   gap: 8px;
   margin: 0 0 8px;
-  color: #102C33;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #EAF3F5;
+  color: #155E68;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
