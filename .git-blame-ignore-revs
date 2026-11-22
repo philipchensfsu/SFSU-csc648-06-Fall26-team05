@@ -1,0 +1,3 @@
+# Ruff formatter (#188): formatting only. GitHub's blame view skips this commit.
+# Locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+f76e35616421c1e2efcdddbf2b02ef68558720a7
