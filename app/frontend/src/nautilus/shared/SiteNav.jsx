@@ -17,7 +17,7 @@ function SiteNav({ page = 'landing', email, onLogOut }) {
         <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
           {email ? (
             <>
-              <a href={links.signIn} className="btn-w" style={{ padding: "9px 16px", borderRadius: "10px", background: "var(--btn)", color: "var(--btn-ink)", textDecoration: "none", fontWeight: "600", fontSize: "14px" }}>Dashboard</a>
+              <a href={links.dashboard} className="btn-w" style={{ padding: "9px 16px", borderRadius: "10px", background: "var(--btn)", color: "var(--btn-ink)", textDecoration: "none", fontWeight: "600", fontSize: "14px" }}>Dashboard</a>
               <button type="button" className="navlink" onClick={onLogOut} style={{ padding: "9px 14px", border: 0, background: "transparent", color: "var(--muted)", font: "inherit", fontSize: "14px", cursor: "pointer" }}>Sign out</button>
             </>
           ) : (

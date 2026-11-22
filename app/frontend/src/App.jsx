@@ -3,6 +3,7 @@ import SignInPage from "./nautilus/auth/SignInPage";
 import SignUpPage from "./nautilus/auth/SignUpPage";
 import ResetPasswordPage from "./nautilus/auth/ResetPasswordPage";
 import OrgGate from "./nautilus/auth/OrgGate";
+import links from "./nautilus/links";
 import { supabase } from "../lib/supabaseClient";
 
 const LandingPage = lazy(() => import("./nautilus/LandingPage"));
@@ -68,6 +69,30 @@ function App() {
     return () => window.removeEventListener("popstate", handlePopState);
   }, []);
 
+  // The dashboard lives at /dashboard: signed in, the auth pages move there;
+  // signed out, /dashboard moves to sign-in. Not while a reset link is open:
+  // that page comes first. Set during render, so React redraws before
+  // painting and the wrong page never shows.
+  const onAuthPage = path === links.signIn || path === links.signUp;
+  const redirect =
+    !checkedSession || recovering
+      ? null
+      : session && onAuthPage
+        ? links.dashboard
+        : !session && path === links.dashboard
+          ? links.signIn
+          : null;
+  if (redirect) setPath(redirect);
+
+  // Only a redirect leaves the address bar behind path (navigate and Back
+  // keep them equal). replaceState, so Back doesn't return to a page that
+  // would redirect again.
+  useEffect(() => {
+    if (window.location.pathname !== path) {
+      window.history.replaceState({}, "", path);
+    }
+  }, [path]);
+
   function navigate(nextPath) {
     window.history.pushState({}, "", nextPath);
     setPath(window.location.pathname);
@@ -114,8 +139,9 @@ function App() {
     return null;
   }
 
-  // Supabase sends people back here once Google or a reset link is done.
-  const back = `${window.location.origin}/signin`;
+  // Supabase sends people back here once Google or a reset link is done. A
+  // signed-in visit then moves on to /dashboard; a failed one stays here.
+  const back = `${window.location.origin}${links.signIn}`;
 
   // A reset link was opened, so pick the new password before anything else.
   if (recovering) {
@@ -136,11 +162,10 @@ function App() {
     );
   }
 
-  // Signed in, so both auth pages hand over to the dashboard, once the account
-  // is in an organization (OrgGate). The name comes from sign-up (full_name)
-  // or Google (full_name / name); without one the workspace falls back to the
-  // email address.
-  if ((path === "/signin" || path === "/signup") && session) {
+  // The dashboard, once the account is in an organization (OrgGate). The name
+  // comes from sign-up (full_name) or Google (full_name / name); without one
+  // the workspace falls back to the email address.
+  if (path === links.dashboard && session) {
     const profile = session.user.user_metadata ?? {};
     return (
       <OrgGate session={session} onLogOut={logOut}>
@@ -175,7 +200,7 @@ function App() {
       ),
   };
 
-  if (path === "/signin") {
+  if (path === links.signIn) {
     return (
       <SignInPage
         {...authProps}
@@ -197,7 +222,7 @@ function App() {
     );
   }
 
-  if (path === "/signup") {
+  if (path === links.signUp) {
     return (
       <SignUpPage
         {...authProps}
@@ -235,7 +260,7 @@ function App() {
 
   return (
     <Suspense fallback={<p role="status" style={{ padding: "24px" }}>Loading Nautilus…</p>}>
-      {path === "/about" ? <AboutPage {...publicProps} /> : <LandingPage {...publicProps} />}
+      {path === links.about ? <AboutPage {...publicProps} /> : <LandingPage {...publicProps} />}
     </Suspense>
   );
 }

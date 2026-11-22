@@ -4,6 +4,7 @@ const links = {
   about: '/about', // public team page
   signIn: '/signin', // "Sign in" (on the sign-up page)
   signUp: '/signup', // "Create an account" (on the sign-in page)
+  dashboard: '/dashboard', // the signed-in workspace ("Dashboard" in the site header)
   privacy: '#', // "Privacy Policy" (sign-up page)
   terms: '#', // "Terms" (sign-up page)
 };
