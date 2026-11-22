@@ -12,8 +12,10 @@ import { describeProposalError, mustAskAgain, needsReapproval, sessionMessagesFr
 import { ReapprovalDialog } from "./ReapprovalDialog";
 import { ApprovalsCard, YourReviewCard } from "./ReviewPanel";
 import { SubmitReviewDialog } from "./SubmitReviewDialog";
+import { AddSectionDialog } from "./AddSectionDialog";
+import { missingSections, withSection } from "./addSection";
 import { approvalProgress, editedWhen, formatDate } from "../format";
-import { IconClock, IconPencil, IconPeople, IconX } from "../icons";
+import { IconClock, IconPencil, IconPeople, IconPlus, IconX } from "../icons";
 import { Alert, MenuButton, Modal, StatusChip } from "../ui";
 import { IconBack, IconChat, IconCheck, IconDownload, IconSparkle } from "./editorIcons";
 import { exportMarkdown, exportPdf, exportWord } from "./exporters";
@@ -276,6 +278,7 @@ function EditorPage({
   const [reloading, setReloading] = useState(false);
   // The navigation waiting on "Leave without saving?".
   const [leaving, setLeaving] = useState(null);
+  const [addingSection, setAddingSection] = useState(false);
   const [currentId, setCurrentId] = useState(() => prd.sections?.[0]?.id ?? null);
   const editable = useRef(null);
   const docRef = useRef(null);
@@ -344,6 +347,7 @@ function EditorPage({
       ),
     [doc.sections],
   );
+  const missing = useMemo(() => missingSections(doc.sections), [doc.sections]);
   const emptyIds = useMemo(
     () => new Set(doc.sections.filter((section) => isEmptyHtml(section.html)).map((section) => section.id)),
     [doc.sections],
@@ -476,6 +480,14 @@ function EditorPage({
     if (editing && closeEditing() === null) return;
     returnFocus.current = null;
     setEditing(id);
+  }
+
+  // Adds a missing standard section in its place and opens it for writing.
+  // It's saved with Save, like any other edit.
+  function addSection(type) {
+    setDoc((current) => ({ ...current, sections: withSection(current.sections, type) }));
+    setAddingSection(false);
+    startEdit(type);
   }
 
   function startDetails() {
@@ -1416,6 +1428,13 @@ function EditorPage({
                 </section>
               );
             })}
+
+            {canEdit && missing.length ? (
+              <button type="button" className="ne-add-section" onClick={() => setAddingSection(true)}>
+                <IconPlus size={15} />
+                Add section
+              </button>
+            ) : null}
           </article>
         </main>
         </div>
@@ -1654,6 +1673,13 @@ function EditorPage({
         userId={userId}
         onSubmit={submitReview}
         onClose={() => setSubmitting(false)}
+      />
+
+      <AddSectionDialog
+        open={addingSection}
+        missing={missing}
+        onAdd={addSection}
+        onClose={() => setAddingSection(false)}
       />
 
       <LeaveDialog

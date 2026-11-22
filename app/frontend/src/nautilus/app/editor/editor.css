@@ -963,6 +963,31 @@
 .ne-empty-doc {
   margin-top: 24px;
 }
+/* "Add section" under the last section: a dashed box like an empty one. */
+.ne-add-section {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin-top: 24px;
+  padding: 12px 16px;
+  border: 1px dashed #C3DADE;
+  border-radius: 10px;
+  background: transparent;
+  color: #3E5A60;
+  font-size: 14px;
+  font-weight: 500;
+}
+.ne-add-section:hover {
+  border-color: #1D6F7A;
+  background: #F7FBFC;
+  color: #1D6F7A;
+}
+.ne-add-section:focus-visible {
+  outline: 2px solid #1D6F7A;
+  outline-offset: 2px;
+}
 .ne-link-btn {
   padding: 0;
   border: 0;
