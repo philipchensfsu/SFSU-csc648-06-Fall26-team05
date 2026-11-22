@@ -50,10 +50,16 @@ export default function ProposalOptions({
   const commentCount = options[0]?.feedbackIds?.length ?? 0;
   const note = options[0]?.instruction;
 
+  // A request typed for one option isn't meant for another.
+  function forgetRequest() {
+    setAsking(false);
+    setRequest("");
+    setAdjustError("");
+  }
+
   function open(option) {
     if (waiting || option === selected) return;
-    setAsking(false);
-    setAdjustError("");
+    forgetRequest();
     onSelect(option);
   }
 
@@ -76,6 +82,7 @@ export default function ProposalOptions({
     try {
       // On success the new pair replaces this one.
       await onAskAgain();
+      forgetRequest();
     } catch (error) {
       setAgainError(error?.message || "Couldn’t ask again. Try again.");
     } finally {

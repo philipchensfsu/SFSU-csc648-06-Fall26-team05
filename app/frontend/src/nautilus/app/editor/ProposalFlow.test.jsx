@@ -514,6 +514,17 @@ describe("choosing between two options", () => {
     expect(handlers.onAdjustProposal).toHaveBeenCalledWith("Keep SMS for week one", []);
   });
 
+  it("drops a request typed for one option when another opens", async () => {
+    await show({ detail: owner, proposal: options[0], proposalOptions: options });
+    await click(buttonNamed("Request adjustments"));
+    await typeInto(host.querySelector(".no-adjust textarea"), "Meant for option 1");
+    await click(card("Phase the release").querySelector("button"));
+    expect(handlers.onSelectOption).toHaveBeenCalledWith(2);
+    expect(host.querySelector(".no-adjust")).toBeNull();
+    await click(buttonNamed("Request adjustments"));
+    expect(host.querySelector(".no-adjust textarea").value).toBe("");
+  });
+
   it("explains an option that was used or expired, with a way back", async () => {
     await show({ detail: owner, proposal: options[0], proposalOptions: options });
     handlers.onAcceptProposal.mockRejectedValue(apiError(409, "proposal_unavailable"));
