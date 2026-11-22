@@ -13,19 +13,31 @@ from .api import ApiError
 
 LIMIT = 2000
 
-LINK_HELP = ("Your Discord account isn't linked to Nautilus yet. In Nautilus, open Settings, choose "
-             "\"Connect Discord\" to get a code, then run `/link` with it here.")
+LINK_HELP = (
+    "Your Discord account isn't linked to Nautilus yet. In Nautilus, open Settings, choose "
+    '"Connect Discord" to get a code, then run `/link` with it here.'
+)
 
 STATUS = {"draft": "Draft", "in_review": "In review", "final": "Final", "assigned": "Assigned"}
 REVIEW = {"in_review": "in review", "changes_requested": "changes requested", "approved": "approved"}
 WORK = {"not_started": "not started", "in_progress": "in progress", "done": "done"}
 ROLE = {"owner": "owner", "editor": "editor", "viewer": "viewer", "org_admin": "org admin"}
 EVENTS = {
-    "created": "created", "version_saved": "new version saved", "ai_applied": "AI suggestion applied",
-    "member_added": "added you", "member_role_changed": "role changed", "member_removed": "member removed",
-    "team_added": "team added", "comment_added": "new comment", "mentioned": "mentioned you",
-    "submitted": "sent for review", "approved": "approved", "changes_requested": "changes requested",
-    "round_approved": "review approved", "superseded": "review restarted", "work_status_changed": "work status changed",
+    "created": "created",
+    "version_saved": "new version saved",
+    "ai_applied": "AI suggestion applied",
+    "member_added": "added you",
+    "member_role_changed": "role changed",
+    "member_removed": "member removed",
+    "team_added": "team added",
+    "comment_added": "new comment",
+    "mentioned": "mentioned you",
+    "submitted": "sent for review",
+    "approved": "approved",
+    "changes_requested": "changes requested",
+    "round_approved": "review approved",
+    "superseded": "review restarted",
+    "work_status_changed": "work status changed",
     "reviewer_changed": "reviewer changed",
 }
 
@@ -50,8 +62,10 @@ def error_message(error: ApiError, command: str) -> str:
     if code == "discord_not_linked":
         return LINK_HELP
     if code == "invalid_link_code":
-        return ("That code doesn't match, or it has expired (codes last 10 minutes and work once). "
-                "Create a new one in Nautilus settings and run `/link` again.")
+        return (
+            "That code doesn't match, or it has expired (codes last 10 minutes and work once). "
+            "Create a new one in Nautilus settings and run `/link` again."
+        )
     if code in ("ai_cooldown", "ai_busy"):
         wait = f" Try again in {error.retry_after} seconds." if error.retry_after else " Try again shortly."
         reason = "You asked very recently." if code == "ai_cooldown" else "You already have an AI request running."
@@ -66,8 +80,10 @@ def error_message(error: ApiError, command: str) -> str:
         return "The Nautilus server isn't set up for the Discord bot yet. Tell the Nautilus team."
     if code == "timeout":
         if command == "summary":
-            return ("Nautilus took too long to answer. The summary may still finish (and count toward your AI "
-                    "allowance), so wait a minute before trying again.")
+            return (
+                "Nautilus took too long to answer. The summary may still finish (and count toward your AI "
+                "allowance), so wait a minute before trying again."
+            )
         return "Nautilus took too long to answer. Try again in a moment."
     if code == "unreachable":
         return "Couldn't reach Nautilus. Try again in a moment."
@@ -100,16 +116,21 @@ def me(data: dict) -> str:
 def _prd_line(prd: dict) -> str:
     review = f", {REVIEW[prd['review_state']]}" if prd.get("review_state") in REVIEW else ""
     priority = f", {prd['priority']} priority" if prd.get("priority") else ""
-    return (f"• **{text(prd.get('title'))}** ({_words(STATUS, prd.get('status'))}{review}{priority}, "
-            f"you: {_words(ROLE, prd.get('my_role'))})\n  `{prd.get('id')}`")
+    return (
+        f"• **{text(prd.get('title'))}** ({_words(STATUS, prd.get('status'))}{review}{priority}, "
+        f"you: {_words(ROLE, prd.get('my_role'))})\n  `{prd.get('id')}`"
+    )
 
 
 def prds(data: dict) -> str:
     items, total = data.get("items") or [], data.get("total", 0)
     if not items:
         return "No PRDs match."
-    head = f"{len(items)} of {total} PRDs, newest change first:" if total > len(items) else \
-        f"{total} PRD{'s' if total != 1 else ''}, newest change first:"
+    head = (
+        f"{len(items)} of {total} PRDs, newest change first:"
+        if total > len(items)
+        else f"{total} PRD{'s' if total != 1 else ''}, newest change first:"
+    )
     lines = [head]
     for prd in items:
         candidate = "\n".join(lines + [_prd_line(prd)])
@@ -125,8 +146,10 @@ def prd(data: dict) -> str:
     lines = [f"**{text(data.get('title'))}**", f"Status: {_words(STATUS, data.get('status'))}"]
     approval = data.get("approval") or {}
     if approval.get("state"):
-        lines.append(f"Review: {REVIEW.get(approval['state'], approval['state'])}, "
-                     f"{approval.get('approved_count', 0)} of {approval.get('required_count', 0)} approved")
+        lines.append(
+            f"Review: {REVIEW.get(approval['state'], approval['state'])}, "
+            f"{approval.get('approved_count', 0)} of {approval.get('required_count', 0)} approved"
+        )
     lines.append(f"Work: {_words(WORK, data.get('work_status'))} · Priority: {data.get('priority') or '—'}")
     owners = [text(o.get("name")) or "someone" for o in data.get("owners") or []]
     if owners:
@@ -159,8 +182,10 @@ def summary(data: dict) -> str:
         return "No comments on this version yet, so there's nothing to summarize."
     body = data.get("summary") or {}
     scope = f"{used} of {count} comments" if used < count else f"{count} comment{'s' if count != 1 else ''}"
-    lines = [f"Discussion summary of version {data.get('version_no')} ({scope}). AI-generated: check the "
-             "comments before acting on it."]
+    lines = [
+        f"Discussion summary of version {data.get('version_no')} ({scope}). AI-generated: check the "
+        "comments before acting on it."
+    ]
     sections = (
         ("Themes", "themes", lambda i: f"{text(i.get('title'))}: {text(i.get('summary'))}"),
         ("Open questions", "open_questions", lambda i: text(i.get("question"))),

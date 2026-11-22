@@ -46,8 +46,7 @@ async def _reply(interaction, message: str) -> None:
     await interaction.followup.send(fmt.clip(message), ephemeral=True, allowed_mentions=NO_MENTIONS)
 
 
-async def run(interaction, name: str, call: Callable[[int], Awaitable[dict]],
-              render: Callable[[dict], str]) -> None:
+async def run(interaction, name: str, call: Callable[[int], Awaitable[dict]], render: Callable[[dict], str]) -> None:
     try:
         await interaction.response.defer(ephemeral=True, thinking=True)
     except discord.HTTPException as exc:  # the interaction expired before we got to it
@@ -56,8 +55,7 @@ async def run(interaction, name: str, call: Callable[[int], Awaitable[dict]],
     try:
         data = await call(interaction.user.id)
     except ApiError as error:
-        level = logging.ERROR if error.status in (401, 500, 503) or error.code == "bot_not_configured" \
-            else logging.INFO
+        level = logging.ERROR if error.status in (401, 500, 503) or error.code == "bot_not_configured" else logging.INFO
         logger.log(level, "command=%s status=%s code=%s", name, error.status, error.code)
         await _reply(interaction, fmt.error_message(error, name))
         return
@@ -76,6 +74,7 @@ async def bad_input(interaction, name: str, message: str) -> None:
 
 # --- handlers ----------------------------------------------------------------
 
+
 async def link(api: NautilusApi, interaction, code: str) -> None:
     await run(interaction, "link", lambda user: api.link(user, code.strip()), fmt.linked)
 
@@ -85,8 +84,9 @@ async def me(api: NautilusApi, interaction) -> None:
 
 
 async def prds(api: NautilusApi, interaction, search: Optional[str] = None, view: Optional[str] = None) -> None:
-    await run(interaction, "prds", lambda user: api.prds(user, search=(search or "").strip() or None, view=view),
-              fmt.prds)
+    await run(
+        interaction, "prds", lambda user: api.prds(user, search=(search or "").strip() or None, view=view), fmt.prds
+    )
 
 
 async def prd(api: NautilusApi, interaction, prd_id: str) -> None:
@@ -99,8 +99,12 @@ async def prd(api: NautilusApi, interaction, prd_id: str) -> None:
 
 
 async def inbox(api: NautilusApi, interaction, show_all: bool = False) -> None:
-    await run(interaction, "inbox", lambda user: api.inbox(user, unread_only=not show_all),
-              lambda data: fmt.inbox(data, unread_only=not show_all))
+    await run(
+        interaction,
+        "inbox",
+        lambda user: api.inbox(user, unread_only=not show_all),
+        lambda data: fmt.inbox(data, unread_only=not show_all),
+    )
 
 
 async def summary(api: NautilusApi, interaction, prd_id: str, version_id: Optional[str] = None) -> None:
@@ -113,6 +117,7 @@ async def summary(api: NautilusApi, interaction, prd_id: str, version_id: Option
 
 
 # --- registration on the command tree ---------------------------------------
+
 
 def register(tree: app_commands.CommandTree, api: NautilusApi) -> None:
     @tree.command(name="link", description="Link your Discord account to Nautilus with a code from Settings")
@@ -127,9 +132,11 @@ def register(tree: app_commands.CommandTree, api: NautilusApi) -> None:
     @tree.command(name="prds", description="List PRDs you can see in Nautilus")
     @app_commands.describe(search="Words in the title or text", view="Which PRDs to show")
     @app_commands.choices(view=VIEWS)
-    async def prds_command(interaction: discord.Interaction,
-                           search: Optional[app_commands.Range[str, 1, 200]] = None,
-                           view: Optional[app_commands.Choice[str]] = None):
+    async def prds_command(
+        interaction: discord.Interaction,
+        search: Optional[app_commands.Range[str, 1, 200]] = None,
+        view: Optional[app_commands.Choice[str]] = None,
+    ):
         await prds(api, interaction, search, view.value if view else None)
 
     @tree.command(name="prd", description="Where one PRD stands: status, review and owners")
@@ -144,6 +151,9 @@ def register(tree: app_commands.CommandTree, api: NautilusApi) -> None:
 
     @tree.command(name="summary", description="AI summary of a PRD's review comments (uses your AI allowance)")
     @app_commands.describe(id="The PRD id (from /prds)", version="A version id (default: the current version)")
-    async def summary_command(interaction: discord.Interaction, id: app_commands.Range[str, 1, 64],
-                              version: Optional[app_commands.Range[str, 1, 64]] = None):
+    async def summary_command(
+        interaction: discord.Interaction,
+        id: app_commands.Range[str, 1, 64],
+        version: Optional[app_commands.Range[str, 1, 64]] = None,
+    ):
         await summary(api, interaction, id, version)

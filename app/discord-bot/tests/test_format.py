@@ -8,8 +8,14 @@ from nautilus_bot.config import ConfigError, load
 
 
 def prd(i, title="Checkout"):
-    return {"id": f"{i:08d}-1111-4111-8111-111111111111", "title": title, "status": "in_review",
-            "review_state": "changes_requested", "priority": None, "my_role": "viewer"}
+    return {
+        "id": f"{i:08d}-1111-4111-8111-111111111111",
+        "title": title,
+        "status": "in_review",
+        "review_state": "changes_requested",
+        "priority": None,
+        "my_role": "viewer",
+    }
 
 
 def test_nautilus_text_cant_mention_anyone_or_format_the_message():
@@ -23,9 +29,17 @@ def test_long_lists_stay_under_the_limit():
 
 
 def test_summary_sections_and_the_empty_case():
-    data = {"version_no": 3, "comment_count": 5, "summarized_comment_count": 5, "summary": {
-        "themes": [{"title": "Budget", "summary": "Costs unclear."}], "open_questions": [{"question": "Who signs?"}],
-        "requested_changes": [{"change": "Add a risk."}], "unresolved_items": []}}
+    data = {
+        "version_no": 3,
+        "comment_count": 5,
+        "summarized_comment_count": 5,
+        "summary": {
+            "themes": [{"title": "Budget", "summary": "Costs unclear."}],
+            "open_questions": [{"question": "Who signs?"}],
+            "requested_changes": [{"change": "Add a risk."}],
+            "unresolved_items": [],
+        },
+    }
     out = fmt.summary(data)
     assert "version 3 (5 comments)" in out and "AI-generated" in out
     assert "**Themes**" in out and "Who signs?" in out and "**Unresolved**" not in out
@@ -35,9 +49,15 @@ def test_summary_sections_and_the_empty_case():
 
 
 def test_prd_status_shows_review_progress_and_owners():
-    out = fmt.prd({**prd(1), "work_status": "in_progress", "description": "Pay faster.",
-                   "approval": {"state": "in_review", "approved_count": 1, "required_count": 2},
-                   "owners": [{"id": "x", "name": "Olive"}]})
+    out = fmt.prd(
+        {
+            **prd(1),
+            "work_status": "in_progress",
+            "description": "Pay faster.",
+            "approval": {"state": "in_review", "approved_count": 1, "required_count": 2},
+            "owners": [{"id": "x", "name": "Olive"}],
+        }
+    )
     assert "1 of 2 approved" in out and "Owners: Olive" in out and "in progress" in out
 
 
@@ -54,8 +74,12 @@ def test_configuration_names_whats_missing_but_never_values():
 
 @pytest.mark.parametrize("raw", ["20s", "abc", "0", "-5", "nan", "inf"])
 def test_bad_timeout_gives_a_config_error_not_a_traceback(raw):
-    env = {"DISCORD_BOT_TOKEN": "t", "NAUTILUS_API_URL": "https://n.test", "BOT_API_SECRET": "s",
-           "BOT_REQUEST_TIMEOUT_SECONDS": raw}
+    env = {
+        "DISCORD_BOT_TOKEN": "t",
+        "NAUTILUS_API_URL": "https://n.test",
+        "BOT_API_SECRET": "s",
+        "BOT_REQUEST_TIMEOUT_SECONDS": raw,
+    }
     with pytest.raises(ConfigError) as info:
         load(env)
     assert "BOT_REQUEST_TIMEOUT_SECONDS" in str(info.value)

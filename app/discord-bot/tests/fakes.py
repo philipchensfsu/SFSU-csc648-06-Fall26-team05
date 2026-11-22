@@ -26,13 +26,15 @@ class FakeInteraction:
                     raise defer_error
 
             async def send_message(self, content, *, ephemeral=False, allowed_mentions=None):
-                outer.events.append(("send_message", {"content": content, "ephemeral": ephemeral,
-                                                      "allowed_mentions": allowed_mentions}))
+                outer.events.append(
+                    ("send_message", {"content": content, "ephemeral": ephemeral, "allowed_mentions": allowed_mentions})
+                )
 
         class Followup:
             async def send(self, content, *, ephemeral=False, allowed_mentions=None):
-                outer.events.append(("followup", {"content": content, "ephemeral": ephemeral,
-                                                  "allowed_mentions": allowed_mentions}))
+                outer.events.append(
+                    ("followup", {"content": content, "ephemeral": ephemeral, "allowed_mentions": allowed_mentions})
+                )
 
         self.response, self.followup = Response(), Followup()
 

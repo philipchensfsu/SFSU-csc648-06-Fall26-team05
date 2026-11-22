@@ -13,8 +13,16 @@ from nautilus_bot import format as fmt
 from tests.fakes import OTHER_ID, USER_ID, Backend, FakeInteraction
 
 PRD = "11111111-1111-4111-8111-111111111111"
-BRIEF = {"id": PRD, "title": "Checkout", "status": "draft", "review_state": None, "work_status": "not_started",
-         "priority": "high", "my_role": "owner", "updated_at": "2026-11-18T10:00:00Z"}
+BRIEF = {
+    "id": PRD,
+    "title": "Checkout",
+    "status": "draft",
+    "review_state": None,
+    "work_status": "not_started",
+    "priority": "high",
+    "my_role": "owner",
+    "updated_at": "2026-11-18T10:00:00Z",
+}
 
 
 def run(backend, handler, *args, user_id=USER_ID, **kwargs):
@@ -27,6 +35,7 @@ def run(backend, handler, *args, user_id=USER_ID, **kwargs):
             await handler(api, interaction, *args, **kwargs)
         finally:
             await api.aclose()
+
     asyncio.run(go())
     return interaction
 
@@ -35,11 +44,19 @@ CASES = [
     (commands.link, ("K7QX-M2PA-9DZR",), ("POST", "/api/bot/link"), {"linked": True, "full_name": "Olive"}),
     (commands.me, (), ("GET", "/api/bot/me"), {"id": "x", "full_name": "Olive", "organization": None}),
     (commands.prds, (), ("GET", "/api/bot/prds"), {"items": [BRIEF], "total": 1}),
-    (commands.prd, (PRD,), ("GET", f"/api/bot/prds/{PRD}"),
-     {**BRIEF, "description": None, "approval": {"state": None}, "owners": []}),
+    (
+        commands.prd,
+        (PRD,),
+        ("GET", f"/api/bot/prds/{PRD}"),
+        {**BRIEF, "description": None, "approval": {"state": None}, "owners": []},
+    ),
     (commands.inbox, (), ("GET", "/api/bot/inbox"), {"items": [], "next_cursor": None, "unread_count": 0}),
-    (commands.summary, (PRD,), ("POST", f"/api/bot/prds/{PRD}/summary"),
-     {"version_no": 2, "comment_count": 0, "summarized_comment_count": 0, "summary": {}}),
+    (
+        commands.summary,
+        (PRD,),
+        ("POST", f"/api/bot/prds/{PRD}/summary"),
+        {"version_no": 2, "comment_count": 0, "summarized_comment_count": 0, "summary": {}},
+    ),
 ]
 
 
@@ -68,22 +85,27 @@ def test_an_unlinked_account_is_told_how_to_link():
     assert run(backend, commands.me).replies[0]["content"] == fmt.LINK_HELP
 
 
-@pytest.mark.parametrize("status, body, expected", [
-    (404, {"code": "invalid_link_code"}, "expired"),
-    (429, {"code": "ai_cooldown", "retry_after": 9}, "Try again in 9 seconds"),
-    (429, {"code": "ai_busy", "retry_after": 30}, "already have an AI request running"),
-    (429, {"code": "ai_disabled"}, "AI is switched off"),
-    (429, {"code": "ai_budget_exhausted"}, "usage limit"),
-    (502, {"code": "ai_provider_error"}, "couldn't produce a summary"),
-    (503, {"code": "bot_not_configured"}, "isn't set up for the Discord bot"),
-    (401, {"detail": "Invalid bot secret"}, "couldn't sign in"),
-    (404, {"code": "not_found"}, "don't have access"),
-])
+@pytest.mark.parametrize(
+    "status, body, expected",
+    [
+        (404, {"code": "invalid_link_code"}, "expired"),
+        (429, {"code": "ai_cooldown", "retry_after": 9}, "Try again in 9 seconds"),
+        (429, {"code": "ai_busy", "retry_after": 30}, "already have an AI request running"),
+        (429, {"code": "ai_disabled"}, "AI is switched off"),
+        (429, {"code": "ai_budget_exhausted"}, "usage limit"),
+        (502, {"code": "ai_provider_error"}, "couldn't produce a summary"),
+        (503, {"code": "bot_not_configured"}, "isn't set up for the Discord bot"),
+        (401, {"detail": "Invalid bot secret"}, "couldn't sign in"),
+        (404, {"code": "not_found"}, "don't have access"),
+    ],
+)
 def test_backend_errors_become_clear_replies(status, body, expected):
-    backend = Backend({("POST", f"/api/bot/prds/{PRD}/summary"): (status, body),
-                       ("POST", "/api/bot/link"): (status, body)})
-    handler, args = (commands.link, ("K7QX",)) if body.get("code") == "invalid_link_code" else \
-        (commands.summary, (PRD,))
+    backend = Backend(
+        {("POST", f"/api/bot/prds/{PRD}/summary"): (status, body), ("POST", "/api/bot/link"): (status, body)}
+    )
+    handler, args = (
+        (commands.link, ("K7QX",)) if body.get("code") == "invalid_link_code" else (commands.summary, (PRD,))
+    )
     interaction = run(backend, handler, *args)
     assert expected in interaction.replies[0]["content"]
     assert interaction.replies[0]["ephemeral"] is True
@@ -91,6 +113,7 @@ def test_backend_errors_become_clear_replies(status, body, expected):
 
 def test_a_summary_that_times_out_warns_it_may_still_count():
     import httpx
+
     interaction = run(Backend(error=httpx.ReadTimeout("slow")), commands.summary, PRD)
     assert "may still finish" in interaction.replies[0]["content"]
 
@@ -113,6 +136,7 @@ def test_an_expired_interaction_stops_before_the_backend():
         api = backend.api()
         await commands.me(api, interaction)
         await api.aclose()
+
     asyncio.run(go())
     assert backend.requests == [] and interaction.replies == []
 
