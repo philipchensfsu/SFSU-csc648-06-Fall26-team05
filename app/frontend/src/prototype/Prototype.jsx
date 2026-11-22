@@ -64,6 +64,9 @@ function Prototype({
   const draftCreator = useRef(null);
   const [projectsError, setProjectsError] = useState(null);
   const [prdsError, setPrdsError] = useState(null);
+  // A PRD link that couldn't be opened. Kept apart from prdsError, which the
+  // workspace's reload on every visit clears; the next navigation clears it.
+  const [openError, setOpenError] = useState(null);
   const latestLoad = useRef(0);
   const visits = useRef(0);
   const answersRequested = useRef(new Set());
@@ -233,6 +236,7 @@ function Prototype({
   const showHome = useCallback((next) => {
     visits.current += 1;
     setHome({ ...next, visit: visits.current });
+    setOpenError(null);
     setActivePrdId(null);
     setChatLog(null);
     setAiProposal(null);
@@ -699,7 +703,7 @@ function Prototype({
     prdsError,
     open: { editor: openPrdById, details: openDetailsById },
     showWorkspace: () => showHome(home),
-    onOpenFailed: (error) => setPrdsError(`Couldn’t open that PRD. ${error.message}`),
+    onOpenFailed: (error) => setOpenError(`Couldn’t open that PRD. ${error.message}`),
   });
 
   // These screens include their own top bar; auth remains owned by App.
@@ -881,7 +885,7 @@ function Prototype({
       userId={userId}
       prds={prds}
       prdsLoaded={prdsLoaded}
-      prdsError={prdsError}
+      prdsError={openError || prdsError}
       projects={projects}
       projectsLoaded={projectsLoaded}
       projectsError={projectsError}
@@ -904,6 +908,7 @@ function Prototype({
       onDismissError={() => {
         setPrdsError(null);
         setProjectsError(null);
+        setOpenError(null);
       }}
       onSignOut={signOut}
     />
