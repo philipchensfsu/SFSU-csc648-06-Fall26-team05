@@ -27,10 +27,14 @@ router = APIRouter()
 
 
 class LinkRequest(RequestModel):
+    """Request body for linking a Discord account with a one-time code."""
+
     code: str = Field(..., max_length=50)
 
 
 class Linked(BaseModel):
+    """Whether the Discord account is now linked, and to whom."""
+
     linked: bool
     full_name: Optional[str]
 
@@ -39,6 +43,11 @@ class Linked(BaseModel):
     "/api/bot/link", response_model=Linked, dependencies=[Depends(check_bot_secret)]
 )
 def link(payload: LinkRequest, discord_id: str = Depends(discord_user_id)):
+    """Link the calling Discord account to a Nautilus user with their one-time code.
+
+    Raises:
+        ApiError: 404 if the code does not match or has expired.
+    """
     # /link <code>: uses up the person's code and links this Discord account
     # to them. Only the service role may redeem codes, and only after the
     # bot's secret has been checked.
@@ -73,12 +82,15 @@ def link(payload: LinkRequest, discord_id: str = Depends(discord_user_id)):
 
 @router.get("/api/bot/me", response_model=MeOut)
 def me(auth=Depends(get_bot_user)):
+    """Return the linked person and their organization, like GET /api/me."""
     # The linked person and their organization, the same as GET /api/me.
     return get_me(auth=auth)
 
 
 # Discord messages are short, so PRDs come without their document.
 class BotPRD(BaseModel):
+    """A short PRD summary for Discord messages."""
+
     id: UUID
     title: str
     status: str
@@ -90,11 +102,15 @@ class BotPRD(BaseModel):
 
 
 class BotPRDList(BaseModel):
+    """A list of PRDs for Discord plus the total count."""
+
     items: list[BotPRD]
     total: int
 
 
 class BotPRDStatus(BotPRD):
+    """One PRD's status for Discord, with approval progress and owners."""
+
     description: Optional[str]
     approval: ApprovalSummary
     owners: list[PersonRef]
@@ -110,6 +126,7 @@ def prds(
     limit: int = Query(default=10, ge=1, le=25),
     auth=Depends(get_bot_user),
 ):
+    """List the linked person's PRDs for the Discord /prd list command."""
     # /prd list: the same PRDs and filters as GET /api/prds, newest change
     # first, with `total` so the bot can say "10 of 23".
     rows = list_prds(search=search, view=view, auth=auth)
@@ -118,6 +135,7 @@ def prds(
 
 @router.get("/api/bot/prds/{prd_id}", response_model=BotPRDStatus)
 def prd_status(prd_id: UUID, auth=Depends(get_bot_user)):
+    """Return where one PRD stands for the Discord /prd status command."""
     # /prd status: where one PRD stands, as GET /api/prds/{id} without the
     # document. 404 when the person can't see it.
     return get_prd(prd_id=prd_id, auth=auth)
@@ -130,6 +148,7 @@ def inbox(
     cursor: Optional[str] = Query(default=None, max_length=200),
     auth=Depends(get_bot_user),
 ):
+    """List the linked person's notifications for the Discord /inbox command."""
     # /inbox: the person's notifications, as GET /api/notifications, unread
     # only unless asked otherwise.
     return list_notifications(
@@ -140,6 +159,8 @@ def inbox(
 
 
 class SummaryRequest(RequestModel):
+    """Request body for a discussion summary; leave version_id out for the current version."""
+
     # A saved version of this PRD; the current one when left out.
     version_id: Optional[UUID] = None
 
@@ -148,6 +169,10 @@ class SummaryRequest(RequestModel):
 def summary(
     prd_id: UUID, payload: Optional[SummaryRequest] = None, auth=Depends(get_bot_user)
 ):
+    """Summarize a PRD's discussion for the Discord /summary command.
+
+    Runs as the linked person, so it uses their AI allowance and needs only view access.
+    """
     # /summary: Marco's discussion summary (feature 05), asked as the linked
     # person, so it uses their AI allowance and needs only view access. Same
     # response as POST /api/prds/{id}/discussion-summary.

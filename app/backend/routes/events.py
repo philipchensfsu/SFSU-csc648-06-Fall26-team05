@@ -1,3 +1,5 @@
+"""PRD activity feed route (E13): the history of what happened to a PRD."""
+
 from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
@@ -16,11 +18,15 @@ EventType = Literal[EVENT_TYPES]
 
 
 class EventActor(BaseModel):
+    """The person who caused an event; the name is kept after account deletion."""
+
     id: Optional[UUID]  # null once the account is deleted; the name is kept
     name: Optional[str]
 
 
 class EventOut(BaseModel):
+    """One activity-feed event with a readable summary."""
+
     id: UUID
     type: str
     actor: Optional[EventActor]  # null for system actions
@@ -36,6 +42,7 @@ EVENT_COLUMNS = "id, event_type, actor_id, actor_name, payload, version_id, roun
 
 
 def event_item(row, names):
+    """Convert a prd_event row into the EventOut shape, adding its summary."""
     actor = None
     if row["actor_id"] or row["actor_name"]:
         actor = {"id": row["actor_id"], "name": row["actor_name"]}
@@ -53,6 +60,11 @@ def event_item(row, names):
 
 
 def payload_names(client, org_id, rows) -> dict:
+    """Look up current names for the people an event's payload mentions.
+
+    Returns:
+        A map of user id to full name, or an empty dict if no event names anyone.
+    """
     # Current names of people the events mention (not the actor, whose name
     # is stored with the event). Former members keep theirs in the directory.
     if not any(people_in(row["payload"] or {}) for row in rows):
@@ -70,6 +82,17 @@ def list_events(
     params: PageParams = Depends(),
     auth=Depends(get_current_user),
 ):
+    """List a PRD's activity feed, newest first.
+
+    Args:
+        prd_id: The PRD whose events to list.
+        type: Optional event types to keep (the parameter can repeat).
+        params: Page size and cursor.
+        auth: The signed-in user and their Supabase client.
+
+    Raises:
+        ApiError: 404 if the PRD does not exist or the caller cannot see it.
+    """
     # E13: the PRD's activity feed, newest first. RLS shows events to anyone
     # who can view the PRD; `type` (repeatable) keeps only those types.
     client = auth["client"]

@@ -11,6 +11,12 @@ from supabase_client import supabase, user_client
 
 # Optional so a missing header is a 401, not FastAPI's default 422.
 def get_current_user(authorization: Optional[str] = Header(default=None)):
+    """Check the request's bearer token and return the user and a Supabase client acting as them.
+
+    Raises:
+        HTTPException: 401 if the token is missing, invalid or expired.
+        ApiError: 503 if Supabase Auth is unavailable.
+    """
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing bearer token")
 

@@ -1,3 +1,5 @@
+"""In-app notification routes: the caller's inbox and marking notifications read."""
+
 from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
@@ -14,6 +16,8 @@ router = APIRouter()
 
 
 class NotificationOut(BaseModel):
+    """One inbox notification; count groups repeated events, such as a batch of comments."""
+
     id: UUID
     type: str
     prd_id: UUID
@@ -31,10 +35,14 @@ class NotificationOut(BaseModel):
 
 
 class NotificationPage(Page[NotificationOut]):
+    """A page of notifications plus the caller's total unread count."""
+
     unread_count: int
 
 
 class NotificationRead(RequestModel):
+    """Request body for marking a notification read."""
+
     read: Literal[True]
 
 
@@ -45,6 +53,7 @@ NOTIFICATION_COLUMNS = (
 
 
 def notification_item(row):
+    """Convert a notification row and its event into the NotificationOut shape."""
     event = row["event"]
     return {
         "id": row["id"],
@@ -70,6 +79,16 @@ def list_notifications(
     params: PageParams = Depends(),
     auth=Depends(get_current_user),
 ):
+    """List the caller's notifications, most recent activity first.
+
+    Args:
+        unread_only: If true, only unread notifications.
+        params: Page size and cursor.
+        auth: The signed-in user and their Supabase client.
+
+    Returns:
+        One page of notifications, the next cursor and the unread count.
+    """
     # The caller's inbox, most recent activity first, so a growing comment
     # batch moves back up. RLS hides notifications about PRDs they can no
     # longer see, from the items and the unread count alike.
@@ -95,6 +114,13 @@ def list_notifications(
 def mark_notification_read(
     notification_id: UUID, payload: NotificationRead, auth=Depends(get_current_user)
 ):
+    """Mark one of the caller's notifications as read.
+
+    Marking it read again succeeds and keeps the first read time.
+
+    Raises:
+        ApiError: 404 if the notification does not exist or is not the caller's.
+    """
     # Marking read again succeeds and keeps the first read time.
     client = auth["client"]
     if (

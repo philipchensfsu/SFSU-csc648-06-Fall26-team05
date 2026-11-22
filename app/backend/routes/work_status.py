@@ -1,3 +1,5 @@
+"""Work-status route (E14): track an approved PRD's progress."""
+
 from typing import Literal
 from uuid import UUID
 
@@ -14,12 +16,16 @@ WorkStatus = Literal["not_started", "in_progress", "done"]
 
 
 class WorkStatusIn(RequestModel):
+    """Request body for changing work status: the status last seen and the new one."""
+
     # Compare-and-set: the status the caller last saw, and the new one.
     from_: WorkStatus = Field(..., alias="from")
     to: WorkStatus
 
 
 class WorkStatusOut(PRDOut):
+    """The PRD after the change, with the caller's work-status permissions."""
+
     can_update_work_status: bool
     changed_since_approval: bool
 
@@ -56,6 +62,11 @@ WORK_STATUS_ERRORS = {
 def set_work_status(
     prd_id: UUID, payload: WorkStatusIn, auth=Depends(get_current_user)
 ):
+    """Change an approved PRD's work status (owners and org admins only).
+
+    Uses compare-and-set, so it fails if someone else changed the status first.
+    It does not change the revision, create a version or affect the review.
+    """
     # E14: owners and org admins (M3), only while approved, compare-and-set.
     # Doesn't change the revision, make a version or touch the review.
     client = auth["client"]

@@ -1,3 +1,9 @@
+"""Supabase connection settings and the shared service-role client.
+
+The service-role client bypasses Row Level Security, so request handlers use the
+per-user client from auth.get_current_user instead whenever possible.
+"""
+
 import os
 
 from dotenv import load_dotenv

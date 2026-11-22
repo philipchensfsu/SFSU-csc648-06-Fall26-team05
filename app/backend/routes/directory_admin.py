@@ -23,21 +23,29 @@ UnitName = Annotated[
 
 
 class DepartmentCreate(RequestModel):
+    """Request body for creating a department."""
+
     name: UnitName
 
 
 class DepartmentUpdate(RequestModel):
+    """Request body for changing a department; only the fields sent change."""
+
     name: Optional[UnitName] = None
     head_id: Optional[UUID] = None
     archived: Optional[bool] = None
 
 
 class TeamCreate(RequestModel):
+    """Request body for creating a team, optionally inside a department."""
+
     name: UnitName
     department_id: Optional[UUID] = None
 
 
 class TeamUpdate(RequestModel):
+    """Request body for changing a team; only the fields sent change."""
+
     name: Optional[UnitName] = None
     department_id: Optional[UUID] = None
     lead_id: Optional[UUID] = None
@@ -81,6 +89,12 @@ DIRECTORY_ERRORS = {
 
 
 def require_org_admin(client, org_id: UUID):
+    """Check that the caller is an admin of the organization.
+
+    Raises:
+        ApiError: 404 if the caller is not an active member, 403 if they are a
+            member but not an admin.
+    """
     # 404 unless the caller is an active member; 403 unless also an admin.
     if (
         not client.table("organization")
@@ -122,6 +136,14 @@ def write_directory(run):
 
 
 def unit_changes(payload):
+    """Build the database update for a department or team from the fields sent.
+
+    null clears head_id, lead_id or department_id; archived becomes an
+    archived_at timestamp.
+
+    Raises:
+        ApiError: 422 if name or archived is sent as null.
+    """
     # Only the fields sent change; null clears head_id, lead_id or department_id.
     changes = {
         key: str(value) if isinstance(value, UUID) else value
@@ -138,6 +160,11 @@ def unit_changes(payload):
 
 
 def update_unit(client, table, org_id: UUID, unit_id: UUID, changes, columns):
+    """Apply changes to a department or team in the organization and return it.
+
+    Raises:
+        ApiError: 404 if the department or team is not in the organization.
+    """
     query = client.table(table)
     if changes:
         query = query.update(changes)
@@ -168,6 +195,7 @@ TEAM_COLUMNS = "id, name, department_id, lead_id, archived_at"
 def create_department(
     org_id: UUID, payload: DepartmentCreate, auth=Depends(get_current_user)
 ):
+    """Create a department in the organization (org admins only)."""
     client = auth["client"]
     require_org_admin(client, org_id)
     rows = write_directory(
@@ -193,6 +221,7 @@ def update_department(
     payload: DepartmentUpdate,
     auth=Depends(get_current_user),
 ):
+    """Rename a department, set or clear its head, or archive it (org admins only)."""
     # Rename, set or clear the head, archive or unarchive.
     client = auth["client"]
     require_org_admin(client, org_id)
@@ -210,6 +239,7 @@ def update_department(
     "/api/organizations/{org_id}/teams", response_model=DirectoryTeam, status_code=201
 )
 def create_team(org_id: UUID, payload: TeamCreate, auth=Depends(get_current_user)):
+    """Create a team in the organization, optionally inside a department (org admins only)."""
     client = auth["client"]
     require_org_admin(client, org_id)
     fields = {
@@ -227,6 +257,7 @@ def create_team(org_id: UUID, payload: TeamCreate, auth=Depends(get_current_user
 def update_team(
     org_id: UUID, team_id: UUID, payload: TeamUpdate, auth=Depends(get_current_user)
 ):
+    """Rename a team, move it, set or clear its lead, or archive it (org admins only)."""
     # Rename, move to another department (or none), set or clear the lead,
     # archive or unarchive.
     client = auth["client"]
@@ -237,6 +268,11 @@ def update_team(
 
 
 def team_in_org(client, org_id: UUID, team_id: UUID):
+    """Return the team's row if it belongs to the organization.
+
+    Raises:
+        ApiError: 404 if the team is not in the organization.
+    """
     rows = (
         client.table("team")
         .select("archived_at")
@@ -256,6 +292,11 @@ def team_in_org(client, org_id: UUID, team_id: UUID):
 def add_team_member(
     org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(get_current_user)
 ):
+    """Put an active member on a team; already being on it is fine (org admins only).
+
+    Raises:
+        ApiError: 409 if the team is archived.
+    """
     # Puts an active member on the team; already on it is fine.
     client = auth["client"]
     require_org_admin(client, org_id)
@@ -281,6 +322,7 @@ def add_team_member(
 def remove_team_member(
     org_id: UUID, team_id: UUID, user_id: UUID, auth=Depends(get_current_user)
 ):
+    """Take someone off a team; their organization membership stays (org admins only)."""
     # Takes someone off the team; their org membership stays. Not on it is fine.
     client = auth["client"]
     require_org_admin(client, org_id)
@@ -298,6 +340,8 @@ def remove_team_member(
 
 
 class MemberUpdate(RequestModel):
+    """Request body for changing a member; only the fields sent change."""
+
     access_role: Optional[Literal["member", "admin"]] = None
     department_id: Optional[UUID] = None
     manager_id: Optional[UUID] = None
@@ -311,6 +355,8 @@ class MemberUpdate(RequestModel):
 
 
 class MemberOut(BaseModel):
+    """A member's organization settings after a change."""
+
     user_id: UUID
     active: bool
     access_role: Literal["member", "admin"]
@@ -354,6 +400,14 @@ AFFECTED_KEYS = {"has_direct_reports": "reports", "owns_prds": "prds"}
 def update_member(
     org_id: UUID, user_id: UUID, payload: MemberUpdate, auth=Depends(get_current_user)
 ):
+    """Change a member's role, department, manager, title or active flag.
+
+    Only the fields sent change; null clears department, manager or title.
+
+    Raises:
+        ApiError: 404 if the organization is hidden, 422 if access_role or
+            active is sent as null.
+    """
     # Change a member's role, department, manager, title or active flag.
     # Only the fields sent change; null clears department, manager or title.
     client = auth["client"]

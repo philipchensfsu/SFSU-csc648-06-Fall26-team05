@@ -11,6 +11,7 @@ from prd_document import load_spec, section_types
 
 
 def text_node_schema() -> dict:
+    """Return the JSON schema for a text node (with optional bold or italic)."""
     return {
         "type": "object",
         "properties": {
@@ -32,6 +33,7 @@ def text_node_schema() -> dict:
 
 
 def paragraph_schema() -> dict:
+    """Return the JSON schema for a paragraph."""
     return {
         "type": "object",
         "properties": {
@@ -43,6 +45,7 @@ def paragraph_schema() -> dict:
 
 
 def heading_schema() -> dict:
+    """Return the JSON schema for a level 2 or 3 heading."""
     return {
         "type": "object",
         "properties": {
@@ -59,6 +62,7 @@ def heading_schema() -> dict:
 
 
 def list_schema(list_type: str) -> dict:
+    """Return the JSON schema for a bullet or ordered list."""
     item = {
         "type": "object",
         "properties": {

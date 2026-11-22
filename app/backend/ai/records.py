@@ -79,11 +79,15 @@ OPTION_REQUIRED = (422, "Choose one of the options.", "option_required")
 
 
 class RecordError(ApiError):
+    """Raised when an AI audit record cannot be written."""
+
     pass
 
 
 @dataclass(frozen=True)
 class RecordResult:
+    """The ids of the saved AI audit record and proposal, and the outcome."""
+
     generation_record_id: str
     proposal_id: str | None
     outcome: str  # one of OUTCOMES

@@ -1,3 +1,5 @@
+"""PRD sharing routes: members and roles, whole-team assignment (feature 02) and AI-suggested teams (feature 08)."""
+
 from datetime import datetime
 from typing import Literal, Optional
 from uuid import UUID
@@ -15,6 +17,8 @@ router = APIRouter()
 
 
 class PRDMemberOut(BaseModel):
+    """A person on a PRD and their role."""
+
     user_id: UUID
     name: Optional[str]
     role: Literal["owner", "editor", "viewer"]
@@ -23,15 +27,21 @@ class PRDMemberOut(BaseModel):
 
 
 class PRDMemberIn(RequestModel):
+    """Request body for inviting someone or changing their role."""
+
     role: Literal["owner", "editor", "viewer"]
 
 
 class TeamMembersIn(RequestModel):
+    """Request body for adding a whole team to a PRD."""
+
     team_id: UUID
     role: Literal["editor", "viewer"]
 
 
 class TeamMembersOut(BaseModel):
+    """Who a team assignment added, who was already on the PRD, and the full member list."""
+
     added: list[PRDMemberOut]
     skipped: list[PRDMemberOut]  # already on the PRD; their role is unchanged
     members: list[PRDMemberOut]
@@ -79,6 +89,11 @@ TEAM_ERRORS = {
 
 
 def list_people(client, prd_id: UUID):
+    """Return everyone on a PRD with their role, in the order they were added.
+
+    Raises:
+        ApiError: 404 if the PRD does not exist or the caller cannot see it.
+    """
     rows = client.rpc("prd_people", {"target_prd": str(prd_id)}).execute().data
     # A PRD always has an owner, so no rows means the caller can't see it.
     if not rows:
@@ -97,6 +112,7 @@ def list_people(client, prd_id: UUID):
 
 @router.get("/api/prds/{prd_id}/members", response_model=list[PRDMemberOut])
 def list_prd_members(prd_id: UUID, auth=Depends(get_current_user)):
+    """List everyone on a PRD; any viewer can see the list."""
     # Everyone on the PRD, in the order they were added; any viewer can see it.
     return list_people(auth["client"], prd_id)
 
@@ -105,6 +121,13 @@ def list_prd_members(prd_id: UUID, auth=Depends(get_current_user)):
 def set_prd_member(
     prd_id: UUID, user_id: UUID, payload: PRDMemberIn, auth=Depends(get_current_user)
 ):
+    """Invite someone from the PRD's organization, or change their role.
+
+    Owners and org admins only.
+
+    Returns:
+        The updated member list.
+    """
     # Invites someone from the PRD's organization, or changes their role.
     # Owners and org admins only. Returns the updated list.
     client = auth["client"]
@@ -123,6 +146,10 @@ def set_prd_member(
 
 @router.delete("/api/prds/{prd_id}/members/{user_id}", status_code=204)
 def remove_prd_member(prd_id: UUID, user_id: UUID, auth=Depends(get_current_user)):
+    """Remove someone from a PRD.
+
+    Owners and org admins can remove anyone; anyone can remove themselves.
+    """
     # Owners and org admins remove anyone; anyone can remove themselves.
     call_function(
         auth["client"],
@@ -136,6 +163,11 @@ def remove_prd_member(prd_id: UUID, user_id: UUID, auth=Depends(get_current_user
 def add_team_to_prd(
     prd_id: UUID, payload: TeamMembersIn, auth=Depends(get_current_user)
 ):
+    """Add a team's current active members to a PRD as editors or viewers.
+
+    This is a one-time snapshot of the team. People already on the PRD keep
+    their role. Owners and org admins only.
+    """
     # Adds the team's current active members once (a snapshot), as editors or
     # viewers. People already on the PRD keep their role. Owners and org
     # admins only.
@@ -169,15 +201,21 @@ def add_team_to_prd(
 # add_team_to_prd does (snapshot, nobody downgraded, one team_added event per
 # team). The owning team and priority (A08, /classification) stay separate.
 class TeamRecommendationIn(RequestModel):
+    """Request body for asking the AI to suggest teams; revision is the PRD revision the caller sees."""
+
     revision: int = Field(..., ge=1)
 
 
 class TeamSelectionIn(RequestModel):
+    """One suggested team the owner accepted, with the role to give its members."""
+
     team_id: UUID
     role: Literal["editor", "viewer"]
 
 
 class TeamRecommendationDecisionIn(RequestModel):
+    """Request body for accepting (with 1 to 3 teams) or rejecting an AI team suggestion."""
+
     decision: Literal["accepted", "rejected"]
     # Accepted: 1 to 3 of the recommended teams, each with a role. Rejected: none.
     teams: Optional[list[TeamSelectionIn]] = Field(
@@ -186,6 +224,8 @@ class TeamRecommendationDecisionIn(RequestModel):
 
 
 class TeamAddedOut(BaseModel):
+    """The result of adding one accepted team."""
+
     team_id: UUID
     role: Literal["editor", "viewer"]
     added: list[PRDMemberOut]
@@ -193,6 +233,8 @@ class TeamAddedOut(BaseModel):
 
 
 class TeamRecommendationDecisionOut(BaseModel):
+    """The decision, what each accepted team added, and the full member list."""
+
     status: Literal["accepted", "rejected"]
     results: list[TeamAddedOut]
     members: list[PRDMemberOut]
@@ -202,6 +244,7 @@ class TeamRecommendationDecisionOut(BaseModel):
 def recommend_teams(
     prd_id: UUID, payload: TeamRecommendationIn, auth=Depends(get_current_user)
 ):
+    """Ask the AI to suggest teams that should work on this PRD (feature 08)."""
     return team_recommendation.recommend_teams(
         auth["client"],
         supabase,
@@ -222,6 +265,11 @@ def decide_team_recommendation(
     payload: TeamRecommendationDecisionIn,
     auth=Depends(get_current_user),
 ):
+    """Accept or reject an AI team suggestion; accepting adds the chosen teams.
+
+    Raises:
+        ApiError: 422 if teams are sent with a rejection or missing from an acceptance.
+    """
     if (payload.decision == "accepted") != (payload.teams is not None):
         raise ApiError(
             422,

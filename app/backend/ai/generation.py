@@ -142,6 +142,7 @@ class GenerationInputError(ApiError):
     """The PRD isn't ready to generate from. Raised before any Gemini call."""
 
     def __init__(self, detail: str, code: str):
+        """Create a 422 error with the given message and code."""
         super().__init__(422, detail, code)
 
 
@@ -208,6 +209,12 @@ def build_prompt(inputs: GenerationInput) -> str:
 
 
 def check_inputs(inputs: GenerationInput) -> None:
+    """Check the intake answers and saved context before calling the model.
+
+    Raises:
+        GenerationInputError: If an answer is unknown, not text or too long, the
+            context is invalid, or a required answer is missing.
+    """
     unknown = set(inputs.answers) - set(INTAKE_KEYS)
     if unknown:
         raise GenerationInputError(
@@ -237,6 +244,11 @@ def check_inputs(inputs: GenerationInput) -> None:
 
 
 def check_context(context: SavedContext) -> None:
+    """Check the PRD's saved AI context is within its limits.
+
+    Raises:
+        GenerationInputError: If the context is malformed.
+    """
     # The database already enforces these bounds; checking again keeps a
     # malformed row from reaching the model.
     for key in CONTEXT_LISTS:

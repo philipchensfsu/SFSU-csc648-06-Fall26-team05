@@ -7,6 +7,7 @@ from __future__ import annotations
 
 
 def plain_text(node: dict) -> str:
+    """Return the text inside a document node, with hard breaks as newlines."""
     if node["type"] == "text":
         return node["text"]
     if node["type"] == "hardBreak":
@@ -15,6 +16,7 @@ def plain_text(node: dict) -> str:
 
 
 def iter_marks(node: dict, path: str):
+    """Yield the path and type of every text mark (bold, link and so on) under a node."""
     if node["type"] == "text":
         for index, mark in enumerate(node.get("marks", [])):
             yield f"{path}/marks/{index}", mark["type"]
@@ -24,6 +26,7 @@ def iter_marks(node: dict, path: str):
 
 
 def block_lines(node: dict) -> list[str]:
+    """Turn a block node into plain-text lines, keeping list numbers, quotes and table rows readable."""
     node_type = node["type"]
     if node_type in ("paragraph", "heading"):
         text = plain_text(node)

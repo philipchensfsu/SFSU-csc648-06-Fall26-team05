@@ -436,6 +436,7 @@ def build_prompt(
     session_messages: list[dict],
     pending: PendingProposal | None = None,
 ) -> str:
+    """Build the JSON prompt for a whole-PRD revision from the document, context, chat and instruction."""
     data = {
         "title": prd["title"],
         "description": prd["description"],

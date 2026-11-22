@@ -67,30 +67,36 @@ class UsageLimitError(ApiError):
     Retry-After header."""
 
     def __init__(self, code: str, retry_after: int):
+        """Create the 429 error with a Retry-After header and retry_after field."""
         super().__init__(429, MESSAGES[code], code)
         self.headers = {"Retry-After": str(retry_after)}
         self.extra = {"retry_after": retry_after}
 
 
 def cooldown_seconds() -> int:
+    """Return the wait between a user's AI requests (AI_COOLDOWN_SECONDS)."""
     return _setting("AI_COOLDOWN_SECONDS", DEFAULT_COOLDOWN_SECONDS, 0, 3600)
 
 
 def request_budget_seconds() -> int:
+    """Return the total time one AI request may take (AI_REQUEST_BUDGET_SECONDS)."""
     return _setting(
         "AI_REQUEST_BUDGET_SECONDS", DEFAULT_REQUEST_BUDGET_SECONDS, 30, 270
     )
 
 
 def scope_timeout_seconds() -> int:
+    """Return the timeout for the AI scope check (AI_SCOPE_TIMEOUT_SECONDS)."""
     return _setting("AI_SCOPE_TIMEOUT_SECONDS", DEFAULT_SCOPE_TIMEOUT_SECONDS, 1, 60)
 
 
 def main_timeout_seconds() -> int:
+    """Return the timeout for the main AI model call (AI_MAIN_TIMEOUT_SECONDS)."""
     return _setting("AI_MAIN_TIMEOUT_SECONDS", DEFAULT_MAIN_TIMEOUT_SECONDS, 5, 120)
 
 
 def lease_seconds() -> int:
+    """Return how long a usage lease lasts; it always outlasts the request budget."""
     budget = request_budget_seconds()
     lease = _setting("AI_LEASE_SECONDS", budget + LEASE_MARGIN_SECONDS, 10, 3600)
     if lease <= budget:
@@ -109,6 +115,12 @@ class RequestBudget:
     allowance is still left."""
 
     def __init__(self, total_seconds: float | None = None, *, clock=time.monotonic):
+        """Start the clock for one request's time budget.
+
+        Args:
+            total_seconds: The budget; defaults to request_budget_seconds().
+            clock: The time source, replaceable in tests.
+        """
         self.total = (
             request_budget_seconds() if total_seconds is None else total_seconds
         )
@@ -116,6 +128,7 @@ class RequestBudget:
         self._start = clock()
 
     def remaining(self) -> float:
+        """Return how many seconds of the budget are left."""
         return self.total - (self._clock() - self._start)
 
     def call_timeout(self, wanted: float) -> float:

@@ -162,6 +162,12 @@ def propose_review_suggestion(
     call_model: Callable[..., GeminiResult] | None = None,
     modules: chat.ChatModules | None = None,
 ) -> dict:
+    """Propose a revision that addresses chosen review comments (E12); nothing is saved.
+
+    Raises:
+        ApiError: 422 if the number of comments or the instruction length is
+            out of range.
+    """
     feedback_ids = list(dict.fromkeys(str(i) for i in feedback_ids))
     if not 1 <= len(feedback_ids) <= MAX_FEEDBACK_ITEMS:
         raise ApiError(
@@ -283,6 +289,7 @@ def _require_owner(user_client, prd_id: str) -> None:
 def build_prompt(
     prd: dict, document: dict, feedback: list[dict], instruction: str | None
 ) -> str:
+    """Build the JSON prompt for a review suggestion from the document and chosen review feedback."""
     data = {
         "title": prd["title"],
         "description": prd["description"],

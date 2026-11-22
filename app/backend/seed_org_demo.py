@@ -141,6 +141,7 @@ def email(key):
 
 
 def ensure_person(supabase, key, name, password):
+    """Create or update a demo person's account and name, and return their user id."""
     existing = next(
         (
             u
@@ -180,6 +181,7 @@ def sign_in(url, anon_key, address, password):
 
 
 def ensure_unit(supabase, table, org_id, name, extra=None):
+    """Return the id of an active department or team with this name, creating it if needed."""
     rows = (
         supabase.table(table)
         .select("id")
@@ -276,6 +278,7 @@ def owner_edit(supabase, prd, title, changes):
 
 
 def play_reviews(supabase, org_id, owner_client, clients, ids):
+    """Replay the scripted review history (edits, invites, submissions and decisions) on the demo PRDs."""
     prds = {
         p["title"]: p
         for p in supabase.table("prd")
@@ -348,6 +351,7 @@ def play_reviews(supabase, org_id, owner_client, clients, ids):
 
 
 def ensure_solo_org(supabase, password):
+    """Create the single-person demo organization if it does not exist yet."""
     key, name, org_name = SOLO
     user_id = ensure_person(supabase, key, name, password)
     if not (
@@ -370,6 +374,11 @@ def ensure_solo_org(supabase, password):
 
 
 def seed(supabase, allow_hosted=False, anon_key=None):
+    """Seed the full organization demo: people, directory, PRDs and real review history.
+
+    Raises:
+        SystemExit: If DEMO_PASSWORD is not set.
+    """
     password = os.environ.get("DEMO_PASSWORD")
     if not password:
         raise SystemExit(
@@ -413,6 +422,7 @@ def seed(supabase, allow_hosted=False, anon_key=None):
 
 
 def main(argv=None):
+    """Run the organization demo seed from the command line."""
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument(
         "--allow-hosted",

@@ -42,6 +42,17 @@ VERSION_NOT_FOUND = (404, "Version not found")
 def list_versions(
     client, prd_id: str, *, limit: int = DEFAULT_LIMIT, cursor: str | None = None
 ) -> dict:
+    """List a PRD's saved versions, newest first, one page at a time.
+
+    Args:
+        client: The caller's Supabase client.
+        prd_id: The PRD.
+        limit: How many versions per page.
+        cursor: The next_cursor from the previous page, if any.
+
+    Returns:
+        The page's versions (without content) and the next cursor.
+    """
     org_id = _visible_prd_org(client, prd_id)
     before = _decode_cursor(cursor) if cursor else None
     query = (
@@ -63,6 +74,11 @@ def list_versions(
 
 
 def get_version(client, prd_id: str, version_id: str) -> dict:
+    """Return one saved version of a PRD with its full content.
+
+    Raises:
+        ApiError: 404 if the version does not exist or belongs to another PRD.
+    """
     org_id = _visible_prd_org(client, prd_id)
     rows = (
         client.table("prd_version")

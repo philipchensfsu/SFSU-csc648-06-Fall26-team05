@@ -1,3 +1,5 @@
+"""Revision history routes (feature 01): list a PRD's saved versions and read one."""
+
 from datetime import datetime
 from typing import Optional
 from uuid import UUID
@@ -12,11 +14,15 @@ router = APIRouter()
 
 
 class VersionActor(BaseModel):
+    """The person who saved a version."""
+
     id: UUID
     name: Optional[str]
 
 
 class VersionOut(BaseModel):
+    """One saved version in a PRD's history, without its content."""
+
     id: UUID
     version_no: int
     saved_revision: Optional[int]
@@ -30,11 +36,15 @@ class VersionOut(BaseModel):
 
 
 class VersionPage(BaseModel):
+    """A page of versions and the cursor for the next page."""
+
     items: list[VersionOut]
     next_cursor: Optional[str]
 
 
 class VersionDetail(VersionOut):
+    """One saved version including its full content."""
+
     title: Optional[str]
     description: Optional[str]
     content_json: Optional[dict]
@@ -51,6 +61,14 @@ def list_prd_versions(
     cursor: Optional[str] = None,
     auth=Depends(get_current_user),
 ):
+    """List a PRD's saved versions, newest first.
+
+    Args:
+        prd_id: The PRD.
+        limit: How many versions per page.
+        cursor: The next_cursor from the previous page, if any.
+        auth: The signed-in user and their Supabase client.
+    """
     return prd_versions.list_versions(
         auth["client"], str(prd_id), limit=limit, cursor=cursor
     )
@@ -58,4 +76,5 @@ def list_prd_versions(
 
 @router.get("/api/prds/{prd_id}/versions/{version_id}", response_model=VersionDetail)
 def get_prd_version(prd_id: UUID, version_id: UUID, auth=Depends(get_current_user)):
+    """Return one saved version of a PRD, read-only."""
     return prd_versions.get_version(auth["client"], str(prd_id), str(version_id))

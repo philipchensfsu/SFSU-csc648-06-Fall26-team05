@@ -1,3 +1,5 @@
+"""FastAPI application entry point: creates the app, sets up CORS and error handlers, and includes every API router."""
+
 import os
 import sys
 

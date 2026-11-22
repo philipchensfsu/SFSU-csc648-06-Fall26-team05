@@ -1,3 +1,5 @@
+"""Guided intake routes: read and save the answers used to generate a PRD."""
+
 from datetime import datetime, timezone
 from typing import Optional
 from uuid import UUID
@@ -23,11 +25,15 @@ INTAKE_QUESTION_KEYS = {
 
 
 class IntakeAnswerIn(RequestModel):
+    """Request body for saving one intake answer."""
+
     answer_text: str = Field(default="", max_length=5000)
     skipped: bool = False
 
 
 class IntakeAnswerOut(BaseModel):
+    """A saved intake answer."""
+
     question_key: str
     answer_text: Optional[str]
     skipped: bool
@@ -36,6 +42,7 @@ class IntakeAnswerOut(BaseModel):
 
 @router.get("/api/prds/{prd_id}/intake", response_model=list[IntakeAnswerOut])
 def list_intake_answers(prd_id: UUID, auth=Depends(get_current_user)):
+    """List every saved intake answer for a PRD."""
     client = auth["client"]
     response = (
         client.table("intake_answer")
@@ -53,6 +60,11 @@ def save_intake_answer(
     payload: IntakeAnswerIn,
     auth=Depends(get_current_user),
 ):
+    """Save or overwrite the answer to one intake question.
+
+    Raises:
+        HTTPException: 400 if the question key is not a known intake question.
+    """
     if question_key not in INTAKE_QUESTION_KEYS:
         raise HTTPException(status_code=400, detail=f"Unknown question: {question_key}")
 

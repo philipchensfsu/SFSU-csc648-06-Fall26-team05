@@ -85,6 +85,12 @@ def suggest_routing(
     budget: usage_gate.RequestBudget | None = None,
     call_model: Callable[..., GeminiResult] | None = None,
 ) -> dict:
+    """Ask the AI to suggest an owning team and priority for a PRD.
+
+    Raises:
+        ApiError: 404 if the PRD is hidden, 403 if the caller cannot manage it,
+            409 if the revision is stale, 422 if it has no content yet.
+    """
     budget = budget or usage_gate.RequestBudget()
     rows = user_client.table("prd").select("*").eq("id", prd_id).execute().data
     if not rows:
@@ -174,6 +180,7 @@ def decide(
 
 
 def build_prompt(prd: dict, teams: list[dict], context: SavedContext) -> str:
+    """Build the JSON prompt for a routing suggestion from the PRD, its saved context and the teams."""
     text = prd.get("content_text") or ""
     data = {
         "prd": {
@@ -194,6 +201,7 @@ def build_prompt(prd: dict, teams: list[dict], context: SavedContext) -> str:
 
 
 def response_schema(team_ids: list[str]) -> dict:
+    """Return the JSON schema the model's routing suggestion must follow."""
     return {
         "type": "object",
         "properties": {

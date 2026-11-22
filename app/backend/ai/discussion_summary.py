@@ -104,6 +104,11 @@ without Markdown.
 
 
 def response_schema() -> dict:
+    """Return the JSON schema for the discussion summary.
+
+    Array sizes are checked in code instead, because Gemini rejects this schema
+    when they are in it.
+    """
     # No minItems/maxItems on any array: with four lists of objects that each
     # hold a bounded refs list, Gemini rejects the schema with 400 "too many
     # states for serving". checked_summary enforces the counts instead.
@@ -164,6 +169,19 @@ def summarize_discussion(
     budget: usage_gate.RequestBudget | None = None,
     call_model: Callable[..., GeminiResult] | None = None,
 ) -> dict:
+    """Summarize the comments on a PRD version into themes and open points (feature 05).
+
+    Returns an empty summary when nothing is saved or nobody has commented.
+
+    Args:
+        user_client: The caller's Supabase client.
+        service_client: The service-role client for audit records.
+        actor_id: The caller's user id.
+        prd_id: The PRD.
+        version_id: The version to summarize; the current one if None.
+        budget: The request's time budget.
+        call_model: The model call, replaceable in tests.
+    """
     prd = _load_prd(user_client, prd_id)  # 404 if not visible
     version = _load_version(user_client, prd, version_id)
     if version is None:  # nothing saved yet, so nothing to comment on
@@ -289,6 +307,7 @@ def _load_comments(user_client, prd_id: str, version_id: str) -> tuple[list[dict
 
 
 def build_prompt(prd: dict, version: dict, comments: list[dict]) -> str:
+    """Build the JSON prompt for a discussion summary from the PRD version and its comments."""
     data = {
         "title": prd["title"],
         "description": prd.get("description") or "",
