@@ -780,11 +780,7 @@ function Prototype({
           }}
           onOpenEditor={(options) => openPrd(activePrd, options)}
           onHome={() => showHome({ page: "dashboard" })}
-          back={
-            detailsFrom === "editor"
-              ? { label: "Back to editor", onClick: () => openPrd(activePrd), toEditor: true }
-              : undefined
-          }
+          onBack={detailsFrom === "editor" ? () => openPrd(activePrd) : undefined}
         />
       </Suspense>
     );

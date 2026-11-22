@@ -124,7 +124,7 @@ let host;
 let onNavigate;
 let onOpenEditor;
 
-async function show(view = { tab: "overview" }, back = undefined) {
+async function show(view = { tab: "overview" }, onBack = undefined) {
   onNavigate = vi.fn();
   onOpenEditor = vi.fn();
   host = document.createElement("div");
@@ -140,7 +140,7 @@ async function show(view = { tab: "overview" }, back = undefined) {
         onNavigate={onNavigate}
         onOpenEditor={onOpenEditor}
         onHome={vi.fn()}
-        back={back}
+        onBack={onBack}
       />,
     );
   });
@@ -285,21 +285,16 @@ describe("PRD details overview", () => {
     expect(onNavigate).toHaveBeenCalledWith({ tab: "history" });
   });
 
-  it("goes back to where it was opened from", async () => {
+  it("goes back to the editor it was opened from", async () => {
     const onBack = vi.fn();
-    await show({ tab: "overview" }, { label: "Back to editor", onClick: onBack, toEditor: true });
+    await show({ tab: "overview" }, onBack);
     await click(buttonNamed("Back to editor"));
     expect(onBack).toHaveBeenCalledTimes(1);
-    // The back link already goes to the editor, so "Open editor" would repeat it.
+    // The back button already goes to the editor, so "Open editor" would repeat it.
     expect(buttonNamed("Open editor")).toBeUndefined();
   });
 
-  it("keeps Open editor when the back link goes elsewhere", async () => {
-    await show({ tab: "overview" }, { label: "Back to dashboard", onClick: vi.fn() });
-    expect(buttonNamed("Open editor")).toBeDefined();
-  });
-
-  it("shows no back link without one", async () => {
+  it("shows no back button without one", async () => {
     await show();
     expect(text()).not.toContain("Back to");
     expect(buttonNamed("Open editor")).toBeDefined();

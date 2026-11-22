@@ -54,9 +54,9 @@ function withChanges(detail, row) {
 //   onOpenEditor(options)  the PRD in the editor; { railTab: "comments" }
 //                   opens it on the Comments tab
 //   onHome()        back to the dashboard
-//   back            { label, onClick, toEditor? }: a "Back to …" button at the top (opened from the
-//                   editor); with toEditor the bar's "Open editor" is left out, as it would repeat it
-export default function PrdDetailsPage({ prd, view, organizationId, userId, onNavigate, onOpenEditor, onHome, back }) {
+//   onBack()        when opened from the editor: a "Back to editor" button at the top, in place of
+//                   the bar's "Open editor", which would repeat it
+export default function PrdDetailsPage({ prd, view, organizationId, userId, onNavigate, onOpenEditor, onHome, onBack }) {
   const prdId = prd.id;
   const [detail, setDetail] = useState(null);
   const [loadError, setLoadError] = useState("");
@@ -191,7 +191,7 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
                 Share
               </button>
             ) : null}
-            {back?.toEditor ? null : (
+            {onBack ? null : (
               <button type="button" className="nw-btn nw-btn-primary ne-btn-38" onClick={() => onOpenEditor()}>
                 <IconPencil size={15} />
                 Open editor
@@ -202,10 +202,10 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
       />
 
       <main className="nd-main" id="nw-main" tabIndex={-1}>
-        {back ? (
-          <button type="button" className="nw-btn nw-btn-secondary nd-back" onClick={back.onClick}>
+        {onBack ? (
+          <button type="button" className="nw-btn nw-btn-secondary nd-back" onClick={onBack}>
             <IconBack />
-            {back.label}
+            Back to editor
           </button>
         ) : null}
         {loadError && !detail ? (
