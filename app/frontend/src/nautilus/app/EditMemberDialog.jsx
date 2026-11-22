@@ -122,6 +122,7 @@ function EditMemberForm({
           className="nw-select nw-people-pick"
           value={form.departmentId}
           disabled={busy}
+          aria-describedby={`${ids}-department-hint`}
           onChange={set("departmentId")}
         >
           <option value="">No department</option>
@@ -133,6 +134,9 @@ function EditMemberForm({
               </option>
             ))}
         </select>
+        <p id={`${ids}-department-hint`} className="nw-hint">
+          To add one, use New department in the Departments section below.
+        </p>
       </div>
 
       <div className="nw-field">
