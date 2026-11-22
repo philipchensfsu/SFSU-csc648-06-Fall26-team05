@@ -9,6 +9,7 @@ import { FlowBar } from "../flow/FlowBar";
 import { ApprovalsCard } from "../editor/ReviewPanel";
 import { ShareDialog } from "../editor/ShareDialog";
 import { editedWhen, formatDate, formatDayTime, initialsOf } from "../format";
+import { IconBack } from "../editor/editorIcons";
 import { IconPencil, IconPeople } from "../icons";
 import { Avatar, StatusChip } from "../ui";
 import { ActivityTab, RecentActivityCard } from "./Activity";
@@ -53,7 +54,9 @@ function withChanges(detail, row) {
 //   onOpenEditor(options)  the PRD in the editor; { railTab: "comments" }
 //                   opens it on the Comments tab
 //   onHome()        back to the dashboard
-export default function PrdDetailsPage({ prd, view, organizationId, userId, onNavigate, onOpenEditor, onHome }) {
+//   back            { label, onClick, toEditor? }: a "Back to …" button at the top (opened from the
+//                   editor); with toEditor the bar's "Open editor" is left out, as it would repeat it
+export default function PrdDetailsPage({ prd, view, organizationId, userId, onNavigate, onOpenEditor, onHome, back }) {
   const prdId = prd.id;
   const [detail, setDetail] = useState(null);
   const [loadError, setLoadError] = useState("");
@@ -188,15 +191,23 @@ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNa
                 Share
               </button>
             ) : null}
-            <button type="button" className="nw-btn nw-btn-primary ne-btn-38" onClick={() => onOpenEditor()}>
-              <IconPencil size={15} />
-              Open editor
-            </button>
+            {back?.toEditor ? null : (
+              <button type="button" className="nw-btn nw-btn-primary ne-btn-38" onClick={() => onOpenEditor()}>
+                <IconPencil size={15} />
+                Open editor
+              </button>
+            )}
           </>
         }
       />
 
       <main className="nd-main" id="nw-main" tabIndex={-1}>
+        {back ? (
+          <button type="button" className="nw-btn nw-btn-secondary nd-back" onClick={back.onClick}>
+            <IconBack />
+            {back.label}
+          </button>
+        ) : null}
         {loadError && !detail ? (
           <div className="nd-error" role="alert">
             Couldn’t load this PRD. {loadError}{" "}
