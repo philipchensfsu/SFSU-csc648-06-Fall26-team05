@@ -1,6 +1,7 @@
 // AI proposals to compare and accept: conversational revisions (POST
 // /api/prds/{id}/ai-revisions) and revisions addressing review comments
-// (POST /api/prds/{id}/review-suggestions, owners only). Asking, accepting
+// (POST /api/prds/{id}/review-suggestions, owners only), one or two options
+// at a time (POST /api/prds/{id}/review-alternatives). Asking, accepting
 // through the save, and what their errors say.
 // The editor wires these to the chat and the comparison view.
 //
@@ -77,24 +78,47 @@ export async function requestFeedbackRevision(api, prdId, { revision, feedbackId
   };
 }
 
+// Feature 09: two different ways to address the same comments, from one AI
+// request. Returns { options: [proposal, …] }, each a proposal like the one
+// above plus `option` (its number, sent back when accepting or adjusting),
+// `title` and `tradeoffs`. They share one generation record, so accepting
+// one retires the others.
+export async function requestFeedbackAlternatives(api, prdId, { revision, feedbackIds, instruction = null }) {
+  const snapshot = await freshSnapshot(api, prdId, revision);
+  const reply = await api.requestReviewAlternatives(prdId, { revision, feedbackIds, instruction });
+  return {
+    options: (reply.options ?? []).map((choice) => ({
+      ...toProposal(snapshot, { ...reply, proposal: choice.proposal }, choice.explanation, { instruction, feedbackIds }),
+      option: choice.option,
+      title: choice.title,
+      tradeoffs: choice.tradeoffs ?? [],
+    })),
+  };
+}
+
 // Request adjustments: asks for changes to a proposal that hasn't been
 // accepted. The comparison keeps the same "current" side (the saved PRD it
 // was made from) and base revision; the server revises the pending proposal
 // it holds, keeps every section changed so far in scope, and retires the old
-// one. A proposal from review comments stays one (owners only).
+// one. A proposal from review comments stays one (owners only). Adjusting one
+// option of a set names it, and the answer is a single proposal: the set's
+// options can't be accepted any more.
 export async function requestAdjustment(api, prdId, proposal, { instruction, sessionMessages = [] }) {
   const reply = await api.requestAiRevision(prdId, {
     revision: proposal.baseRevision,
     instruction,
     sessionMessages,
     previousGenerationRecordId: proposal.generationRecordId,
+    previousOption: proposal.option ?? undefined,
   });
   if (reply.kind !== "proposal" || !reply.proposal) return { kind: reply.kind, message: reply.message };
+  // The adjusted proposal is a single one, no longer an option of a set.
+  const { option: _option, title: _title, tradeoffs: _tradeoffs, ...single } = proposal;
   return {
     kind: "proposal",
     message: reply.message,
     proposal: {
-      ...proposal,
+      ...single,
       baseRevision: reply.base_revision,
       generationRecordId: reply.generation_record_id,
       proposedDocument: reply.proposal.content_json,
@@ -126,12 +150,14 @@ function toProposal(snapshot, reply, explanation, extra) {
 // The save that accepts a proposal: the proposed document as the server sent
 // it, the revision it was made from and its record. Never title or
 // description. confirmedReviewerIds only after the reviewer dialog, for an
-// approved PRD (409 reapproval_required first).
+// approved PRD (409 reapproval_required first). One of a set of alternatives
+// also names its option (without it the save is 422 option_required).
 export function acceptBody(proposal, confirmedReviewerIds) {
   return {
     revision: proposal.baseRevision,
     content_json: proposal.proposedDocument,
     generation_record_id: proposal.generationRecordId,
+    ...(proposal.option ? { option: proposal.option } : {}),
     ...(confirmedReviewerIds ? { confirmed_reviewer_ids: confirmedReviewerIds } : {}),
   };
 }

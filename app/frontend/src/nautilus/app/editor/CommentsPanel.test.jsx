@@ -82,6 +82,35 @@ afterEach(async () => {
   host.remove();
 });
 
+describe("the comment box", () => {
+  it("posts with Ctrl or ⌘ + Enter", async () => {
+    await show();
+    await type("Ship it");
+    await act(async () =>
+      box().dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true, cancelable: true })),
+    );
+    expect(api.addPrdComment).toHaveBeenCalledWith("prd-1", { versionId: VERSION, body: "Ship it", mentions: [] });
+    expect(box().value).toBe("");
+  });
+
+  it("starts a mention from the @ button and lists people", async () => {
+    await show();
+    await type("Can");
+    await act(async () => host.querySelector('[aria-label="Mention someone"]').click());
+    expect(box().value).toBe("Can @");
+    expect(api.listPrdMembers).toHaveBeenCalledOnce();
+    expect(optionNames()).toEqual(["Ken Tanaka", "Kemi Osei"]);
+  });
+
+  it("counts characters only near the limit", async () => {
+    await show();
+    await type("Short");
+    expect(host.querySelector(".ne-composer-count")).toBeNull();
+    await type("x".repeat(4600));
+    expect(host.querySelector(".ne-composer-count").textContent).toBe("4,600 / 5,000");
+  });
+});
+
 describe("CommentsPanel", () => {
   it("lists the PRD's comments with their author and department", async () => {
     await show();
@@ -130,12 +159,21 @@ describe("CommentsPanel", () => {
     expect(host.textContent).toContain("<img src=x onerror=alert(1)>");
   });
 
-  it("marks a comment left on an older version", async () => {
+  it("keeps comments on older versions on their own tab, marked with their version", async () => {
     api.listPrdComments.mockResolvedValue({
-      items: [comment("old", { version_id: "ver-1", version_no: 1, section_type: "goals" })],
+      items: [comment("old", { version_id: "ver-1", version_no: 1, section_type: "goals" }), comment("new")],
       next_cursor: null,
     });
     await show();
+    const tabs = [...host.querySelectorAll(".ne-comment-tab")];
+    expect(tabs.map((tab) => tab.textContent)).toEqual(["Current1", "Earlier versions1"]);
+    expect(tabs[1].querySelector(".ne-comment-tab-count").getAttribute("aria-label")).toBe("1 comments");
+    expect(tabs[0].getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelectorAll(".ne-comment")).toHaveLength(1);
+    await act(async () => tabs[1].click());
+    expect(tabs[1].getAttribute("aria-pressed")).toBe("true");
+    expect(host.querySelectorAll(".ne-comment")).toHaveLength(1);
+    expect(host.textContent).toContain("Kept as the record of what was asked");
     expect(host.textContent).toContain("Goals");
     expect(host.textContent).toContain("v1");
   });

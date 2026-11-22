@@ -40,6 +40,38 @@ function Side({ parts, side, missing }) {
   );
 }
 
+function SectionRow({ row }) {
+  return (
+    <li className={`nc-section is-${row.status}`}>
+      <div className="nc-section-head">
+        <h3 className="nc-section-title">{row.label}</h3>
+        <span className="nc-status">{STATUS_NOTES[row.status]}</span>
+      </div>
+      <div className="nc-pair">
+        <Side parts={row.current} side="current" missing="Not in the current PRD" />
+        <Side parts={row.proposed} side="proposed" missing="Removed in the proposal" />
+      </div>
+    </li>
+  );
+}
+
+// Only the sections a proposal changes, current above proposed, for a
+// compact preview (the options view). The same word highlights as below.
+export function ChangedSections({ currentDocument, proposedDocument }) {
+  const rows = useMemo(
+    () => compareDocuments(currentDocument, proposedDocument).filter((row) => row.status !== "unchanged"),
+    [currentDocument, proposedDocument],
+  );
+  if (!rows.length) return <p className="nc-empty">This matches the current PRD.</p>;
+  return (
+    <ol className="nc-sections is-stacked">
+      {rows.map((row) => (
+        <SectionRow key={row.type} row={row} />
+      ))}
+    </ol>
+  );
+}
+
 // The saved PRD beside an AI proposal for it, the whole document in section
 // order, with the words that differ highlighted. The person accepts or
 // discards the whole proposal; nothing here edits either document.
@@ -203,16 +235,7 @@ export default function PrdProposalComparison({
       {rows.length ? (
         <ol className="nc-sections">
           {visible.map((row) => (
-            <li key={row.type} className={`nc-section is-${row.status}`}>
-              <div className="nc-section-head">
-                <h3 className="nc-section-title">{row.label}</h3>
-                <span className="nc-status">{STATUS_NOTES[row.status]}</span>
-              </div>
-              <div className="nc-pair">
-                <Side parts={row.current} side="current" missing="Not in the current PRD" />
-                <Side parts={row.proposed} side="proposed" missing="Removed in the proposal" />
-              </div>
-            </li>
+            <SectionRow key={row.type} row={row} />
           ))}
         </ol>
       ) : (

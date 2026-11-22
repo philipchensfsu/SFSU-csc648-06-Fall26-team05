@@ -5,6 +5,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import EditorPage from "./EditorPage";
+import { SECTION_TYPES } from "./schema";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 // jsdom doesn't implement the native dialog.
@@ -189,5 +190,38 @@ describe("EditorPage and the browser's Back button", () => {
     // The step taken again isn't asked about twice.
     await backToWorkspace();
     expect(onBrowserBack).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("EditorPage adding a section", () => {
+  const headings = () => [...host.querySelectorAll(".ne-section-title")].map((h) => h.textContent);
+
+  it("isn't offered to someone who can't edit", async () => {
+    await show({ detail: viewer });
+    expect(buttonNamed("Add section")).toBeUndefined();
+  });
+
+  it("offers only the missing sections and adds the one picked in its place", async () => {
+    await show({ detail: allowed });
+    await act(async () => buttonNamed("Add section").click());
+    const select = host.querySelector("dialog select");
+    const options = [...select.options].map((option) => option.textContent);
+    expect(options).not.toContain("Problem Statement");
+    expect(options).toHaveLength(8);
+
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+      setValue.call(select, "risks");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => host.querySelector("dialog form").requestSubmit());
+    expect(headings()).toEqual(["Problem", "Risks"]);
+    expect(host.textContent).toContain("Editing");
+  });
+
+  it("isn't offered once all nine sections are there", async () => {
+    const all = SECTION_TYPES.map(([id, title]) => ({ id, title, html: "<p>Text.</p>" }));
+    await show({ detail: allowed, prd: { ...prd, sections: all } });
+    expect(buttonNamed("Add section")).toBeUndefined();
   });
 });
