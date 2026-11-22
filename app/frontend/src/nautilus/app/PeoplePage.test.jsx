@@ -4,7 +4,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../../../lib/api";
 import PeoplePage from "./PeoplePage";
-import { memberChanges, memberErrorMessage, personName } from "./people";
+import { memberChanges, memberErrorMessage, personName, teamChanges } from "./people";
 
 vi.mock("../../../lib/api", () => ({
   api: {
@@ -13,6 +13,10 @@ vi.mock("../../../lib/api", () => ({
     updateMember: vi.fn(),
     createDepartment: vi.fn(),
     updateDepartment: vi.fn(),
+    createTeam: vi.fn(),
+    updateTeam: vi.fn(),
+    addTeamMember: vi.fn(),
+    removeTeamMember: vi.fn(),
   },
 }));
 
@@ -458,5 +462,146 @@ describe("departments", () => {
 
     await click(buttonWith("New department"));
     expect(section().querySelector('[role="alert"]')).toBeNull();
+  });
+});
+
+
+describe("teams", () => {
+  const section = () => host.querySelector('section[aria-labelledby="nw-teams-h"]');
+  const teamRow = (name) =>
+    [...section().querySelectorAll("tbody tr")].find((row) => row.querySelector("td").textContent === name);
+  const teamAction = async (name, action) => {
+    await click(teamRow(name).querySelector("button[aria-haspopup]"));
+    await click(buttonWith(action));
+  };
+  const teamBox = (name) =>
+    [...dialog().querySelectorAll(".nw-people-team")].find((label) => label.textContent === name).querySelector("input");
+  const tick = (box) => act(async () => box.click());
+
+  it("lists teams with their department and people", async () => {
+    await show();
+    const growth = teamRow("Growth").textContent;
+    expect(growth).toContain("Product");
+    expect(growth).toContain("1 person");
+    expect(growth).toContain("Active");
+  });
+
+  it("creates a team inside a department", async () => {
+    api.createTeam.mockResolvedValue({});
+    await show();
+    await click(buttonWith("New team"));
+    await choose(fieldNamed("Team name"), " Platform ");
+    await choose(fieldNamed("Department"), "d1");
+    await click(buttonWith("Create team"));
+    expect(api.createTeam).toHaveBeenCalledWith("org", "Platform", "d1");
+    expect(api.getDirectory).toHaveBeenCalledTimes(2);
+    expect(dialog()).toBeNull();
+  });
+
+  it("only offers active departments when creating", async () => {
+    await show();
+    await click(buttonWith("New team"));
+    const options = [...fieldNamed("Department").options].map((option) => option.textContent);
+    expect(options).toEqual(["No department", "Product"]);
+  });
+
+  it("sends only what changed when editing, and null to leave the department", async () => {
+    api.updateTeam.mockResolvedValue({});
+    await show();
+    await teamAction("Growth", "Edit");
+    expect(fieldNamed("Team name").value).toBe("Growth");
+    await choose(fieldNamed("Department"), "");
+    await click(buttonWith("Save"));
+    expect(api.updateTeam).toHaveBeenCalledWith("org", "t1", { department_id: null });
+  });
+
+  it("closes without a request when nothing changed", async () => {
+    await show();
+    await teamAction("Growth", "Edit");
+    await click(buttonWith("Save"));
+    expect(api.updateTeam).not.toHaveBeenCalled();
+    expect(dialog()).toBeNull();
+  });
+
+  it("shows name_taken in the dialog", async () => {
+    api.createTeam.mockRejectedValue(refusal("name_taken"));
+    await show();
+    await click(buttonWith("New team"));
+    await choose(fieldNamed("Team name"), "growth");
+    await click(buttonWith("Create team"));
+    expect(dialog().textContent).toContain("That name is already in use.");
+  });
+
+  it("warns before archiving a team with people and shows the refusal", async () => {
+    api.updateTeam.mockRejectedValue(refusal("team_not_empty"));
+    await show();
+    await teamAction("Growth", "Archive");
+    expect(dialog().textContent).toContain("It still has 1 person.");
+    await click(buttonWith("Archive"));
+    expect(api.updateTeam).toHaveBeenCalledWith("org", "t1", { archived: true });
+    expect(dialog().textContent).toContain("Move its people out before archiving it.");
+  });
+
+  it("restores an archived team", async () => {
+    api.getDirectory.mockResolvedValue({
+      ...directory(),
+      teams: [{ id: "t9", name: "Old Team", department_id: null, lead_id: null, archived: true }],
+    });
+    api.updateTeam.mockResolvedValue({});
+    await show();
+    await teamAction("Old Team", "Restore");
+    expect(api.updateTeam).toHaveBeenCalledWith("org", "t9", { archived: false });
+  });
+
+  it("puts someone on a team from Edit member without touching their other fields", async () => {
+    api.addTeamMember.mockResolvedValue();
+    await show();
+    await openAction("Ben PM", "Edit");
+    expect(teamBox("Growth").checked).toBe(false);
+    await tick(teamBox("Growth"));
+    await click(buttonWith("Save"));
+    expect(api.addTeamMember).toHaveBeenCalledWith("org", "t1", "ben");
+    expect(api.removeTeamMember).not.toHaveBeenCalled();
+    expect(api.updateMember).not.toHaveBeenCalled();
+    expect(api.getDirectory).toHaveBeenCalledTimes(2);
+    expect(dialog()).toBeNull();
+  });
+
+  it("takes someone off a team", async () => {
+    api.removeTeamMember.mockResolvedValue();
+    await show();
+    await openAction("Alice PM", "Edit");
+    expect(teamBox("Growth").checked).toBe(true);
+    await tick(teamBox("Growth"));
+    await click(buttonWith("Save"));
+    expect(api.removeTeamMember).toHaveBeenCalledWith("org", "t1", "alice");
+  });
+
+  it("changes teams before a self-demotion, while the admin still can", async () => {
+    const calls = [];
+    api.removeTeamMember.mockImplementation(async () => calls.push("team"));
+    api.updateMember.mockImplementation(async () => calls.push("role"));
+    await show();
+    await openAction("Alice PM", "Edit");
+    await tick(teamBox("Growth"));
+    await choose(fieldNamed("Org role"), "member");
+    await click(buttonWith("Save"));
+    await click(buttonWith("Yes, change it"));
+    expect(calls).toEqual(["team", "role"]);
+  });
+
+  it("shows a refusal and reloads when a team change fails", async () => {
+    api.addTeamMember.mockRejectedValue(refusal("team_archived"));
+    await show();
+    await openAction("Ben PM", "Edit");
+    await tick(teamBox("Growth"));
+    await click(buttonWith("Save"));
+    expect(dialog().textContent).toContain("This team is archived, so it can’t take new members.");
+    expect(api.getDirectory).toHaveBeenCalledTimes(2);
+  });
+
+  it("works out which teams to join and leave", () => {
+    expect(teamChanges(["a", "b"], ["b", "c"])).toEqual({ add: ["c"], remove: ["a"] });
+    expect(teamChanges(undefined, [])).toEqual({ add: [], remove: [] });
   });
 });
