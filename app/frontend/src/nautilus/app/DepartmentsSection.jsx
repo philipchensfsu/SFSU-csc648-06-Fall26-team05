@@ -2,20 +2,8 @@ import { useState } from "react";
 import { api } from "../../../lib/api";
 import { ConfirmDialog, NameDialog } from "./dialogs";
 import { IconMore } from "./icons";
-import { memberErrorMessage } from "./people";
+import { count, memberErrorMessage, withReadableError } from "./people";
 import { MenuButton } from "./ui";
-
-// The dialogs show error.message, so turn the backend's codes into the
-// People page's own sentences first.
-async function withReadableError(run) {
-  try {
-    return await run();
-  } catch (cause) {
-    throw new Error(memberErrorMessage(cause));
-  }
-}
-
-const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
 // Departments (admins only): create, rename, archive and restore them. The
 // database refuses a second active department with the same name

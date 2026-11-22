@@ -17,6 +17,27 @@ export function memberErrorMessage(error) {
   return MEMBER_ERRORS[error?.code] ?? (error?.message || "That didn’t work. Try again.");
 }
 
+// The shared dialogs show error.message, so run a request and turn the
+// backend's codes into the sentences above first.
+export async function withReadableError(run) {
+  try {
+    return await run();
+  } catch (cause) {
+    throw new Error(memberErrorMessage(cause));
+  }
+}
+
+export const count = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
+// Which teams to join and leave, from the person's current team ids and the
+// ones the form has ticked.
+export function teamChanges(current = [], next = []) {
+  return {
+    add: next.filter((id) => !current.includes(id)),
+    remove: current.filter((id) => !next.includes(id)),
+  };
+}
+
 // Names and emails can both be missing, so everything shows this.
 export function personName(member) {
   return member?.name || member?.email || "Unnamed member";
