@@ -36,9 +36,12 @@ class NautilusBot(discord.Client):
         self.api: NautilusApi | None = None
 
     async def setup_hook(self) -> None:
-        self.api = NautilusApi(self.settings.api_url, self.settings.bot_secret,
-                               request_timeout=self.settings.request_timeout,
-                               summary_timeout=self.settings.summary_timeout)
+        self.api = NautilusApi(
+            self.settings.api_url,
+            self.settings.bot_secret,
+            request_timeout=self.settings.request_timeout,
+            summary_timeout=self.settings.summary_timeout,
+        )
         commands.register(self.tree, self.api)
         if self.sync_target == "global":
             synced = await self.tree.sync()

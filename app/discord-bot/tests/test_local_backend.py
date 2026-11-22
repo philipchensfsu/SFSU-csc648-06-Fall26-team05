@@ -35,8 +35,11 @@ def snowflake() -> int:
 
 def sign_in(who):
     email, password = SEED[who]
-    r = httpx.post(f"{os.environ['SUPABASE_URL']}/auth/v1/token?grant_type=password",
-                   headers={"apikey": os.environ["SUPABASE_ANON_KEY"]}, json={"email": email, "password": password})
+    r = httpx.post(
+        f"{os.environ['SUPABASE_URL']}/auth/v1/token?grant_type=password",
+        headers={"apikey": os.environ["SUPABASE_ANON_KEY"]},
+        json={"email": email, "password": password},
+    )
     r.raise_for_status()
     return r.json()["access_token"]
 
@@ -61,6 +64,7 @@ def linked():
                 assert info.value.code == "invalid_link_code"
         finally:
             await api.aclose()
+
     asyncio.run(link_all())
     yield ids
     for who in SEED:
@@ -76,6 +80,7 @@ def ask(handler, user_id, *args):
             await handler(api, interaction, *args)
         finally:
             await api.aclose()
+
     asyncio.run(go())
     return interaction.replies[-1]["content"]
 
@@ -87,7 +92,8 @@ def test_every_command_answers_as_the_linked_person(linked):
     prd_id = listing.split("`")[1]
     assert "Status:" in ask(commands.prd, linked["alice"], prd_id)
     assert "notification" in ask(commands.inbox, linked["alice"]).lower() or "unread" in ask(
-        commands.inbox, linked["alice"])
+        commands.inbox, linked["alice"]
+    )
     summary = ask(commands.summary, linked["alice"], prd_id)
     # No comments gives an empty summary without the AI; otherwise AI is off locally.
     assert "nothing to summarize" in summary or "AI is switched off" in summary or "Discussion summary" in summary
@@ -104,6 +110,7 @@ def test_unlinked_accounts_and_a_wrong_secret_are_refused(linked):
             await api.me(linked["alice"])
         finally:
             await api.aclose()
+
     with pytest.raises(ApiError) as info:
         asyncio.run(wrong_secret())
     assert info.value.status == 401
