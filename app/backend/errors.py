@@ -33,26 +33,42 @@ logger = logging.getLogger("nautilus.errors")
 
 
 class ApiError(HTTPException):
+    """An HTTP error with a stable machine-readable code for the frontend."""
+
     def __init__(self, status_code: int, detail: str, code: str | None = None):
+        """Create the error.
+
+        Args:
+            status_code: The HTTP status to return.
+            detail: A message safe to show the user.
+            code: A short error code; defaults to one based on the status.
+        """
         super().__init__(status_code=status_code, detail=detail)
         self.code = code or DEFAULT_CODES.get(status_code, "error")
 
 
-def error_response(status_code: int, detail: str, code: str | None = None, headers=None, **extra):
+def error_response(
+    status_code: int, detail: str, code: str | None = None, headers=None, **extra
+):
+    """Build the JSON error body every route returns: detail, code and any extra fields."""
     code = code or DEFAULT_CODES.get(status_code, "error")
     content = {"detail": detail, "code": code, **extra}
     return JSONResponse(status_code=status_code, content=content, headers=headers)
 
 
 async def http_error_handler(request, exc: StarletteHTTPException):
+    """Return HTTP errors, including FastAPI's own 404 and 405, in the standard error shape."""
     # Also covers FastAPI's own 404/405 for unknown routes and methods.
     detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
     # Extra body fields a route error defines, such as retry_after on AI 429s.
     extra = getattr(exc, "extra", None) or {}
-    return error_response(exc.status_code, detail, getattr(exc, "code", None), exc.headers, **extra)
+    return error_response(
+        exc.status_code, detail, getattr(exc, "code", None), exc.headers, **extra
+    )
 
 
 async def validation_error_handler(request, exc: RequestValidationError):
+    """Return request validation errors as a 422 that names the first invalid field."""
     errors = [
         {"loc": list(e["loc"]), "msg": e["msg"], "type": e["type"]}
         for e in exc.errors()
@@ -70,6 +86,7 @@ async def validation_error_handler(request, exc: RequestValidationError):
 # instead of returning empty data -- so without this, those cases surface as
 # a bare 500 rather than the 403/400 the sequence diagrams describe.
 async def postgrest_error_handler(request, exc: APIError):
+    """Turn database errors into safe responses without leaking table or value details."""
     pg_code = exc.code or ""
     if pg_code == "42501":
         return error_response(403, "Not allowed")
@@ -78,23 +95,44 @@ async def postgrest_error_handler(request, exc: APIError):
     # Postgres messages name tables and constraints and can echo the
     # submitted value, so clients get a fixed message instead.
     if pg_code.startswith(("22", "23")):
-        logger.info("Rejected value on %s %s: postgres %s", request.method, request.url.path, pg_code)
+        logger.info(
+            "Rejected value on %s %s: postgres %s",
+            request.method,
+            request.url.path,
+            pg_code,
+        )
         return error_response(400, "Invalid value")
-    logger.error("Database error on %s %s: postgres %s", request.method, request.url.path, pg_code or "unknown")
+    logger.error(
+        "Database error on %s %s: postgres %s",
+        request.method,
+        request.url.path,
+        pg_code or "unknown",
+    )
     return error_response(500, "Database error", code="database_error")
 
 
 async def unexpected_error_handler(request, exc: Exception):
+    """Return 503 when Supabase cannot be reached and 500 for any other unexpected error."""
     # A transport failure reaching Supabase is an outage (503); anything
     # else is a bug (500), so real bugs aren't reported as outages.
     if isinstance(exc, httpx.TransportError):
-        logger.error("Upstream unavailable on %s %s: %s", request.method, request.url.path, type(exc).__name__)
-        return error_response(503, "Service temporarily unavailable. Try again shortly.")
-    logger.error("Unexpected %s on %s %s", type(exc).__name__, request.method, request.url.path)
+        logger.error(
+            "Upstream unavailable on %s %s: %s",
+            request.method,
+            request.url.path,
+            type(exc).__name__,
+        )
+        return error_response(
+            503, "Service temporarily unavailable. Try again shortly."
+        )
+    logger.error(
+        "Unexpected %s on %s %s", type(exc).__name__, request.method, request.url.path
+    )
     return error_response(500, "Something went wrong")
 
 
 def register_error_handlers(app):
+    """Register all of the API's error handlers on the FastAPI app."""
     app.add_exception_handler(StarletteHTTPException, http_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(APIError, postgrest_error_handler)

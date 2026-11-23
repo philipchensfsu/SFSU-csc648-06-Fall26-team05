@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from errors import ApiError
-from main import first_row
+from common import first_row
 
 
 class Query:
@@ -24,4 +24,8 @@ def test_returns_the_first_row():
 def test_an_empty_read_is_a_404():
     with pytest.raises(ApiError) as error:
         first_row(Query([]), "Review round not found")
-    assert (error.value.status_code, error.value.detail, error.value.code) == (404, "Review round not found", "not_found")
+    assert (error.value.status_code, error.value.detail, error.value.code) == (
+        404,
+        "Review round not found",
+        "not_found",
+    )

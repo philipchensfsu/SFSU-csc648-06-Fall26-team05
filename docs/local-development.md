@@ -61,6 +61,13 @@ like this yet. To try the legacy save locally: `PRD_SAVE_V2=false docker compose
 
 Edits under `app/backend` and `app/frontend` reload automatically.
 
+**Backend code style:** `app/backend/main.py` only creates the app and includes the routers.
+Each area's routes, request and response models and error tables are in `app/backend/routes/<area>.py`
+(for example `prds.py`, `reviews.py`, `directory_admin.py`, `ai.py`), sign-in checks are in `auth.py`,
+and shared helpers (`RequestModel`, `call_function`, `first_row`) are in `common.py`. Add new routes to
+the matching `routes/` module, or add a module and include it in `main.py`. Keep `.py` files to about
+300 lines.
+
 ## 3. Everyday commands
 
 | Task | Command |
@@ -71,6 +78,7 @@ Edits under `app/backend` and `app/frontend` reload automatically.
 | See URLs and keys | `supabase status` |
 | Database UI (Supabase Studio) | http://127.0.0.1:54323 |
 | Run backend tests | `docker compose exec backend python -m pytest -q` (see section 5) |
+| Before pushing backend changes | In `app/backend`: `ruff format .` then `ruff check .` (CI fails otherwise) |
 | Backend logs | `docker compose logs -f backend` |
 | SQL shell | `docker exec -it supabase_db_nautilus psql -U postgres` |
 | After changing requirements.txt or package.json | `docker compose up --build -V` |
@@ -121,6 +129,7 @@ docker compose exec backend python -m pytest tests/integration -q  # integration
 - **Integration tests** (`app/backend/tests/integration/`) use real sign-ins, Postgres RLS and the
   running API, plus direct Data API calls that bypass the backend. They need `supabase start` and
   `docker compose up`, and they're skipped when the stack isn't running.
+- **Style:** CI runs `ruff check .` and `ruff format --check .` on backend PRs, so run `ruff format .` and `ruff check .` in `app/backend` before pushing. The Ruff extension for VS Code can format on save.
 - Integration tests refuse to run against anything but `127.0.0.1`, `localhost` or
   `host.docker.internal`, and each test deletes the throwaway users it creates.
 - A PR that changes database rules adds integration tests for them, including one that would fail

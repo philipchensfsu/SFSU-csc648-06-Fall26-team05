@@ -3,11 +3,17 @@
 
 import { formatDay, formatDayTime } from "./format.js";
 import { PRD_SECTIONS } from "./questions.js";
+import { WORK_STATUSES } from "./details/details.js";
 
 const ROLE_LABELS = { owner: "Owner", editor: "Editor", viewer: "Viewer" };
 
 function roleLabel(role) {
   return ROLE_LABELS[role] ?? role;
+}
+
+// "not started", "in progress", "done"; null for a missing or unknown status.
+function workStatusLabel(status) {
+  return WORK_STATUSES.find((entry) => entry.id === status)?.label.toLowerCase() ?? null;
 }
 
 function sectionLabel(type) {
@@ -40,8 +46,17 @@ export function notificationSentence(item) {
       return noActor(" was approved by all reviewers");
     case "superseded":
       return noActor(payload.continued === false ? " went back to draft" : " changed, so its approval started again");
-    case "work_status_changed":
-      return noActor(" was marked done");
+    case "mentioned":
+      return someone("mentioned you in");
+    case "team_added":
+      return someone(
+        `added ${payload.team_name ?? "your team"} to`,
+        payload.role ? ` as ${roleLabel(payload.role)}` : "",
+      );
+    case "work_status_changed": {
+      const status = workStatusLabel(payload.to ?? payload.status);
+      return noActor(status ? ` was marked ${status}` : " had its work status updated");
+    }
     default:
       return noActor(" was updated");
   }

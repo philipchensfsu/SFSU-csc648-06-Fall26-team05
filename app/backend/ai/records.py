@@ -39,7 +39,7 @@ from errors import ApiError
 # Not a team-agreed value.
 PROPOSAL_TTL_SECONDS = 30 * 60
 
-TRIGGERS = ("initial_generation", "chat_request")
+TRIGGERS = ("initial_generation", "chat_request", "discussion_summary")
 PROPOSAL_KINDS = ("generate", "ai_edit", "review_suggestion", "ai_revision")
 OUTCOMES = ("staged", "stale", "recorded")
 MAX_USER_REQUEST_CHARS = 2000
@@ -60,18 +60,34 @@ _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 DATABASE_ERRORS = {
     "NT404": (404, "PRD not found", "not_found"),
     "NT403": (403, "You can view this PRD but not edit it", "forbidden"),
-    "NT409": (409, "This PRD changed since you last loaded it. Refresh and try again.", "stale_revision"),
+    "NT409": (
+        409,
+        "This PRD changed since you last loaded it. Refresh and try again.",
+        "stale_revision",
+    ),
     "NT422": (422, "The AI result couldn't be recorded", "validation_error"),
     "NTPRP": (409, "This AI suggestion is no longer available", "proposal_unavailable"),
+    "NTOWN": (
+        403,
+        "Only the PRD's owners can ask the AI for revisions from review feedback.",
+        "owner_required",
+    ),
 }
+# A call that staged options (alternatives, feature 09) is accepted or
+# adjusted one option at a time, so the request has to say which.
+OPTION_REQUIRED = (422, "Choose one of the options.", "option_required")
 
 
 class RecordError(ApiError):
+    """Raised when an AI audit record cannot be written."""
+
     pass
 
 
 @dataclass(frozen=True)
 class RecordResult:
+    """The ids of the saved AI audit record and proposal, and the outcome."""
+
     generation_record_id: str
     proposal_id: str | None
     outcome: str  # one of OUTCOMES
@@ -96,7 +112,9 @@ def validate_context_patch(patch) -> list[str]:
     for key, value in patch.items():
         if key == "running_summary":
             if not isinstance(value, str) or len(value) > MAX_RUNNING_SUMMARY_CHARS:
-                problems.append(f"running_summary must be text of at most {MAX_RUNNING_SUMMARY_CHARS} characters.")
+                problems.append(
+                    f"running_summary must be text of at most {MAX_RUNNING_SUMMARY_CHARS} characters."
+                )
             continue
         if key not in CONTEXT_LIST_LIMITS:
             problems.append(f"Unknown context field {key!r}.")
@@ -107,7 +125,9 @@ def validate_context_patch(patch) -> list[str]:
             continue
         for item in value:
             if not isinstance(item, str) or not 1 <= len(item) <= max_chars:
-                problems.append(f"Each {key} entry must be text of 1 to {max_chars} characters.")
+                problems.append(
+                    f"Each {key} entry must be text of 1 to {max_chars} characters."
+                )
                 break
             if key == "source_ids" and not _UUID.match(item):
                 problems.append("source_ids must be lowercase UUIDs.")
@@ -115,49 +135,100 @@ def validate_context_patch(patch) -> list[str]:
     return problems
 
 
-def record_generation(service_client, *, actor_id, prd_id, base_revision: int,
-                      proposal: GenerationProposal, context_patch: dict | None = None,
-                      ttl_seconds: int = PROPOSAL_TTL_SECONDS) -> RecordResult:
+def record_generation(
+    service_client,
+    *,
+    actor_id,
+    prd_id,
+    base_revision: int,
+    proposal: GenerationProposal,
+    context_patch: dict | None = None,
+    ttl_seconds: int = PROPOSAL_TTL_SECONDS,
+) -> RecordResult:
     """Records a successful initial generation and stages its proposal."""
     return record_ai_request(
-        service_client, actor_id=actor_id, prd_id=prd_id, base_revision=base_revision,
-        trigger="initial_generation", model=proposal.model, prompt_version=proposal.prompt_version,
-        prompt_tokens=proposal.prompt_tokens, output_tokens=proposal.output_tokens,
-        proposal_kind="generate", proposal_content=proposal_content(proposal),
-        context_patch=context_patch, ttl_seconds=ttl_seconds,
+        service_client,
+        actor_id=actor_id,
+        prd_id=prd_id,
+        base_revision=base_revision,
+        trigger="initial_generation",
+        model=proposal.model,
+        prompt_version=proposal.prompt_version,
+        prompt_tokens=proposal.prompt_tokens,
+        output_tokens=proposal.output_tokens,
+        proposal_kind="generate",
+        proposal_content=proposal_content(proposal),
+        context_patch=context_patch,
+        ttl_seconds=ttl_seconds,
     )
 
 
-def record_failure(service_client, *, actor_id, prd_id, base_revision: int, trigger: str,
-                   model: str, prompt_version: str | None, error_code: str,
-                   user_request: str | None = None) -> RecordResult:
+def record_failure(
+    service_client,
+    *,
+    actor_id,
+    prd_id,
+    base_revision: int,
+    trigger: str,
+    model: str,
+    prompt_version: str | None,
+    error_code: str,
+    user_request: str | None = None,
+) -> RecordResult:
     """Records a provider call that produced nothing usable. error_code is the
     API code (for example ai_invalid_output), never provider text."""
     return record_ai_request(
-        service_client, actor_id=actor_id, prd_id=prd_id, base_revision=base_revision,
-        trigger=trigger, model=model, prompt_version=prompt_version, status="failed",
-        error_code=error_code, user_request=user_request,
+        service_client,
+        actor_id=actor_id,
+        prd_id=prd_id,
+        base_revision=base_revision,
+        trigger=trigger,
+        model=model,
+        prompt_version=prompt_version,
+        status="failed",
+        error_code=error_code,
+        user_request=user_request,
     )
 
 
-def record_ai_request(service_client, *, actor_id, prd_id, base_revision: int, trigger: str,
-                      model: str, prompt_version: str | None, status: str = "success",
-                      error_code: str | None = None, user_request: str | None = None,
-                      prompt_tokens: int | None = None, output_tokens: int | None = None,
-                      proposal_kind: str | None = None, proposal_content: dict | None = None,
-                      context_patch: dict | None = None,
-                      ttl_seconds: int = PROPOSAL_TTL_SECONDS) -> RecordResult:
+def record_ai_request(
+    service_client,
+    *,
+    actor_id,
+    prd_id,
+    base_revision: int,
+    trigger: str,
+    model: str,
+    prompt_version: str | None,
+    status: str = "success",
+    error_code: str | None = None,
+    user_request: str | None = None,
+    prompt_tokens: int | None = None,
+    output_tokens: int | None = None,
+    proposal_kind: str | None = None,
+    proposal_content: dict | None = None,
+    context_patch: dict | None = None,
+    ttl_seconds: int = PROPOSAL_TTL_SECONDS,
+) -> RecordResult:
     """The general form, also for chat requests that answer without proposing
     a document change (proposal_kind=None). The database decides access: view
     access to record, edit access to stage a proposal."""
-    if isinstance(base_revision, bool) or not isinstance(base_revision, int) or base_revision < 1:
+    if (
+        isinstance(base_revision, bool)
+        or not isinstance(base_revision, int)
+        or base_revision < 1
+    ):
         raise RecordError(422, "Invalid base revision", "validation_error")
     if trigger not in TRIGGERS:
         raise RecordError(422, "Unknown AI trigger", "validation_error")
     if proposal_kind is not None and proposal_kind not in PROPOSAL_KINDS:
         raise RecordError(422, "Unknown proposal kind", "validation_error")
     if user_request is not None and len(user_request) > MAX_USER_REQUEST_CHARS:
-        raise RecordError(422, f"The request is longer than {MAX_USER_REQUEST_CHARS} characters", "validation_error")
+        raise RecordError(
+            422,
+            f"The request is longer than {MAX_USER_REQUEST_CHARS} characters",
+            "validation_error",
+        )
     if context_patch is not None:
         problems = validate_context_patch(context_patch)
         if problems:
@@ -181,15 +252,109 @@ def record_ai_request(service_client, *, actor_id, prd_id, base_revision: int, t
     }
     rows = _call(service_client, "ai_record_generation", params)
     row = rows[0]
-    return RecordResult(generation_record_id=row["generation_record_id"],
-                        proposal_id=row["proposal_id"], outcome=row["outcome"])
+    return RecordResult(
+        generation_record_id=row["generation_record_id"],
+        proposal_id=row["proposal_id"],
+        outcome=row["outcome"],
+    )
+
+
+def load_proposal(
+    service_client, generation_record_id, option: int | None, columns: str
+) -> dict | None:
+    """The staged proposal a request names: (generation_record_id, option).
+
+    Most calls stage one proposal (option None). A call that staged options
+    has one row per option_no, and each is named by its number. None when
+    nothing matches; 422 option_required when the record has options but the
+    request named none."""
+    rows = (
+        service_client.table("ai_proposal")
+        .select(f"{columns}, option_no")
+        .eq("generation_record_id", str(generation_record_id))
+        .execute()
+        .data
+    )
+    if option is None:
+        singles = [row for row in rows if row.get("option_no") is None]
+        if rows and not singles:
+            raise RecordError(*OPTION_REQUIRED)
+        return singles[0] if singles else None
+    return next((row for row in rows if row.get("option_no") == option), None)
+
+
+def stage_alternatives(
+    service_client,
+    *,
+    actor_id,
+    prd_id,
+    base_revision: int,
+    model: str,
+    prompt_version: str,
+    prompt_tokens: int | None,
+    output_tokens: int | None,
+    candidates: list[dict],
+    ttl_seconds: int = PROPOSAL_TTL_SECONDS,
+) -> RecordResult:
+    """Records one provider call and stages its options (review_suggestion
+    proposals numbered 1..n) in one transaction. The record carries the call's
+    usage once; the options have none of their own. Owner-only in the
+    database too. proposal_id is None: options are named by number."""
+    if (
+        isinstance(base_revision, bool)
+        or not isinstance(base_revision, int)
+        or base_revision < 1
+    ):
+        raise RecordError(422, "Invalid base revision", "validation_error")
+    rows = _call(
+        service_client,
+        "ai_stage_alternatives",
+        {
+            "p_actor": str(actor_id),
+            "p_prd_id": str(prd_id),
+            "p_base_revision": base_revision,
+            "p_model": model,
+            "p_prompt_version": prompt_version,
+            "p_prompt_tokens": prompt_tokens,
+            "p_output_tokens": output_tokens,
+            "p_candidates": candidates,
+            "p_ttl_seconds": ttl_seconds,
+        },
+    )
+    row = rows[0]
+    return RecordResult(
+        generation_record_id=row["generation_record_id"],
+        proposal_id=None,
+        outcome=row["outcome"],
+    )
+
+
+def retire_alternatives(
+    service_client, *, actor_id, prd_id, generation_record_id, option: int
+) -> None:
+    """Request adjustments on an option: that option is replaced (rejected)
+    and the call's other options can't be accepted any more (superseded).
+    409 proposal_unavailable if the option isn't the requester's and pending."""
+    _call(
+        service_client,
+        "ai_retire_alternatives",
+        {
+            "p_actor": str(actor_id),
+            "p_prd_id": str(prd_id),
+            "p_generation_record_id": str(generation_record_id),
+            "p_option": option,
+        },
+    )
 
 
 def reject_proposal(service_client, *, actor_id, proposal_id) -> str:
     """Discards the requester's pending proposal. Returns its final status:
     rejected, or accepted/expired if it had already left pending."""
-    return _call(service_client, "ai_reject_proposal",
-                 {"p_actor": str(actor_id), "p_proposal_id": str(proposal_id)})
+    return _call(
+        service_client,
+        "ai_reject_proposal",
+        {"p_actor": str(actor_id), "p_proposal_id": str(proposal_id)},
+    )
 
 
 def _call(service_client, function: str, params: dict):

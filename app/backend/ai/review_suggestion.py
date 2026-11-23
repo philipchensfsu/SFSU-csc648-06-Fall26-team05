@@ -43,7 +43,7 @@ from collections.abc import Callable
 
 from ai import chat, records, usage_gate
 from ai.gemini_client import AIError, GeminiResult, generate_json, model_name
-from ai.generation import _heading, _list, _paragraph
+from ai.generation_schema import heading_schema, list_schema, paragraph_schema
 from ai.section_edit import _has_forbidden_marks, _saved_document, merge_section
 from errors import ApiError
 from prd_document import section_title, section_types, validate_document
@@ -58,10 +58,21 @@ MAX_INSTRUCTION_CHARS = 2000
 MAX_EXPLANATION_CHARS = 1000
 MAX_OUTPUT_TOKENS = 8192
 
-INVALID_FEEDBACK = (422, "Choose comments on this PRD that you can see.", "invalid_feedback")
-OWNER_ONLY = (403, "Only the PRD's owners can ask the AI for revisions from review feedback.", "owner_required")
-FEEDBACK_NOT_CURRENT = (422, "Some of these comments are on an older version. Choose comments on the current version.",
-                        "feedback_not_current")
+INVALID_FEEDBACK = (
+    422,
+    "Choose comments on this PRD that you can see.",
+    "invalid_feedback",
+)
+OWNER_ONLY = (
+    403,
+    "Only the PRD's owners can ask the AI for revisions from review feedback.",
+    "owner_required",
+)
+FEEDBACK_NOT_CURRENT = (
+    422,
+    "Some of these comments are on an older version. Choose comments on the current version.",
+    "feedback_not_current",
+)
 
 SYSTEM_INSTRUCTION = """\
 You help the owner of a product requirements document (PRD) address review
@@ -97,41 +108,87 @@ def response_schema() -> dict:
         "type": "object",
         "properties": {
             "type": {"type": "string", "enum": ["section"]},
-            "attrs": {"type": "object", "properties": {"type": {"type": "string", "enum": list(section_types())}},
-                      "required": ["type"]},
-            "content": {"type": "array", "minItems": 1,
-                        "items": {"anyOf": [_paragraph(), _heading(), _list("bulletList"), _list("orderedList")]}},
+            "attrs": {
+                "type": "object",
+                "properties": {
+                    "type": {"type": "string", "enum": list(section_types())}
+                },
+                "required": ["type"],
+            },
+            "content": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                    "anyOf": [
+                        paragraph_schema(),
+                        heading_schema(),
+                        list_schema("bulletList"),
+                        list_schema("orderedList"),
+                    ]
+                },
+            },
         },
         "required": ["type", "attrs", "content"],
     }
     return {
         "type": "object",
         "properties": {
-            "sections": {"type": "array", "minItems": 1, "maxItems": len(section_types()), "items": section},
-            "explanation": {"type": "string", "minLength": 1, "maxLength": MAX_EXPLANATION_CHARS},
+            "sections": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": len(section_types()),
+                "items": section,
+            },
+            "explanation": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MAX_EXPLANATION_CHARS,
+            },
         },
         "required": ["sections", "explanation"],
     }
 
 
-def propose_review_suggestion(user_client, service_client, *, actor_id, prd_id: str, revision: int,
-                              feedback_ids: list[str], instruction: str | None,
-                              budget: usage_gate.RequestBudget | None = None,
-                              call_model: Callable[..., GeminiResult] | None = None,
-                              modules: chat.ChatModules | None = None) -> dict:
+def propose_review_suggestion(
+    user_client,
+    service_client,
+    *,
+    actor_id,
+    prd_id: str,
+    revision: int,
+    feedback_ids: list[str],
+    instruction: str | None,
+    budget: usage_gate.RequestBudget | None = None,
+    call_model: Callable[..., GeminiResult] | None = None,
+    modules: chat.ChatModules | None = None,
+) -> dict:
+    """Propose a revision that addresses chosen review comments (E12); nothing is saved.
+
+    Raises:
+        ApiError: 422 if the number of comments or the instruction length is
+            out of range.
+    """
     feedback_ids = list(dict.fromkeys(str(i) for i in feedback_ids))
     if not 1 <= len(feedback_ids) <= MAX_FEEDBACK_ITEMS:
-        raise ApiError(422, f"Choose 1 to {MAX_FEEDBACK_ITEMS} comments.", "validation_error")
+        raise ApiError(
+            422, f"Choose 1 to {MAX_FEEDBACK_ITEMS} comments.", "validation_error"
+        )
     instruction = (instruction or "").strip() or None
     if instruction is not None and len(instruction) > MAX_INSTRUCTION_CHARS:
-        raise ApiError(422, f"The instruction can be at most {MAX_INSTRUCTION_CHARS} characters.", "validation_error")
+        raise ApiError(
+            422,
+            f"The instruction can be at most {MAX_INSTRUCTION_CHARS} characters.",
+            "validation_error",
+        )
     budget = budget or usage_gate.RequestBudget()
     if instruction is not None:
         modules = modules or chat.load_modules()
         if modules is None:
             raise ApiError(*chat.CHAT_UNAVAILABLE)
 
-    current_revision, prd = chat.load_chat_prd(user_client, prd_id)  # 404 if not visible
+    current_revision, prd = chat.load_chat_prd(
+        user_client, prd_id
+    )  # 404 if not visible
     _require_owner(user_client, prd_id)
     if current_revision != revision:
         raise ApiError(*chat.STALE_REVISION)
@@ -143,26 +200,45 @@ def propose_review_suggestion(user_client, service_client, *, actor_id, prd_id: 
         try:
             if instruction is not None:
                 calls.cap = usage_gate.scope_timeout_seconds()
-                decision = modules.guardrails.check_scope(prd, [], instruction, call_model=calls,
-                                                          timeout_seconds=budget.call_timeout(calls.cap))
+                decision = modules.guardrails.check_scope(
+                    prd,
+                    [],
+                    instruction,
+                    call_model=calls,
+                    timeout_seconds=budget.call_timeout(calls.cap),
+                )
                 verdict = chat._verdict(decision)
                 if verdict != "allow":
-                    text, code = ((modules.prompts.FIXED_REFUSAL, "out_of_scope") if verdict == "block"
-                                  else (modules.prompts.FIXED_CLARIFICATION, "clarification_needed"))
-                    _record_failure(service_client, actor_id, prd_id, revision, calls, code)
+                    text, code = (
+                        (modules.prompts.FIXED_REFUSAL, "out_of_scope")
+                        if verdict == "block"
+                        else (
+                            modules.prompts.FIXED_CLARIFICATION,
+                            "clarification_needed",
+                        )
+                    )
+                    _record_failure(
+                        service_client, actor_id, prd_id, revision, calls, code
+                    )
                     raise ApiError(422, text, code)
             calls.cap = usage_gate.main_timeout_seconds()
-            result = calls(build_prompt(prd, document, feedback, instruction),
-                           system_instruction=SYSTEM_INSTRUCTION, response_schema=response_schema(),
-                           max_output_tokens=MAX_OUTPUT_TOKENS)
+            result = calls(
+                build_prompt(prd, document, feedback, instruction),
+                system_instruction=SYSTEM_INSTRUCTION,
+                response_schema=response_schema(),
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            )
             sections, explanation = _checked_reply(result)
             merged = document
             for section in sections:
                 merged = merge_section(merged, section)
             errors = validate_document(merged)
             if errors:
-                logger.warning("Review suggestion on %s failed document checks: %s", result.model,
-                               ", ".join(sorted({e.code for e in errors})))
+                logger.warning(
+                    "Review suggestion on %s failed document checks: %s",
+                    result.model,
+                    ", ".join(sorted({e.code for e in errors})),
+                )
                 raise AIError(502, "ai_invalid_output")
         except AIError as exc:
             _record_failure(service_client, actor_id, prd_id, revision, calls, exc.code)
@@ -172,27 +248,48 @@ def propose_review_suggestion(user_client, service_client, *, actor_id, prd_id: 
         # doesn't mark the person's own text as AI-written (as in /ai-revisions).
         saved_by_type = {s["attrs"]["type"]: s for s in document.get("content", [])}
         changed = [s for s in sections if saved_by_type.get(s["attrs"]["type"]) != s]
-        proposal = {"section_types": [s["attrs"]["type"] for s in changed], "sections": changed,
-                    "content_json": merged}
+        proposal = {
+            "section_types": [s["attrs"]["type"] for s in changed],
+            "sections": changed,
+            "content_json": merged,
+        }
         _require_owner(user_client, prd_id)  # still an owner after the model call
         # Rechecks edit access and the revision under the PRD lock.
         record = records.record_ai_request(
-            service_client, actor_id=actor_id, prd_id=prd_id, base_revision=revision, trigger="chat_request",
-            model=calls.model, prompt_version=PROMPT_VERSION, prompt_tokens=calls.prompt_tokens or None,
-            output_tokens=calls.output_tokens or None, proposal_kind="review_suggestion",
-            proposal_content={**proposal, "feedback_ids": feedback_ids})
+            service_client,
+            actor_id=actor_id,
+            prd_id=prd_id,
+            base_revision=revision,
+            trigger="chat_request",
+            model=calls.model,
+            prompt_version=PROMPT_VERSION,
+            prompt_tokens=calls.prompt_tokens or None,
+            output_tokens=calls.output_tokens or None,
+            proposal_kind="review_suggestion",
+            proposal_content={**proposal, "feedback_ids": feedback_ids},
+        )
     if record.outcome != "staged":
         raise ApiError(*chat.STALE_REVISION)
-    return {"explanation": explanation, "proposal": proposal, "base_revision": revision,
-            "generation_record_id": record.generation_record_id}
+    return {
+        "explanation": explanation,
+        "proposal": proposal,
+        "base_revision": revision,
+        "generation_record_id": record.generation_record_id,
+    }
 
 
 def _require_owner(user_client, prd_id: str) -> None:
-    if user_client.rpc("is_prd_owner", {"target_prd": prd_id}).execute().data is not True:
+    if (
+        user_client.rpc("is_prd_owner", {"target_prd": prd_id}).execute().data
+        is not True
+    ):
         raise ApiError(*OWNER_ONLY)
 
 
-def build_prompt(prd: dict, document: dict, feedback: list[dict], instruction: str | None) -> str:
+def build_prompt(
+    prd: dict, document: dict, feedback: list[dict], instruction: str | None
+) -> str:
+    """Build the JSON prompt for a review suggestion from the document and chosen review feedback."""
     data = {
         "title": prd["title"],
         "description": prd["description"],
@@ -208,17 +305,29 @@ def build_prompt(prd: dict, document: dict, feedback: list[dict], instruction: s
 def _load_feedback(user_client, prd_id: str, feedback_ids: list[str]) -> list[dict]:
     """The chosen comments, read as the user (RLS hides comments on PRDs they
     can't see). Only the section and the text go to the model: no names."""
-    rows = (user_client.table("prd_comment").select("id, prd_id, version_id, section_type, body, created_at")
-            .in_("id", feedback_ids).execute().data)
+    rows = (
+        user_client.table("prd_comment")
+        .select("id, prd_id, version_id, section_type, body, created_at")
+        .in_("id", feedback_ids)
+        .execute()
+        .data
+    )
     by_id = {row["id"]: row for row in rows}
     if set(by_id) != set(feedback_ids) or any(row["prd_id"] != prd_id for row in rows):
         raise ApiError(*INVALID_FEEDBACK)
-    current = (user_client.table("prd").select("current_version_id").eq("id", prd_id).execute().data[0]
-               ["current_version_id"])
+    current = (
+        user_client.table("prd")
+        .select("current_version_id")
+        .eq("id", prd_id)
+        .execute()
+        .data[0]["current_version_id"]
+    )
     if any(row["version_id"] != current for row in rows):
         raise ApiError(*FEEDBACK_NOT_CURRENT)
     ordered = sorted(rows, key=lambda r: (r["created_at"], r["id"]))
-    return [{"section_type": row["section_type"], "comment": row["body"]} for row in ordered]
+    return [
+        {"section_type": row["section_type"], "comment": row["body"]} for row in ordered
+    ]
 
 
 def _checked_reply(result: GeminiResult) -> tuple[list[dict], str]:
@@ -226,13 +335,24 @@ def _checked_reply(result: GeminiResult) -> tuple[list[dict], str]:
     sections = data.get("sections") if isinstance(data, dict) else None
     explanation = data.get("explanation") if isinstance(data, dict) else None
     known = set(section_types())
-    ok = (isinstance(sections, list) and 0 < len(sections) <= len(known)
-          and isinstance(explanation, str) and explanation.strip() and len(explanation) <= MAX_EXPLANATION_CHARS)
+    ok = (
+        isinstance(sections, list)
+        and 0 < len(sections) <= len(known)
+        and isinstance(explanation, str)
+        and explanation.strip()
+        and len(explanation) <= MAX_EXPLANATION_CHARS
+    )
     if ok:
-        types = [(s.get("attrs") or {}).get("type") if isinstance(s, dict) else None for s in sections]
-        ok = (all(isinstance(s, dict) and s.get("type") == "section" for s in sections)
-              and all(t in known for t in types) and len(set(types)) == len(types)
-              and not any(_has_forbidden_marks(s) for s in sections))
+        types = [
+            (s.get("attrs") or {}).get("type") if isinstance(s, dict) else None
+            for s in sections
+        ]
+        ok = (
+            all(isinstance(s, dict) and s.get("type") == "section" for s in sections)
+            and all(t in known for t in types)
+            and len(set(types)) == len(types)
+            and not any(_has_forbidden_marks(s) for s in sections)
+        )
     if not ok:
         logger.warning("Review suggestion reply on %s failed checks", result.model)
         raise AIError(502, "ai_invalid_output")
@@ -242,8 +362,19 @@ def _checked_reply(result: GeminiResult) -> tuple[list[dict], str]:
 def _record_failure(service_client, actor_id, prd_id, revision, calls, error_code):
     try:
         records.record_ai_request(
-            service_client, actor_id=actor_id, prd_id=prd_id, base_revision=revision, trigger="chat_request",
-            model=calls.model or model_name(), prompt_version=PROMPT_VERSION, status="failed", error_code=error_code,
-            prompt_tokens=calls.prompt_tokens or None, output_tokens=calls.output_tokens or None)
+            service_client,
+            actor_id=actor_id,
+            prd_id=prd_id,
+            base_revision=revision,
+            trigger="chat_request",
+            model=calls.model or model_name(),
+            prompt_version=PROMPT_VERSION,
+            status="failed",
+            error_code=error_code,
+            prompt_tokens=calls.prompt_tokens or None,
+            output_tokens=calls.output_tokens or None,
+        )
     except Exception as exc:  # noqa: BLE001 - the provider error is what the user needs
-        logger.error("Couldn't record a failed review suggestion (%s)", type(exc).__name__)
+        logger.error(
+            "Couldn't record a failed review suggestion (%s)", type(exc).__name__
+        )

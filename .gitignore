@@ -21,3 +21,7 @@ venv/
 
 # Editor
 .vscode/
+
+# Test coverage output
+.coverage
+coverage/

@@ -3,7 +3,12 @@ import sys
 
 # The integration tests (tests/integration) need the real local-stack
 # settings, so keep them as LOCAL_* before replacing them below.
-for name in ("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY", "SUPABASE_ANON_KEY", "PRD_SAVE_V2"):
+for name in (
+    "SUPABASE_URL",
+    "SUPABASE_SERVICE_ROLE_KEY",
+    "SUPABASE_ANON_KEY",
+    "PRD_SAVE_V2",
+):
     if name in os.environ:
         os.environ.setdefault(f"LOCAL_{name}", os.environ[name])
 

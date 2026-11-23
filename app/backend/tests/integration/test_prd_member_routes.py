@@ -28,11 +28,19 @@ def put(user, prd, target, role):
 
 
 def test_anyone_on_the_prd_can_list_its_members(team):
-    expected = {team["olive"].id: "owner", team["ed"].id: "editor", team["vic"].id: "viewer"}
+    expected = {
+        team["olive"].id: "owner",
+        team["ed"].id: "editor",
+        team["vic"].id: "viewer",
+    }
     assert members(team["vic"], team["prd"]) == expected
     assert members(team["ada"], team["prd"]) == expected
     first = team["vic"].api("GET", f"/prds/{team['prd']}/members").json()[0]
-    assert first["user_id"] == team["olive"].id and first["granted_by"] == team["olive"].id and first["added_at"]
+    assert (
+        first["user_id"] == team["olive"].id
+        and first["granted_by"] == team["olive"].id
+        and first["added_at"]
+    )
 
 
 def test_people_who_cant_see_the_prd_get_404(team, make_user):
@@ -63,7 +71,9 @@ def test_editors_and_viewers_cant_manage_people(team, caller):
     r = put(who, prd, team["nia"], "viewer")
     assert r.status_code == 403 and r.json()["code"] == "forbidden"
     assert put(who, prd, who, "owner").status_code == 403
-    assert who.api("DELETE", f"/prds/{prd}/members/{team['olive'].id}").status_code == 403
+    assert (
+        who.api("DELETE", f"/prds/{prd}/members/{team['olive'].id}").status_code == 403
+    )
     assert team["nia"].id not in members(team["olive"], prd)
 
 
@@ -73,7 +83,10 @@ def test_only_people_in_the_prds_org_can_be_added(team, make_user):
 
 
 def test_inactive_members_cant_be_added(team, db):
-    db.execute("update organization_member set active = false where user_id = %s", (team["nia"].id,))
+    db.execute(
+        "update organization_member set active = false where user_id = %s",
+        (team["nia"].id,),
+    )
     r = put(team["olive"], team["prd"], team["nia"], "viewer")
     assert r.status_code == 422 and r.json()["code"] == "not_in_organization"
 
@@ -106,12 +119,16 @@ def test_anyone_can_leave_a_prd(team):
     assert vic.api("DELETE", f"/prds/{prd}/members/{vic.id}").status_code == 204
     assert vic.api("GET", f"/prds/{prd}").status_code == 404
     # Removing someone who isn't on the PRD is a no-op for managers.
-    assert team["olive"].api("DELETE", f"/prds/{prd}/members/{vic.id}").status_code == 204
+    assert (
+        team["olive"].api("DELETE", f"/prds/{prd}/members/{vic.id}").status_code == 204
+    )
 
 
 def test_clients_still_cant_write_prd_member_directly(team):
     olive, nia, prd = team["olive"], team["nia"], team["prd"]
-    r = olive.rest("POST", "prd_member", json={"prd_id": prd, "user_id": nia.id, "role": "owner"})
+    r = olive.rest(
+        "POST", "prd_member", json={"prd_id": prd, "user_id": nia.id, "role": "owner"}
+    )
     assert r.status_code in (401, 403)
     r = olive.rest("POST", "rpc/lock_managed_prd", json={"target_prd": prd})
     assert r.status_code in (401, 403, 404)

@@ -1,4 +1,5 @@
 import links from '../links.js';
+import { FoodTin } from '../shared/FishFood.jsx';
 
 // HERO
 export default function Hero({ v }) {
@@ -91,6 +92,8 @@ export default function Hero({ v }) {
       <span className="bubble hide-sm" aria-hidden="true" style={{ left: "8%", top: "330px", animationDelay: ".4s" }} />
       <span className="bubble b-sm hide-sm" aria-hidden="true" style={{ left: "6.5%", top: "350px", animationDelay: "2.2s" }} />
       <span className="bubble b-lg hide-sm" aria-hidden="true" style={{ right: "10%", top: "330px", animationDelay: "3.5s" }} />
+      {/* fish food: pick up a pinch and feed the fish */}
+      <FoodTin f={v.food} />
       <div className="hero-par" style={{ position: "relative", zIndex: "2", maxWidth: "1200px", margin: "0 auto", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", gap: "22px" }}>
         <a href="#demo" className="fu navlink" style={{ display: "inline-flex", alignItems: "center", gap: "10px", color: "var(--muted)", textDecoration: "none", fontSize: "14px" }}>
           <span style={{ position: "relative", display: "inline-flex", width: "8px", height: "8px" }}><span className="ping" style={{ position: "absolute", inset: "0", borderRadius: "50%", background: "var(--brand)" }} /><span style={{ position: "relative", width: "8px", height: "8px", borderRadius: "50%", background: "var(--brand)" }} /></span><span><span style={{ color: "var(--ink)", fontWeight: "600" }}>New</span> — regenerate any section with one instruction</span><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

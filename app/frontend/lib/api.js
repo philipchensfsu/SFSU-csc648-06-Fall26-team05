@@ -84,6 +84,29 @@ export const api = {
     request(`/prds/${prdId}/members/${userId}`, { method: "PUT", body: JSON.stringify({ role }) }),
   removePrdMember: (prdId, userId) =>
     request(`/prds/${prdId}/members/${userId}`, { method: "DELETE" }),
+  // Adds a team's current active members, as editors or viewers. People already
+  // on the PRD keep their role. Resolves to { added, skipped, members }.
+  addTeamToPrd: (prdId, teamId, role) =>
+    request(`/prds/${prdId}/members/teams`, { method: "POST", body: JSON.stringify({ team_id: teamId, role }) }),
+  // Up to three teams the AI suggests adding, each with a reason (feature
+  // 08b). A preview: nothing changes until it's decided below. Resolves to
+  // { recommendation: { id, teams: [TeamPick] }, base_revision, generation_record_id }.
+  recommendTeams: (prdId, revision) =>
+    request(`/prds/${prdId}/members/team-recommendations`, {
+      method: "POST",
+      body: JSON.stringify({ revision }),
+    }),
+  // Adds the picked teams ([{ teamId, role }]) in one step, or rejects them all
+  // with an empty list. Resolves to { status, results, members }.
+  decideTeamRecommendation: (prdId, recommendationId, teams) =>
+    request(`/prds/${prdId}/members/team-recommendations/${recommendationId}/decision`, {
+      method: "PUT",
+      body: JSON.stringify(
+        teams.length
+          ? { decision: "accepted", teams: teams.map(({ teamId, role }) => ({ team_id: teamId, role })) }
+          : { decision: "rejected" },
+      ),
+    }),
 
   // Answer-only PRD chat. `history` is the recent turns for this PRD only;
   // the backend caps it and never treats it as instructions. Resolves to
@@ -96,8 +119,9 @@ export const api = {
 
   // One proposal across the PRD from the chat (Marco, #138). Nothing is
   // saved; accept it through updatePrd (see editor/proposal.js).
-  // With previousGenerationRecordId, adjusts that pending proposal instead.
-  requestAiRevision: (prdId, { revision, instruction, sessionMessages = [], previousGenerationRecordId }) =>
+  // With previousGenerationRecordId, adjusts that pending proposal instead;
+  // previousOption names the option, when it was one of a set of alternatives.
+  requestAiRevision: (prdId, { revision, instruction, sessionMessages = [], previousGenerationRecordId, previousOption }) =>
     request(`/prds/${prdId}/ai-revisions`, {
       method: "POST",
       body: JSON.stringify({
@@ -105,6 +129,7 @@ export const api = {
         instruction,
         session_messages: sessionMessages,
         ...(previousGenerationRecordId ? { previous_generation_record_id: previousGenerationRecordId } : {}),
+        ...(previousGenerationRecordId && previousOption ? { previous_option: previousOption } : {}),
       }),
     }),
 
@@ -115,6 +140,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ revision, feedback_ids: feedbackIds, ...(instruction ? { instruction } : {}) }),
     }),
+
+  // Two different ways to address the same comments, from one AI request
+  // (feature 09, owners only). Accept one through updatePrd with its option.
+  requestReviewAlternatives: (prdId, { revision, feedbackIds, instruction }) =>
+    request(`/prds/${prdId}/review-alternatives`, {
+      method: "POST",
+      body: JSON.stringify({ revision, feedback_ids: feedbackIds, ...(instruction ? { instruction } : {}) }),
+    }),
+
+  // Linking a Discord account (feature 04). A one-time code the person runs as
+  // /link in Discord; the bot then links it. Poll getDiscordLink to see it land.
+  createDiscordLinkCode: () => request("/integrations/discord/link-code", { method: "POST" }),
+  getDiscordLink: () => request("/integrations/discord/link"),
+  unlinkDiscord: () => request("/integrations/discord/link", { method: "DELETE" }),
 
   listIntakeAnswers: (prdId) => request(`/prds/${prdId}/intake`),
   saveIntakeAnswer: (prdId, questionKey, answerText, skipped) =>
@@ -171,6 +210,16 @@ export const api = {
       body: JSON.stringify({ version_id: versionId, decision, ...(explanation ? { explanation } : {}) }),
     }),
 
+  // Owners and org admins swap or drop a reviewer who hasn't decided yet, on an
+  // open round. Both answer { round, revision, status }.
+  replaceReviewer: (prdId, roundId, userId, reviewerId) =>
+    request(`/prds/${prdId}/reviews/${roundId}/reviewers/${userId}/replace`, {
+      method: "POST",
+      body: JSON.stringify({ reviewer_id: reviewerId }),
+    }),
+  removeReviewer: (prdId, roundId, userId) =>
+    request(`/prds/${prdId}/reviews/${roundId}/reviewers/${userId}`, { method: "DELETE" }),
+
   // Flat comments on a PRD's saved versions, oldest first. Without versionId,
   // every version's comments, each carrying its own version_no.
   listPrdComments: (prdId, { versionId, limit = 50, cursor } = {}) => {
@@ -180,11 +229,67 @@ export const api = {
     return request(`/prds/${prdId}/comments?${params}`);
   },
   // versionId is the PRD's current version; sectionType is one of the nine
-  // section types, or null for the whole PRD. body is plain text.
-  addPrdComment: (prdId, { versionId, sectionType = null, body }) =>
+  // section types, or null for the whole PRD. body is plain text. mentions is
+  // the user ids of people @mentioned in it (up to 20, all able to see the PRD).
+  addPrdComment: (prdId, { versionId, sectionType = null, body, mentions = [] }) =>
     request(`/prds/${prdId}/comments`, {
       method: "POST",
-      body: JSON.stringify({ version_id: versionId, section_type: sectionType, body }),
+      body: JSON.stringify({
+        version_id: versionId,
+        section_type: sectionType,
+        body,
+        ...(mentions.length ? { mentions } : {}),
+      }),
     }),
+
+  // An AI summary of the comments on one saved version (feature 05): themes,
+  // open questions, requested changes and unresolved items. Read-only: nothing
+  // is saved. Without versionId, the PRD's current version.
+  summarizeDiscussion: (prdId, { versionId } = {}) =>
+    request(`/prds/${prdId}/discussion-summary`, {
+      method: "POST",
+      body: JSON.stringify(versionId ? { version_id: versionId } : {}),
+    }),
+
+  // A PRD's activity feed (E13): one event per change, newest first, paged
+  // with next_cursor. types narrows it to those event types (repeated ?type=).
+  listPrdEvents: (prdId, { types = [], limit = 25, cursor } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    for (const type of types) params.append("type", type);
+    if (cursor) params.set("cursor", cursor);
+    return request(`/prds/${prdId}/events?${params}`);
+  },
+
+  // Revision history (read-only): newest first, paged with next_cursor.
+  listVersions: (prdId, { limit = 25, cursor } = {}) => {
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (cursor) params.set("cursor", cursor);
+    return request(`/prds/${prdId}/versions?${params}`);
+  },
+  // One saved version with its title, description and document.
+  getVersion: (prdId, versionId) => request(`/prds/${prdId}/versions/${versionId}`),
+
+  // Work status changes only while approved; `from` is the status last seen.
+  setWorkStatus: (prdId, { from, to }) =>
+    request(`/prds/${prdId}/work-status`, { method: "PUT", body: JSON.stringify({ from, to }) }),
+  // Owning team and priority; both are sent every time (null clears one).
+  setRouting: (prdId, { teamId, priority }) =>
+    request(`/prds/${prdId}/routing`, {
+      method: "PUT",
+      body: JSON.stringify({ owning_team_id: teamId, priority }),
+    }),
+  // An AI suggestion for the team and priority. Nothing changes until it's decided.
+  suggestRouting: (prdId, revision) =>
+    request(`/prds/${prdId}/classification`, { method: "POST", body: JSON.stringify({ revision }) }),
+  // decision: "accepted" (optionally with another teamId or priority) or "rejected".
+  decideRouting: (prdId, suggestionId, { decision, teamId, priority } = {}) => {
+    const body = { decision };
+    if (decision === "accepted" && teamId !== undefined) body.team_id = teamId;
+    if (decision === "accepted" && priority !== undefined) body.priority = priority;
+    return request(`/prds/${prdId}/classification/${suggestionId}/decision`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+  },
 };
 

@@ -25,7 +25,13 @@ import os
 import time
 from contextlib import contextmanager
 
-from ai.gemini_client import TIMEOUT_SECONDS, AIError, MAX_ATTEMPTS, RETRY_DELAY_SECONDS, ai_enabled
+from ai.gemini_client import (
+    TIMEOUT_SECONDS,
+    AIError,
+    MAX_ATTEMPTS,
+    RETRY_DELAY_SECONDS,
+    ai_enabled,
+)
 from errors import ApiError
 
 # Provisional limits, not team-agreed (A07 leaves the values to the AI team).
@@ -61,32 +67,43 @@ class UsageLimitError(ApiError):
     Retry-After header."""
 
     def __init__(self, code: str, retry_after: int):
+        """Create the 429 error with a Retry-After header and retry_after field."""
         super().__init__(429, MESSAGES[code], code)
         self.headers = {"Retry-After": str(retry_after)}
         self.extra = {"retry_after": retry_after}
 
 
 def cooldown_seconds() -> int:
+    """Return the wait between a user's AI requests (AI_COOLDOWN_SECONDS)."""
     return _setting("AI_COOLDOWN_SECONDS", DEFAULT_COOLDOWN_SECONDS, 0, 3600)
 
 
 def request_budget_seconds() -> int:
-    return _setting("AI_REQUEST_BUDGET_SECONDS", DEFAULT_REQUEST_BUDGET_SECONDS, 30, 270)
+    """Return the total time one AI request may take (AI_REQUEST_BUDGET_SECONDS)."""
+    return _setting(
+        "AI_REQUEST_BUDGET_SECONDS", DEFAULT_REQUEST_BUDGET_SECONDS, 30, 270
+    )
 
 
 def scope_timeout_seconds() -> int:
+    """Return the timeout for the AI scope check (AI_SCOPE_TIMEOUT_SECONDS)."""
     return _setting("AI_SCOPE_TIMEOUT_SECONDS", DEFAULT_SCOPE_TIMEOUT_SECONDS, 1, 60)
 
 
 def main_timeout_seconds() -> int:
+    """Return the timeout for the main AI model call (AI_MAIN_TIMEOUT_SECONDS)."""
     return _setting("AI_MAIN_TIMEOUT_SECONDS", DEFAULT_MAIN_TIMEOUT_SECONDS, 5, 120)
 
 
 def lease_seconds() -> int:
+    """Return how long a usage lease lasts; it always outlasts the request budget."""
     budget = request_budget_seconds()
     lease = _setting("AI_LEASE_SECONDS", budget + LEASE_MARGIN_SECONDS, 10, 3600)
     if lease <= budget:
-        logger.error("AI_LEASE_SECONDS must outlast AI_REQUEST_BUDGET_SECONDS; using %s", budget + LEASE_MARGIN_SECONDS)
+        logger.error(
+            "AI_LEASE_SECONDS must outlast AI_REQUEST_BUDGET_SECONDS; using %s",
+            budget + LEASE_MARGIN_SECONDS,
+        )
         return budget + LEASE_MARGIN_SECONDS
     return lease
 
@@ -98,18 +115,31 @@ class RequestBudget:
     allowance is still left."""
 
     def __init__(self, total_seconds: float | None = None, *, clock=time.monotonic):
-        self.total = request_budget_seconds() if total_seconds is None else total_seconds
+        """Start the clock for one request's time budget.
+
+        Args:
+            total_seconds: The budget; defaults to request_budget_seconds().
+            clock: The time source, replaceable in tests.
+        """
+        self.total = (
+            request_budget_seconds() if total_seconds is None else total_seconds
+        )
         self._clock = clock
         self._start = clock()
 
     def remaining(self) -> float:
+        """Return how many seconds of the budget are left."""
         return self.total - (self._clock() - self._start)
 
     def call_timeout(self, wanted: float) -> float:
         """The per-attempt timeout for the next adapter call: `wanted`, or
         less if the budget is running out. Raises AIError(502,
         "ai_provider_error") rather than start a call that can't finish."""
-        available = self.remaining() - CLEANUP_ALLOWANCE_SECONDS - (MAX_ATTEMPTS - 1) * RETRY_DELAY_SECONDS
+        available = (
+            self.remaining()
+            - CLEANUP_ALLOWANCE_SECONDS
+            - (MAX_ATTEMPTS - 1) * RETRY_DELAY_SECONDS
+        )
         timeout = min(float(wanted), available / MAX_ATTEMPTS)
         if timeout < MIN_CALL_TIMEOUT_SECONDS:
             logger.warning("AI request budget used up before a provider call")
@@ -137,10 +167,17 @@ def admitted(user_client):
     """Admits one AI request for the caller, or raises a 429."""
     if not ai_enabled():
         raise AIError(429, "ai_disabled")
-    rows = user_client.rpc("ai_admit", {
-        "p_cooldown_seconds": cooldown_seconds(),
-        "p_lease_seconds": lease_seconds(),
-    }).execute().data
+    rows = (
+        user_client.rpc(
+            "ai_admit",
+            {
+                "p_cooldown_seconds": cooldown_seconds(),
+                "p_lease_seconds": lease_seconds(),
+            },
+        )
+        .execute()
+        .data
+    )
     row = rows[0]
     if row["lease_id"] is None:
         code = "ai_busy" if row["refused"] == "busy" else "ai_cooldown"
@@ -150,9 +187,14 @@ def admitted(user_client):
         yield lease_id
     finally:
         try:
-            released = user_client.rpc("ai_release", {"p_lease_id": lease_id}).execute().data
+            released = (
+                user_client.rpc("ai_release", {"p_lease_id": lease_id}).execute().data
+            )
             if released is False:
                 # The lease ran out and a newer request took over; nothing to free.
                 logger.warning("AI lease had already expired when released")
         except Exception as exc:  # noqa: BLE001 - the lease expires on its own
-            logger.error("Couldn't release the AI lease (%s); it expires on its own", type(exc).__name__)
+            logger.error(
+                "Couldn't release the AI lease (%s); it expires on its own",
+                type(exc).__name__,
+            )

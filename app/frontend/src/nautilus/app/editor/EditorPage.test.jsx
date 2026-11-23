@@ -5,8 +5,16 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import EditorPage from "./EditorPage";
+import { SECTION_TYPES } from "./schema";
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+// jsdom doesn't implement the native dialog.
+HTMLDialogElement.prototype.showModal = function showModal() {
+  this.open = true;
+};
+HTMLDialogElement.prototype.close = function close() {
+  this.open = false;
+};
 
 const prd = {
   id: "p1",
@@ -33,18 +41,29 @@ async function show(props) {
   root = createRoot(host);
   await act(async () => {
     root.render(
-      <EditorPage prd={prd} onSave={vi.fn()} onReload={vi.fn()} onOpenAnswers={vi.fn()} onExit={vi.fn()} onHome={vi.fn()} {...props} />,
+      // Review starts open: several tests confirm an assumption from it.
+      <EditorPage
+        prd={prd}
+        onSave={vi.fn()}
+        onReload={vi.fn()}
+        onOpenAnswers={vi.fn()}
+        onExit={vi.fn()}
+        onHome={vi.fn()}
+        initialRailTab="review"
+        {...props}
+      />,
     );
   });
 }
 
 const buttonNamed = (name) =>
   [...host.querySelectorAll("button")].find((button) => button.textContent.trim() === name);
-const askAiTab = () => [...host.querySelectorAll('[role="tab"]')].find((tab) => tab.textContent === "Ask AI");
+
 
 afterEach(async () => {
   await act(async () => root.unmount());
   host.remove();
+  vi.restoreAllMocks();
 });
 
 describe("EditorPage access", () => {
@@ -85,9 +104,10 @@ describe("EditorPage access", () => {
     expect(buttonNamed("Share")).toBeDefined();
   });
 
-  it("keeps Ask AI for viewers (Decision 5)", async () => {
+  it("keeps Ask Nautilus for viewers (Decision 5)", async () => {
     await show({ detail: viewer });
-    expect(askAiTab()).toBeDefined();
+    await act(async () => buttonNamed("Ask Nautilus").click());
+    expect(host.querySelector(".ne-panel .ne-chat")).not.toBeNull();
   });
 
   it("stays read-only and offers a retry when the detail can't be read", async () => {
@@ -133,5 +153,75 @@ describe("EditorPage save errors", () => {
     await saveRejectedWith(Object.assign(new Error("Stale"), { status: 409, code: "stale_revision" }));
     expect(host.textContent).toContain("This PRD changed since you opened it.");
     expect(buttonNamed("Load the latest version")).toBeDefined();
+  });
+});
+
+describe("EditorPage and the browser's Back button", () => {
+  // The editor's entry, one PRD page deep; Back lands on the workspace's.
+  const atEditor = () => window.history.replaceState({ nautilusPrdDepth: 1 }, "", "/prds/p1/edit");
+  const backToWorkspace = () =>
+    act(async () => {
+      window.history.replaceState(null, "", "/dashboard");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+
+  it("leaves at once with nothing unsaved", async () => {
+    atEditor();
+    const onBrowserBack = vi.fn();
+    await show({ detail: allowed, browserPath: "/prds/p1/edit", onBrowserBack });
+    await backToWorkspace();
+    expect(onBrowserBack).toHaveBeenCalledTimes(1);
+  });
+
+  it("undoes the step and asks first with unsaved changes, then takes it again", async () => {
+    atEditor();
+    const onBrowserBack = vi.fn();
+    await show({ detail: allowed, browserPath: "/prds/p1/edit", onBrowserBack });
+    await act(async () => buttonNamed("Confirm").click());
+    const forward = vi.spyOn(window.history, "forward").mockImplementation(() => {});
+    const back = vi.spyOn(window.history, "back").mockImplementation(() => {});
+    await backToWorkspace();
+    expect(forward).toHaveBeenCalledTimes(1);
+    expect(onBrowserBack).not.toHaveBeenCalled();
+    expect(host.textContent).toContain("Leave without saving?");
+
+    await act(async () => buttonNamed("Discard changes").click());
+    expect(back).toHaveBeenCalledTimes(1);
+    // The step taken again isn't asked about twice.
+    await backToWorkspace();
+    expect(onBrowserBack).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("EditorPage adding a section", () => {
+  const headings = () => [...host.querySelectorAll(".ne-section-title")].map((h) => h.textContent);
+
+  it("isn't offered to someone who can't edit", async () => {
+    await show({ detail: viewer });
+    expect(buttonNamed("Add section")).toBeUndefined();
+  });
+
+  it("offers only the missing sections and adds the one picked in its place", async () => {
+    await show({ detail: allowed });
+    await act(async () => buttonNamed("Add section").click());
+    const select = host.querySelector("dialog select");
+    const options = [...select.options].map((option) => option.textContent);
+    expect(options).not.toContain("Problem Statement");
+    expect(options).toHaveLength(8);
+
+    await act(async () => {
+      const setValue = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value").set;
+      setValue.call(select, "risks");
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    await act(async () => host.querySelector("dialog form").requestSubmit());
+    expect(headings()).toEqual(["Problem", "Risks"]);
+    expect(host.textContent).toContain("Editing");
+  });
+
+  it("isn't offered once all nine sections are there", async () => {
+    const all = SECTION_TYPES.map(([id, title]) => ({ id, title, html: "<p>Text.</p>" }));
+    await show({ detail: allowed, prd: { ...prd, sections: all } });
+    expect(buttonNamed("Add section")).toBeUndefined();
   });
 });

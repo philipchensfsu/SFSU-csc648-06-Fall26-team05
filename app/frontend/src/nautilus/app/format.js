@@ -221,7 +221,7 @@ export function interviewProgress(prd, questions) {
 
 // --- search -------------------------------------------------------------
 
-// The same clean-up the API applies before matching (list_prds in main.py),
+// The same clean-up the API applies before matching (list_prds in app/backend/routes/prds.py),
 // so highlights line up with what the server matched.
 export function cleanSearchTerm(raw) {
   return raw.replace(/[,()*%"\\]/g, " ").trim();

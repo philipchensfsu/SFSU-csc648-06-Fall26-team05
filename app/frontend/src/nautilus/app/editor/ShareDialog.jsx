@@ -2,12 +2,17 @@ import { useEffect, useId, useState } from "react";
 import { api } from "../../../../lib/api";
 import { initialsOf } from "../format";
 import { Alert, Avatar, Modal } from "../ui";
+import SuggestedTeams from "./SuggestedTeams";
+// For the "A person / A whole team" switch, shared with the comparison view.
+import "./comparison.css";
 
 const ROLES = [
   { value: "owner", label: "Owner" },
   { value: "editor", label: "Editor" },
   { value: "viewer", label: "Viewer" },
 ];
+// Teams join as editors or viewers, never as owners.
+const TEAM_ROLES = ROLES.filter((role) => role.value !== "owner");
 const ROLE_RANK = { viewer: 0, editor: 1, owner: 2 };
 
 // The reasons worth wording ourselves; anything else shows the backend's own
@@ -15,8 +20,43 @@ const ROLE_RANK = { viewer: 0, editor: 1, owner: 2 };
 function describeError(error) {
   if (error?.code === "owner_required") return "A PRD needs at least one owner.";
   if (error?.code === "not_in_organization") return "That person isn’t an active member of your organization.";
+  if (error?.code === "team_not_found") return "That team isn’t active in your organization any more.";
   if (error?.code === "forbidden") return "Only owners and admins can manage people.";
   return error?.message || "That didn’t work. Try again.";
+}
+
+const peopleCount = (count) => `${count} ${count === 1 ? "person" : "people"}`;
+
+// "Engineering · Platform (3 people, 1 new)": how many adding it would bring in.
+function teamOptionLabel({ label, size, newPeople }) {
+  if (newPeople === 0) return `${label} (${peopleCount(size)}) · all already on it`;
+  if (newPeople === size) return `${label} (${peopleCount(size)})`;
+  return `${label} (${peopleCount(size)}, ${newPeople} new)`;
+}
+
+// Active teams that have anyone in them, labelled "Department · Team", with how
+// many of their people aren't on the PRD yet.
+function teamChoices(directory, onPrd) {
+  const departments = new Map((directory.departments ?? []).map((department) => [department.id, department.name]));
+  return (directory.teams ?? [])
+    .filter((team) => !team.archived)
+    .map((team) => {
+      const people = directory.members.filter((person) => (person.team_ids ?? []).includes(team.id));
+      return {
+        id: team.id,
+        label: [departments.get(team.department_id), team.name].filter(Boolean).join(" · "),
+        size: people.length,
+        newPeople: people.filter((person) => !onPrd.has(person.user_id)).length,
+      };
+    })
+    .filter((team) => team.size > 0);
+}
+
+// "Added 3 from Engineering · Platform, 1 already on it."
+function teamResultSentence({ label, added, skipped }) {
+  if (!added.length) return `Everyone on ${label} already has access.`;
+  const already = skipped.length ? `, ${skipped.length} already on it` : "";
+  return `Added ${added.length} from ${label}${already}.`;
 }
 
 // Who is on the PRD and what they can do, plus adding people from the org
@@ -30,6 +70,12 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
   const [error, setError] = useState("");
   const [addId, setAddId] = useState("");
   const [addRole, setAddRole] = useState("editor");
+  // "person" or "team": which of the two add forms is showing.
+  const [addMode, setAddMode] = useState("person");
+  const [teamId, setTeamId] = useState("");
+  const [teamRole, setTeamRole] = useState("editor");
+  // What the last team add did: { label, added, skipped }.
+  const [teamResult, setTeamResult] = useState(null);
   // A change to your own access, waiting on "Yes, change it": { role } or { remove: true }.
   const [confirming, setConfirming] = useState(null);
   const ids = useId();
@@ -51,17 +97,19 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
   }, [prd.id, organizationId, attempt]);
 
   // `request` resolves to the updated list. Capabilities can change with any
-  // of these, so the PRD's details are read again afterwards.
-  async function change(request) {
+  // of these, so the PRD's details are read again afterwards. With `quiet`,
+  // the caller shows its own error.
+  async function change(request, { quiet = false } = {}) {
     setBusy(true);
     setError("");
     setConfirming(null);
+    setTeamResult(null);
     try {
       setMembers(await request());
       await onChanged();
       return true;
     } catch (cause) {
-      setError(describeError(cause));
+      if (!quiet) setError(describeError(cause));
       return false;
     } finally {
       setBusy(false);
@@ -77,6 +125,24 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
 
   async function add() {
     if (await setRole(addId, addRole)) setAddId("");
+  }
+
+  // The last team add's summary belongs to that form, so it goes when you leave it.
+  function switchMode(value) {
+    setAddMode(value);
+    setTeamResult(null);
+  }
+
+  async function addTeam(label) {
+    let result = null;
+    const done = await change(async () => {
+      result = await api.addTeamToPrd(prd.id, teamId, teamRole);
+      return result.members;
+    });
+    if (done) {
+      setTeamId("");
+      setTeamResult({ label, added: result.added, skipped: result.skipped });
+    }
   }
 
   if (loadError) {
@@ -109,6 +175,10 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
   const known = new Map(directory.members.map((person) => [person.user_id, person]));
   const onPrd = new Set(members.map((member) => member.user_id));
   const available = directory.members.filter((person) => !onPrd.has(person.user_id));
+  const teams = teamChoices(directory, onPrd);
+  // Without any teams there's nothing to switch to.
+  const mode = teams.length ? addMode : "person";
+  const pickedTeam = teams.find((team) => team.id === teamId);
 
   return (
     <>
@@ -196,7 +266,89 @@ function SharePeople({ prd, organizationId, userId, busy, setBusy, onChanged, on
         <h3 id={`${ids}-add`} className="ne-share-label">
           Add people
         </h3>
-        {available.length ? (
+        {teams.length ? (
+          <div className="nc-toggle ne-share-mode" role="group" aria-label="Add">
+            {[
+              ["person", "A person"],
+              ["team", "A whole team"],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                className={`nc-toggle-btn${mode === value ? " is-active" : ""}`}
+                aria-pressed={mode === value}
+                disabled={busy}
+                onClick={() => switchMode(value)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+        {mode === "team" ? (
+          <>
+            <SuggestedTeams
+              prdId={prd.id}
+              revision={prd.revision}
+              busy={busy}
+              apply={change}
+              canAsk={teams.some((team) => team.newPeople > 0)}
+            />
+            <div className="ne-share-add">
+              <select
+                className="nw-select ne-share-pick"
+                aria-label="Team to add"
+                value={teamId}
+                disabled={busy}
+                onChange={(event) => setTeamId(event.target.value)}
+              >
+                <option value="">Choose a team…</option>
+                {teams.map((team) => (
+                  <option key={team.id} value={team.id} disabled={team.newPeople === 0}>
+                    {teamOptionLabel(team)}
+                  </option>
+                ))}
+              </select>
+              <select
+                className="nw-select"
+                aria-label="Role for the team"
+                value={teamRole}
+                disabled={busy}
+                onChange={(event) => setTeamRole(event.target.value)}
+              >
+                {TEAM_ROLES.map((role) => (
+                  <option key={role.value} value={role.value}>
+                    {role.label}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                className="nw-btn nw-btn-primary nw-btn-sm"
+                disabled={busy || !pickedTeam}
+                onClick={() => addTeam(pickedTeam.label)}
+              >
+                Add team
+              </button>
+            </div>
+            {teamResult ? (
+              <p className="ne-share-result" role="status">
+                <strong>{teamResultSentence(teamResult)}</strong>
+                {teamResult.added.length && teamResult.skipped.length ? (
+                  <>
+                    {" "}
+                    Already on it, role unchanged:{" "}
+                    {teamResult.skipped.map((member) => member.name ?? "Unnamed member").join(", ")}.
+                  </>
+                ) : null}
+              </p>
+            ) : null}
+            <p className="ne-share-note">
+              Adds the people on the team now, one by one. Anyone who joins the team later isn’t added, and nobody
+              already on the PRD changes role.
+            </p>
+          </>
+        ) : available.length ? (
           <div className="ne-share-add">
             <select
               className="nw-select ne-share-pick"

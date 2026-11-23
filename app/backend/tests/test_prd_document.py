@@ -27,10 +27,26 @@ INVALID = sorted((FIXTURES / "invalid").glob("*.json"))
 ALL = VALID + INVALID
 
 DOCUMENT_CODES = {
-    "invalid_type", "legacy_format_v1", "too_large", "invalid_root", "unknown_node", "node_not_allowed",
-    "too_deep", "unknown_key", "missing_content", "unknown_attr", "missing_attr", "invalid_attr",
-    "empty_text", "marks_not_allowed", "unknown_mark", "mark_disabled", "duplicate_mark",
-    "duplicate_section", "section_order", "too_many_errors",
+    "invalid_type",
+    "legacy_format_v1",
+    "too_large",
+    "invalid_root",
+    "unknown_node",
+    "node_not_allowed",
+    "too_deep",
+    "unknown_key",
+    "missing_content",
+    "unknown_attr",
+    "missing_attr",
+    "invalid_attr",
+    "empty_text",
+    "marks_not_allowed",
+    "unknown_mark",
+    "mark_disabled",
+    "duplicate_mark",
+    "duplicate_section",
+    "section_order",
+    "too_many_errors",
 }
 # Covered by the generated documents below rather than by fixture files.
 CODES_TESTED_IN_CODE = {"too_large", "too_deep", "too_many_errors"}
@@ -45,7 +61,12 @@ def codes(errors):
 
 
 def doc(*blocks, section="problem"):
-    return {"type": "doc", "content": [{"type": "section", "attrs": {"type": section}, "content": list(blocks)}]}
+    return {
+        "type": "doc",
+        "content": [
+            {"type": "section", "attrs": {"type": section}, "content": list(blocks)}
+        ],
+    }
 
 
 def paragraph(text, *marks):
@@ -67,18 +88,28 @@ def test_fixture_files_exist_and_are_well_formed():
     for path in ALL:
         fixture = load(path)
         assert fixture["description"], path.name
-        assert set(fixture) <= {"description", "relies_on", "document", "expect"}, path.name
+        assert set(fixture) <= {"description", "relies_on", "document", "expect"}, (
+            path.name
+        )
         if path in VALID:
             assert fixture["expect"]["document_errors"] == [], path.name
-            assert "content_text" in fixture["expect"] and "generation_errors" in fixture["expect"], path.name
+            assert (
+                "content_text" in fixture["expect"]
+                and "generation_errors" in fixture["expect"]
+            ), path.name
         else:
             assert fixture["expect"]["document_errors"], path.name
 
 
-@pytest.mark.parametrize("path", ALL, ids=lambda path: f"{path.parent.name}/{path.stem}")
+@pytest.mark.parametrize(
+    "path", ALL, ids=lambda path: f"{path.parent.name}/{path.stem}"
+)
 def test_fixture_document_errors(path):
     fixture = load(path)
-    assert codes(validate_document(fixture["document"])) == fixture["expect"]["document_errors"]
+    assert (
+        codes(validate_document(fixture["document"]))
+        == fixture["expect"]["document_errors"]
+    )
 
 
 @pytest.mark.parametrize("path", VALID, ids=lambda path: path.stem)
@@ -88,7 +119,11 @@ def test_fixture_content_text(path):
 
 
 def test_every_document_error_code_has_a_fixture():
-    used = {error["code"] for path in INVALID for error in load(path)["expect"]["document_errors"]}
+    used = {
+        error["code"]
+        for path in INVALID
+        for error in load(path)["expect"]["document_errors"]
+    }
     assert used <= DOCUMENT_CODES
     assert DOCUMENT_CODES - CODES_TESTED_IN_CODE <= used
 
@@ -99,7 +134,9 @@ def test_empty_draft_is_valid_and_has_empty_text():
     assert derive_content_text(empty) == ""
 
 
-@pytest.mark.parametrize("path", ALL, ids=lambda path: f"{path.parent.name}/{path.stem}")
+@pytest.mark.parametrize(
+    "path", ALL, ids=lambda path: f"{path.parent.name}/{path.stem}"
+)
 def test_validation_never_changes_its_input(path):
     document = load(path)["document"]
     before = copy.deepcopy(document)
@@ -133,7 +170,9 @@ def test_spec_is_internally_consistent():
 def test_the_only_disabled_mark_is_the_reserved_citation():
     marks = load_spec()["marks"]
     assert {name for name, mark in marks.items() if not mark["enabled"]} == {"citation"}
-    assert marks["assumption"]["inclusive"] is False and marks["assumption"]["attrs"] == {}
+    assert (
+        marks["assumption"]["inclusive"] is False and marks["assumption"]["attrs"] == {}
+    )
     assert marks["ai_generated"]["inclusive"] is False
     assert marks["ai_generated"]["attrs"]["generation_record_id"]["required"] is True
 
@@ -141,11 +180,17 @@ def test_the_only_disabled_mark_is_the_reserved_citation():
 def test_the_seed_takes_section_types_from_the_spec():
     # The demo seed used to keep its own copy of the nine types; it now reads
     # them from the shared spec, so there's one list to keep in step.
-    tree = ast.parse((BACKEND / "seed_demo.py").read_text(encoding="utf-8"))
-    copies = [node for node in tree.body
-              if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "SECTION_TITLES"]
-    assert copies == []
+    for name in ("seed_demo.py", "seed_demo_content.py"):
+        tree = ast.parse((BACKEND / name).read_text(encoding="utf-8"))
+        copies = [
+            node
+            for node in tree.body
+            if isinstance(node, ast.Assign)
+            and getattr(node.targets[0], "id", "") == "SECTION_TITLES"
+        ]
+        assert copies == [], name
     import seed_demo
+
     assert seed_demo.section_order() == section_types()
 
 
@@ -167,7 +212,10 @@ def test_size_limit_is_inclusive_and_measured_in_utf8_bytes():
 def test_deep_nesting_is_rejected():
     item = {"type": "listItem", "content": [paragraph("leaf")]}
     for _ in range(20):
-        item = {"type": "listItem", "content": [paragraph("x"), {"type": "bulletList", "content": [item]}]}
+        item = {
+            "type": "listItem",
+            "content": [paragraph("x"), {"type": "bulletList", "content": [item]}],
+        }
     errors = validate_document(doc({"type": "bulletList", "content": [item]}))
     # Every node at the first level past the limit is reported (here a list
     # item's paragraph and its nested list), and nothing below it.
@@ -191,79 +239,149 @@ def test_non_json_values_are_rejected():
 # --- attributes -------------------------------------------------------------
 
 
-@pytest.mark.parametrize("href", [
-    "http://example.com", "https://example.com/a?b=c#d", "HTTPS://EXAMPLE.COM", "mailto:pm@example.com",
-    "https://example.com:8443/path",
-])
+@pytest.mark.parametrize(
+    "href",
+    [
+        "http://example.com",
+        "https://example.com/a?b=c#d",
+        "HTTPS://EXAMPLE.COM",
+        "mailto:pm@example.com",
+        "https://example.com:8443/path",
+    ],
+)
 def test_allowed_links(href):
     assert validate_document(doc(paragraph("x", link(href)))) == []
 
 
-@pytest.mark.parametrize("href", [
-    "", "javascript:alert(1)", "JaVaScRiPt:alert(1)", "data:text/html,hi", "ftp://example.com", "/relative",
-    "//example.com", "example.com", "http://", "https:///path", "mailto:", "https://exa mple.com",
-    "https://example.com/\nnext", "http:\\\\example.com", "https://" + "a" * 2050 + ".com", 42,
-])
+@pytest.mark.parametrize(
+    "href",
+    [
+        "",
+        "javascript:alert(1)",
+        "JaVaScRiPt:alert(1)",
+        "data:text/html,hi",
+        "ftp://example.com",
+        "/relative",
+        "//example.com",
+        "example.com",
+        "http://",
+        "https:///path",
+        "mailto:",
+        "https://exa mple.com",
+        "https://example.com/\nnext",
+        "http:\\\\example.com",
+        "https://" + "a" * 2050 + ".com",
+        42,
+    ],
+)
 def test_rejected_links(href):
     errors = validate_document(doc(paragraph("x", link(href))))
-    assert codes(errors) == [{"code": "invalid_attr", "path": "/content/0/content/0/content/0/marks/0/attrs/href"}]
+    assert codes(errors) == [
+        {
+            "code": "invalid_attr",
+            "path": "/content/0/content/0/content/0/marks/0/attrs/href",
+        }
+    ]
 
 
-@pytest.mark.parametrize("value, ok", [
-    ("3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01", True),
-    ("3F2C9A1E-8B4D-4C6A-9E2F-1A7B5C3D9E01", False),
-    ("{3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01}", False),
-    ("3f2c9a1e8b4d4c6a9e2f1a7b5c3d9e01", False),
-    ("urn:uuid:3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01", False),
-    ("not-a-uuid", False),
-    (12345, False),
-])
+@pytest.mark.parametrize(
+    "value, ok",
+    [
+        ("3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01", True),
+        ("3F2C9A1E-8B4D-4C6A-9E2F-1A7B5C3D9E01", False),
+        ("{3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01}", False),
+        ("3f2c9a1e8b4d4c6a9e2f1a7b5c3d9e01", False),
+        ("urn:uuid:3f2c9a1e-8b4d-4c6a-9e2f-1a7b5c3d9e01", False),
+        ("not-a-uuid", False),
+        (12345, False),
+    ],
+)
 def test_generation_record_id_shape(value, ok):
     mark = {"type": "ai_generated", "attrs": {"generation_record_id": value}}
     assert (validate_document(doc(paragraph("x", mark))) == []) is ok
 
 
-@pytest.mark.parametrize("attrs, ok", [
-    ({"colspan": 1, "rowspan": 1, "colwidth": [240]}, True),
-    ({"colspan": 1, "rowspan": 1, "colwidth": None}, True),
-    ({}, True),
-    # Simple tables only: no merged cells, so one width per cell.
-    ({"colspan": 2, "rowspan": 1, "colwidth": [100, 120]}, False),
-    ({"colspan": 1, "rowspan": 2}, False),
-    ({"colwidth": [100, 120]}, False),
-    ({"colwidth": []}, False),
-    ({"colspan": 0}, False),
-    ({"colspan": "2"}, False),
-    ({"colwidth": [0]}, False),
-    ({"colwidth": "wide"}, False),
-    ({"background": "red"}, False),
-])
+@pytest.mark.parametrize(
+    "attrs, ok",
+    [
+        ({"colspan": 1, "rowspan": 1, "colwidth": [240]}, True),
+        ({"colspan": 1, "rowspan": 1, "colwidth": None}, True),
+        ({}, True),
+        # Simple tables only: no merged cells, so one width per cell.
+        ({"colspan": 2, "rowspan": 1, "colwidth": [100, 120]}, False),
+        ({"colspan": 1, "rowspan": 2}, False),
+        ({"colwidth": [100, 120]}, False),
+        ({"colwidth": []}, False),
+        ({"colspan": 0}, False),
+        ({"colspan": "2"}, False),
+        ({"colwidth": [0]}, False),
+        ({"colwidth": "wide"}, False),
+        ({"background": "red"}, False),
+    ],
+)
 def test_table_cell_attributes(attrs, ok):
-    table = {"type": "table", "content": [{"type": "tableRow", "content": [
-        {"type": "tableCell", "attrs": attrs, "content": [paragraph("x")]}]}]}
+    table = {
+        "type": "table",
+        "content": [
+            {
+                "type": "tableRow",
+                "content": [
+                    {"type": "tableCell", "attrs": attrs, "content": [paragraph("x")]}
+                ],
+            }
+        ],
+    }
     assert (validate_document(doc(table)) == []) is ok
 
 
 @pytest.mark.parametrize("cell_type", ["tableCell", "tableHeader"])
 def test_header_cells_follow_the_same_no_merge_rule(cell_type):
     def table(attrs):
-        return doc({"type": "table", "content": [{"type": "tableRow", "content": [
-            {"type": cell_type, "attrs": attrs, "content": [paragraph("x")]}]}]})
-    assert validate_document(table({"colspan": 1, "rowspan": 1, "colwidth": [150]})) == []
-    assert [error.code for error in validate_document(table({"colspan": 3}))] == ["invalid_attr"]
+        return doc(
+            {
+                "type": "table",
+                "content": [
+                    {
+                        "type": "tableRow",
+                        "content": [
+                            {
+                                "type": cell_type,
+                                "attrs": attrs,
+                                "content": [paragraph("x")],
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+    assert (
+        validate_document(table({"colspan": 1, "rowspan": 1, "colwidth": [150]})) == []
+    )
+    assert [error.code for error in validate_document(table({"colspan": 3}))] == [
+        "invalid_attr"
+    ]
 
 
 def test_assumption_mark_is_accepted_alongside_other_marks():
     marked = paragraph("Mostly on mobile", {"type": "bold"}, {"type": "assumption"})
     assert validate_document(doc(marked)) == []
     with_attrs = paragraph("x", {"type": "assumption", "attrs": {"confirmed": True}})
-    assert [error.code for error in validate_document(doc(with_attrs))] == ["unknown_attr"]
+    assert [error.code for error in validate_document(doc(with_attrs))] == [
+        "unknown_attr"
+    ]
 
 
 def test_ordered_list_start_must_be_a_positive_whole_number():
     def ordered(start):
-        return doc({"type": "orderedList", "attrs": {"start": start},
-                    "content": [{"type": "listItem", "content": [paragraph("x")]}]})
+        return doc(
+            {
+                "type": "orderedList",
+                "attrs": {"start": start},
+                "content": [{"type": "listItem", "content": [paragraph("x")]}],
+            }
+        )
+
     assert validate_document(ordered(5)) == []
     assert [error.code for error in validate_document(ordered(0))] == ["invalid_attr"]
     assert [error.code for error in validate_document(ordered(1.5))] == ["invalid_attr"]
@@ -272,34 +390,48 @@ def test_ordered_list_start_must_be_a_positive_whole_number():
 # --- title and text ---------------------------------------------------------
 
 
-@pytest.mark.parametrize("title, expected", [
-    ("Checkout redesign", []),
-    ("x" * 200, []),
-    ("x" * 201, ["title_too_long"]),
-    ("   ", ["title_required"]),
-    ("", ["title_required"]),
-    (None, ["invalid_type"]),
-])
+@pytest.mark.parametrize(
+    "title, expected",
+    [
+        ("Checkout redesign", []),
+        ("x" * 200, []),
+        ("x" * 201, ["title_too_long"]),
+        ("   ", ["title_required"]),
+        ("", ["title_required"]),
+        (None, ["invalid_type"]),
+    ],
+)
 def test_validate_title(title, expected):
     assert [error.code for error in validate_title(title)] == expected
 
 
 def test_derive_content_text_refuses_invalid_documents():
     with pytest.raises(InvalidDocument) as raised:
-        derive_content_text(load(FIXTURES / "invalid" / "several_errors.json")["document"])
-    assert [error.code for error in raised.value.errors] == ["invalid_attr", "empty_text", "invalid_attr"]
+        derive_content_text(
+            load(FIXTURES / "invalid" / "several_errors.json")["document"]
+        )
+    assert [error.code for error in raised.value.errors] == [
+        "invalid_attr",
+        "empty_text",
+        "invalid_attr",
+    ]
 
 
 def test_content_text_keeps_paragraph_boundaries():
     # The v1 helper joined paragraphs with no separator ("Faster checkoutMore orders").
     document = doc(paragraph("Faster checkout"), paragraph("More orders"))
-    assert derive_content_text(document) == "Problem Statement\nFaster checkout\nMore orders"
+    assert (
+        derive_content_text(document)
+        == "Problem Statement\nFaster checkout\nMore orders"
+    )
 
 
 def test_lone_surrogate_is_an_error_not_a_crash():
     # Valid JSON that json.loads accepts, but it can't be encoded or stored.
-    document = json.loads('{"type": "doc", "content": [{"type": "section", "attrs": {"type": "problem"}, '
-                          '"content": [{"type": "paragraph", "content": [{"type": "text", "text": "\\ud800"}]}]}]}')
+    document = json.loads(
+        '{"type": "doc", "content": [{"type": "section", "attrs": {"type": "problem"}, '
+        '"content": [{"type": "paragraph", "content": [{"type": "text", "text": "\\ud800"}]}]}]}'
+    )
     assert codes(validate_document(document)) == [{"code": "invalid_type", "path": ""}]
     with pytest.raises(InvalidDocument):
         derive_content_text(document)
@@ -308,7 +440,11 @@ def test_lone_surrogate_is_an_error_not_a_crash():
 def test_pipes_inside_table_cells_are_escaped():
     def cell(text):
         return {"type": "tableCell", "content": [paragraph(text)]}
-    table = {"type": "table", "content": [{"type": "tableRow", "content": [cell("a | b"), cell("c")]}]}
+
+    table = {
+        "type": "table",
+        "content": [{"type": "tableRow", "content": [cell("a | b"), cell("c")]}],
+    }
     assert derive_content_text(doc(table)) == "Problem Statement\na \\| b | c"
 
 
@@ -316,11 +452,18 @@ def test_messages_do_not_echo_long_values():
     long_type = "x" * 500
     errors = validate_document(doc({"type": long_type}))
     assert errors[0].code == "unknown_node" and long_type not in errors[0].message
-    assert errors[0].to_dict() == {"code": errors[0].code, "path": errors[0].path, "message": errors[0].message}
+    assert errors[0].to_dict() == {
+        "code": errors[0].code,
+        "path": errors[0].path,
+        "message": errors[0].message,
+    }
 
 
 def test_spec_path_points_at_the_shared_file():
-    assert prd_document.SPEC_PATH == BACKEND.parent / "shared" / "prd_document_schema.v2.json"
+    assert (
+        prd_document.SPEC_PATH
+        == BACKEND.parent / "shared" / "prd_document_schema.v2.json"
+    )
 
 
 def test_command_line_check(tmp_path, capsys):
@@ -331,7 +474,9 @@ def test_command_line_check(tmp_path, capsys):
     assert prd_document.main([str(good)]) == 0
     assert "valid" in capsys.readouterr().out
     assert prd_document.main([str(good), str(bad)]) == 1
-    assert "empty_text at /content/0/content/0/content/0/text" in capsys.readouterr().out
+    assert (
+        "empty_text at /content/0/content/0/content/0/text" in capsys.readouterr().out
+    )
     assert prd_document.main([str(FIXTURES / "valid" / "marks.json")]) == 0
     assert prd_document.main([]) == 2
 

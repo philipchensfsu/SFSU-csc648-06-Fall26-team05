@@ -29,6 +29,19 @@ describe("notificationSentence", () => {
     [item("superseded", { continued: true }), "TITLE changed, so its approval started again"],
     [item("superseded", { continued: false }), "TITLE went back to draft"],
     [item("work_status_changed", { status: "done" }), "TITLE was marked done"],
+    [item("mentioned", { section_type: "goals", user_ids: ["u1"] }), "Alice PM mentioned you in TITLE"],
+    [
+      item("team_added", { team_id: "t1", team_name: "Engineering", role: "editor", user_ids: ["u1"] }),
+      "Alice PM added Engineering to TITLE as Editor",
+    ],
+    [item("team_added", { team_id: "t1", role: "viewer" }), "Alice PM added your team to TITLE as Viewer"],
+    [item("team_added", { team_id: "t1", team_name: "Design" }), "Alice PM added Design to TITLE"],
+    [item("work_status_changed", { from: "in_progress", to: "done", status: "done" }), "TITLE was marked done"],
+    [item("work_status_changed", { from: "not_started", to: "in_progress" }), "TITLE was marked in progress"],
+    [item("work_status_changed", { from: "in_progress", to: "not_started" }), "TITLE was marked not started"],
+    [item("work_status_changed", { status: "in_progress" }), "TITLE was marked in progress"],
+    [item("work_status_changed", { to: "archived" }), "TITLE had its work status updated"],
+    [item("work_status_changed"), "TITLE had its work status updated"],
     [item("something_new"), "TITLE was updated"],
   ])("words %#", (notification, expected) => {
     expect(text(notification)).toBe(expected);

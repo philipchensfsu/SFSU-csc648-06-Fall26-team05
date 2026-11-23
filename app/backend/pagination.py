@@ -29,6 +29,8 @@ T = TypeVar("T")
 
 
 class Page(BaseModel, Generic[T]):
+    """A page of items and the cursor for the next page (null on the last page)."""
+
     items: list[T]
     next_cursor: Optional[str] = None
 
@@ -41,11 +43,18 @@ class PageParams:
         cursor: Optional[str] = Query(default=None, max_length=200),
         limit: int = Query(default=DEFAULT_LIMIT, ge=1, le=MAX_LIMIT),
     ):
+        """Read the cursor and page size from the query string.
+
+        Args:
+            cursor: The next_cursor from the previous page, if any.
+            limit: How many items to return.
+        """
         self.cursor = cursor
         self.limit = limit
 
 
 def encode_cursor(sort_value: str, row_id: str) -> str:
+    """Encode a row's sort value and id as an opaque, URL-safe cursor."""
     raw = json.dumps([sort_value, row_id], separators=(",", ":")).encode()
     return base64.urlsafe_b64encode(raw).decode().rstrip("=")
 
@@ -58,10 +67,14 @@ def decode_cursor(cursor: str) -> tuple[str, str]:
         sort_value, row_id = json.loads(base64.urlsafe_b64decode(padded))
         return datetime.fromisoformat(sort_value).isoformat(), str(UUID(row_id))
     except (ValueError, TypeError, binascii.Error):
-        raise ApiError(400, "Invalid cursor. Start again without one.", code="invalid_cursor")
+        raise ApiError(
+            400, "Invalid cursor. Start again without one.", code="invalid_cursor"
+        )
 
 
-def paginate(query, params: PageParams, sort_column: str = "created_at", descending: bool = True) -> dict:
+def paginate(
+    query, params: PageParams, sort_column: str = "created_at", descending: bool = True
+) -> dict:
     """Applies keyset paging to a supabase-py select query and runs it.
 
     The query must select `sort_column` and `id`. Newest first by default.

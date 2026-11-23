@@ -61,29 +61,57 @@ Reply in the response schema:
 
 DATA_ERRORS = {
     "NT404": (404, "PRD not found", "not_found"),
-    "NT403": (403, "Only the PRD's owners or an org admin can set its team and priority.", "forbidden"),
+    "NT403": (
+        403,
+        "Only the PRD's owners or an org admin can set its team and priority.",
+        "forbidden",
+    ),
     "NT422": (422, "The suggestion couldn't be recorded", "validation_error"),
-    "NTSUG": (409, "This suggestion was already decided or isn't on this PRD.", "suggestion_unavailable"),
+    "NTSUG": (
+        409,
+        "This suggestion was already decided or isn't on this PRD.",
+        "suggestion_unavailable",
+    ),
 }
 
 
-def suggest_routing(user_client, service_client, *, actor_id, prd_id: str, revision: int,
-                    budget: usage_gate.RequestBudget | None = None,
-                    call_model: Callable[..., GeminiResult] | None = None) -> dict:
+def suggest_routing(
+    user_client,
+    service_client,
+    *,
+    actor_id,
+    prd_id: str,
+    revision: int,
+    budget: usage_gate.RequestBudget | None = None,
+    call_model: Callable[..., GeminiResult] | None = None,
+) -> dict:
+    """Ask the AI to suggest an owning team and priority for a PRD.
+
+    Raises:
+        ApiError: 404 if the PRD is hidden, 403 if the caller cannot manage it,
+            409 if the revision is stale, 422 if it has no content yet.
+    """
     budget = budget or usage_gate.RequestBudget()
     rows = user_client.table("prd").select("*").eq("id", prd_id).execute().data
     if not rows:
         raise ApiError(404, "PRD not found")
     prd = rows[0]
-    if user_client.rpc("can_manage_prd", {"target_prd_id": prd_id}).execute().data is not True:
+    if (
+        user_client.rpc("can_manage_prd", {"target_prd_id": prd_id}).execute().data
+        is not True
+    ):
         raise ApiError(*DATA_ERRORS["NT403"])
     if prd["revision"] != revision:
         raise ApiError(*chat.STALE_REVISION)
     if not (prd.get("content_text") or "").strip():
-        raise ApiError(422, "Save some content first, then ask for a suggestion.", "needs_content")
+        raise ApiError(
+            422, "Save some content first, then ask for a suggestion.", "needs_content"
+        )
     teams = _active_teams(user_client, prd["organization_id"])
     if not teams:
-        raise ApiError(422, "Your organization has no teams yet. Add a team first.", "no_teams")
+        raise ApiError(
+            422, "Your organization has no teams yet. Add a team first.", "no_teams"
+        )
     context = _context(user_client, prd_id)
 
     calls = chat._BudgetedCalls(call_model or generate_json, budget)
@@ -92,34 +120,67 @@ def suggest_routing(user_client, service_client, *, actor_id, prd_id: str, revis
     schema = response_schema([t["id"] for t in teams])
     with usage_gate.admitted(user_client):
         try:
-            team_id, priority, rationale = _ask(calls, prompt, schema, {t["id"] for t in teams})
+            team_id, priority, rationale = _ask(
+                calls, prompt, schema, {t["id"] for t in teams}
+            )
         except AIError as exc:
             _record_failure(service_client, actor_id, prd_id, revision, calls, exc.code)
             raise
-        record = _record(service_client, actor_id, prd_id, revision, calls, status="success",
-                         team_id=team_id, priority=priority, rationale=rationale)
+        record = _record(
+            service_client,
+            actor_id,
+            prd_id,
+            revision,
+            calls,
+            status="success",
+            team_id=team_id,
+            priority=priority,
+            rationale=rationale,
+        )
     if record["outcome"] != "suggested":
         raise ApiError(*chat.STALE_REVISION)
     return {
-        "suggestion": {"id": record["suggestion_id"], "team_id": team_id, "priority": priority,
-                       "rationale": rationale},
+        "suggestion": {
+            "id": record["suggestion_id"],
+            "team_id": team_id,
+            "priority": priority,
+            "rationale": rationale,
+        },
         "base_revision": revision,
         "generation_record_id": record["generation_record_id"],
     }
 
 
-def decide(service_client, verified_actor_id: str, prd_id: str, suggestion_id: str, *, decision: str,
-           team_id=None, set_team: bool = False, priority: str | None = None) -> dict:
+def decide(
+    service_client,
+    verified_actor_id: str,
+    prd_id: str,
+    suggestion_id: str,
+    *,
+    decision: str,
+    team_id=None,
+    set_team: bool = False,
+    priority: str | None = None,
+) -> dict:
     """Accept (optionally adjusting team and priority) or reject a pending
     suggestion. Returns the PRD row."""
-    return _call(service_client, "classification_decide", {
-        "p_actor": str(verified_actor_id), "p_prd_id": prd_id, "p_suggestion_id": suggestion_id,
-        "p_decision": decision, "p_team_id": None if team_id is None else str(team_id),
-        "p_set_team": set_team, "p_priority": priority,
-    })
+    return _call(
+        service_client,
+        "classification_decide",
+        {
+            "p_actor": str(verified_actor_id),
+            "p_prd_id": prd_id,
+            "p_suggestion_id": suggestion_id,
+            "p_decision": decision,
+            "p_team_id": None if team_id is None else str(team_id),
+            "p_set_team": set_team,
+            "p_priority": priority,
+        },
+    )
 
 
 def build_prompt(prd: dict, teams: list[dict], context: SavedContext) -> str:
+    """Build the JSON prompt for a routing suggestion from the PRD, its saved context and the teams."""
     text = prd.get("content_text") or ""
     data = {
         "prd": {
@@ -127,9 +188,12 @@ def build_prompt(prd: dict, teams: list[dict], context: SavedContext) -> str:
             "description": prd.get("description") or "",
             "text": text[:MAX_DOCUMENT_CHARS],
             "text_truncated": len(text) > MAX_DOCUMENT_CHARS,
-            "saved_context": {"decisions": list(context.decisions), "constraints": list(context.constraints),
-                              "open_questions": list(context.open_questions),
-                              "running_summary": context.running_summary},
+            "saved_context": {
+                "decisions": list(context.decisions),
+                "constraints": list(context.constraints),
+                "open_questions": list(context.open_questions),
+                "running_summary": context.running_summary,
+            },
         },
         "teams": teams,
     }
@@ -137,12 +201,17 @@ def build_prompt(prd: dict, teams: list[dict], context: SavedContext) -> str:
 
 
 def response_schema(team_ids: list[str]) -> dict:
+    """Return the JSON schema the model's routing suggestion must follow."""
     return {
         "type": "object",
         "properties": {
             "team_id": {"type": "string", "enum": team_ids},
             "priority": {"type": "string", "enum": list(PRIORITIES)},
-            "rationale": {"type": "string", "minLength": 1, "maxLength": MAX_RATIONALE_CHARS},
+            "rationale": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": MAX_RATIONALE_CHARS,
+            },
         },
         "required": ["team_id", "priority", "rationale"],
     }
@@ -150,46 +219,113 @@ def response_schema(team_ids: list[str]) -> dict:
 
 def _ask(calls, prompt: str, schema: dict, team_ids: set) -> tuple[str, str, str]:
     for attempt in range(1, MAX_TRIES + 1):
-        result = calls(prompt, system_instruction=SYSTEM_INSTRUCTION, response_schema=schema,
-                       max_output_tokens=MAX_OUTPUT_TOKENS)
+        result = calls(
+            prompt,
+            system_instruction=SYSTEM_INSTRUCTION,
+            response_schema=schema,
+            max_output_tokens=MAX_OUTPUT_TOKENS,
+        )
         data = result.data if isinstance(result.data, dict) else {}
-        team_id, priority, rationale = data.get("team_id"), data.get("priority"), data.get("rationale")
-        if (team_id in team_ids and priority in PRIORITIES and isinstance(rationale, str)
-                and 0 < len(rationale.strip()) <= MAX_RATIONALE_CHARS):
+        team_id, priority, rationale = (
+            data.get("team_id"),
+            data.get("priority"),
+            data.get("rationale"),
+        )
+        if (
+            team_id in team_ids
+            and priority in PRIORITIES
+            and isinstance(rationale, str)
+            and 0 < len(rationale.strip()) <= MAX_RATIONALE_CHARS
+        ):
             return team_id, priority, rationale.strip()
-        logger.warning("Classification reply on %s failed checks (try %s)", result.model, attempt)
+        logger.warning(
+            "Classification reply on %s failed checks (try %s)", result.model, attempt
+        )
     raise AIError(502, "ai_invalid_output")
 
 
 def _active_teams(user_client, org_id) -> list[dict]:
-    teams = (user_client.table("team").select("id, name, department_id, archived_at")
-             .eq("organization_id", org_id).execute().data)
-    departments = {d["id"]: d["name"] for d in
-                   user_client.table("department").select("id, name").eq("organization_id", org_id).execute().data}
+    teams = (
+        user_client.table("team")
+        .select("id, name, department_id, archived_at")
+        .eq("organization_id", org_id)
+        .execute()
+        .data
+    )
+    departments = {
+        d["id"]: d["name"]
+        for d in user_client.table("department")
+        .select("id, name")
+        .eq("organization_id", org_id)
+        .execute()
+        .data
+    }
     active = [t for t in teams if t.get("archived_at") is None][:MAX_TEAMS]
-    return [{"id": t["id"], "name": t["name"], "department": departments.get(t["department_id"])} for t in active]
+    return [
+        {
+            "id": t["id"],
+            "name": t["name"],
+            "department": departments.get(t["department_id"]),
+        }
+        for t in active
+    ]
 
 
 def _context(user_client, prd_id) -> SavedContext:
-    rows = (user_client.table("prd_context").select("context_json, running_summary")
-            .eq("prd_id", prd_id).execute().data)
+    rows = (
+        user_client.table("prd_context")
+        .select("context_json, running_summary")
+        .eq("prd_id", prd_id)
+        .execute()
+        .data
+    )
     return SavedContext.from_row(rows[0] if rows else None)
 
 
-def _record(service_client, actor_id, prd_id, revision, calls, *, status, error_code=None, team_id=None,
-            priority=None, rationale=None) -> dict:
-    return _call(service_client, "ai_record_classification", {
-        "p_actor": str(actor_id), "p_prd_id": prd_id, "p_base_revision": revision,
-        "p_model": calls.model or model_name(), "p_prompt_version": PROMPT_VERSION, "p_status": status,
-        "p_error_code": error_code, "p_prompt_tokens": calls.prompt_tokens or None,
-        "p_output_tokens": calls.output_tokens or None, "p_team_id": team_id, "p_priority": priority,
-        "p_rationale": rationale,
-    })[0]
+def _record(
+    service_client,
+    actor_id,
+    prd_id,
+    revision,
+    calls,
+    *,
+    status,
+    error_code=None,
+    team_id=None,
+    priority=None,
+    rationale=None,
+) -> dict:
+    return _call(
+        service_client,
+        "ai_record_classification",
+        {
+            "p_actor": str(actor_id),
+            "p_prd_id": prd_id,
+            "p_base_revision": revision,
+            "p_model": calls.model or model_name(),
+            "p_prompt_version": PROMPT_VERSION,
+            "p_status": status,
+            "p_error_code": error_code,
+            "p_prompt_tokens": calls.prompt_tokens or None,
+            "p_output_tokens": calls.output_tokens or None,
+            "p_team_id": team_id,
+            "p_priority": priority,
+            "p_rationale": rationale,
+        },
+    )[0]
 
 
 def _record_failure(service_client, actor_id, prd_id, revision, calls, error_code):
     try:
-        _record(service_client, actor_id, prd_id, revision, calls, status="failed", error_code=error_code)
+        _record(
+            service_client,
+            actor_id,
+            prd_id,
+            revision,
+            calls,
+            status="failed",
+            error_code=error_code,
+        )
     except Exception as exc:  # noqa: BLE001 - the provider error is what the user needs
         logger.error("Couldn't record a failed classification (%s)", type(exc).__name__)
 

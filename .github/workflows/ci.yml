@@ -25,7 +25,29 @@ jobs:
           cache: pip
           cache-dependency-path: app/backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
       - run: python -m pytest -q
+
+  discord-bot:
+    name: Discord bot tests
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: app/discord-bot
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: app/discord-bot/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: ruff check .
+      - run: ruff format --check .
+      # Mocked Discord and HTTP only; the local-backend tests skip without BOT_LOCAL_BACKEND=1.
+      - run: python -m pytest -q -rs
 
   frontend:
     name: Frontend lint and build
@@ -43,6 +65,7 @@ jobs:
           cache-dependency-path: app/frontend/package-lock.json
       - run: npm ci
       - run: npm run lint
+      - run: npm test -- --coverage --coverage.reporter=text --coverage.reporter=text-summary
       - run: npm run build
 
   integration:
@@ -54,6 +77,10 @@ jobs:
       SUPABASE_URL: http://127.0.0.1:54321
       SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6ImFub24iLCJleHAiOjE5ODM4MTI5OTZ9.CRXP1A7WOeoJeXxjNni43kdQwgnWNReilDMblYTn_I0
       SUPABASE_SERVICE_ROLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZS1kZW1vIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImV4cCI6MTk4MzgxMjk5Nn0.EGIM96RAZx35lJzdJsyH-qQwv8Hdp7fsn3W0YpN81IU
+      # The CLI's public local JWT secret and a CI-only bot secret, for the
+      # Discord bot routes (bot_auth.py).
+      SUPABASE_JWT_SECRET: super-secret-jwt-token-with-at-least-32-characters-long
+      BOT_API_SECRET: local-bot-secret
     steps:
       - uses: actions/checkout@v4
       - uses: supabase/setup-cli@v1
@@ -69,14 +96,34 @@ jobs:
       - name: Install backend dependencies
         working-directory: app/backend
         run: pip install -r requirements-dev.txt
-      - name: Start the API
+      - name: Start the API (measuring coverage)
         working-directory: app/backend
         run: |
-          nohup uvicorn main:app --port 8000 > uvicorn.log 2>&1 &
+          nohup python -m coverage run --parallel-mode -m uvicorn main:app --port 8000 > uvicorn.log 2>&1 &
+          echo $! > uvicorn.pid
           curl -sf --retry 20 --retry-delay 1 --retry-connrefused http://localhost:8000/api/health
-      - name: Run integration tests
+      - name: Run unit and integration tests
         working-directory: app/backend
-        run: python -m pytest tests/integration -q
+        run: python -m pytest -v -rs --cov=. --cov-report=
+      - name: Stop the API so it saves its coverage
+        working-directory: app/backend
+        run: |
+          pid=$(cat uvicorn.pid)
+          kill -INT "$pid"
+          timeout 60 bash -c "while kill -0 $pid 2>/dev/null; do sleep 1; done"
+      - name: Combined backend coverage (unit + integration)
+        working-directory: app/backend
+        run: |
+          python -m coverage combine --append
+          python -m coverage report
+          python -m coverage json -q -o "$RUNNER_TEMP/coverage.json"
+          python -c "import json,sys;d=json.load(open(sys.argv[1]));fs=[i for f in d['files'].values() for n,i in f.get('functions',{}).items() if n];c=sum(i['summary']['covered_lines']>0 for i in fs);print(f'Functions called: {c}/{len(fs)} = {100*c/len(fs):.1f}%')" "$RUNNER_TEMP/coverage.json" | tee functions.txt
+          {
+            echo "## Backend coverage (unit + integration)"
+            python -m coverage report --format=markdown
+            echo
+            cat functions.txt
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: Show API log if something failed
         if: failure()
         run: cat app/backend/uvicorn.log

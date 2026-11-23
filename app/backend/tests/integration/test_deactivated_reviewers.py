@@ -15,22 +15,50 @@ def team(make_user, make_org, db):
     org = make_org(ada, olive, rae, ray)
     prd = org_prd(db, org, olive, "Team PRD")
     version = save_version(db, prd, olive)
-    revision = db.execute("select revision from prd where id = %s", (prd,)).fetchone()[0]
-    r = olive.api("POST", f"/prds/{prd}/reviews",
-                  json={"revision": revision, "version_id": version, "reviewer_ids": [rae.id, ray.id]})
+    revision = db.execute("select revision from prd where id = %s", (prd,)).fetchone()[
+        0
+    ]
+    r = olive.api(
+        "POST",
+        f"/prds/{prd}/reviews",
+        json={
+            "revision": revision,
+            "version_id": version,
+            "reviewer_ids": [rae.id, ray.id],
+        },
+    )
     assert r.status_code == 201, r.text
-    return dict(ada=ada, olive=olive, rae=rae, ray=ray, org=org, prd=prd, version=version,
-                round=r.json()["round"]["id"])
+    return dict(
+        ada=ada,
+        olive=olive,
+        rae=rae,
+        ray=ray,
+        org=org,
+        prd=prd,
+        version=version,
+        round=r.json()["round"]["id"],
+    )
 
 
 def decide(team, who, decision="approved", explanation=None):
-    r = team[who].api("PUT", f"/prds/{team['prd']}/reviews/{team['round']}/decision",
-                      json={"version_id": team["version"], "decision": decision, "explanation": explanation})
+    r = team[who].api(
+        "PUT",
+        f"/prds/{team['prd']}/reviews/{team['round']}/decision",
+        json={
+            "version_id": team["version"],
+            "decision": decision,
+            "explanation": explanation,
+        },
+    )
     assert r.status_code == 200, r.text
 
 
 def deactivate(team, who):
-    r = team["ada"].api("PATCH", f"/organizations/{team['org']}/members/{team[who].id}", json={"active": False})
+    r = team["ada"].api(
+        "PATCH",
+        f"/organizations/{team['org']}/members/{team[who].id}",
+        json={"active": False},
+    )
     assert r.status_code == 200, r.text
 
 
@@ -40,17 +68,27 @@ def remove(team, who):
 
 
 def owner_notification(team, kind):
-    return next(i for i in team["olive"].api("GET", "/notifications").json()["items"] if i["type"] == kind)
+    return next(
+        i
+        for i in team["olive"].api("GET", "/notifications").json()["items"]
+        if i["type"] == kind
+    )
 
 
 def state(db, team):
-    return db.execute("select r.state, p.status from review_round r join prd p on p.id = r.prd_id where r.id = %s",
-                      (team["round"],)).fetchone()
+    return db.execute(
+        "select r.state, p.status from review_round r join prd p on p.id = r.prd_id where r.id = %s",
+        (team["round"],),
+    ).fetchone()
 
 
 def slots(db, team):
-    return dict(db.execute("select reviewer_id::text, state from review_slot where round_id = %s",
-                           (team["round"],)).fetchall())
+    return dict(
+        db.execute(
+            "select reviewer_id::text, state from review_slot where round_id = %s",
+            (team["round"],),
+        ).fetchall()
+    )
 
 
 def test_the_last_pending_reviewer_leaving_completes_an_approved_round(team, db):
@@ -60,10 +98,19 @@ def test_the_last_pending_reviewer_leaving_completes_an_approved_round(team, db)
     assert state(db, team) == ("approved", "final")
     approved = owner_notification(team, "round_approved")
     assert approved["actor_name"] is None
-    assert approved["payload"] == {"round_no": 1, "reviewer_id": None, "reason": "reviewer_deactivated",
-                                   "removed_reviewer_id": team["ray"].id}
-    assert db.execute("select actor_id from prd_event where round_id = %s and event_type = 'round_approved'",
-                      (team["round"],)).fetchone()[0] is None
+    assert approved["payload"] == {
+        "round_no": 1,
+        "reviewer_id": None,
+        "reason": "reviewer_deactivated",
+        "removed_reviewer_id": team["ray"].id,
+    }
+    assert (
+        db.execute(
+            "select actor_id from prd_event where round_id = %s and event_type = 'round_approved'",
+            (team["round"],),
+        ).fetchone()[0]
+        is None
+    )
 
 
 def test_with_nobody_left_the_prd_goes_back_to_draft(team, db):
@@ -103,20 +150,30 @@ def test_removing_a_pending_reviewer_from_the_prd_drops_their_slot(team, db):
     remove(team, "ray")
     assert slots(db, team) == {team["rae"].id: "approved"}
     assert state(db, team) == ("approved", "final")
-    assert owner_notification(team, "round_approved")["payload"]["reason"] == "reviewer_removed"
+    assert (
+        owner_notification(team, "round_approved")["payload"]["reason"]
+        == "reviewer_removed"
+    )
 
 
 def test_removing_everyone_sends_the_prd_back_to_draft(team, db):
     remove(team, "rae")
     remove(team, "ray")
     assert state(db, team) == ("superseded", "draft")
-    assert owner_notification(team, "superseded")["payload"]["reason"] == "reviewer_removed"
+    assert (
+        owner_notification(team, "superseded")["payload"]["reason"]
+        == "reviewer_removed"
+    )
 
 
 def test_an_org_admin_removed_from_the_prd_still_reviews(team, db):
-    r = team["olive"].api("PUT", f"/prds/{team['prd']}/members/{team['ada'].id}", json={"role": "viewer"})
+    r = team["olive"].api(
+        "PUT", f"/prds/{team['prd']}/members/{team['ada'].id}", json={"role": "viewer"}
+    )
     assert r.status_code == 200, r.text
-    db.execute("insert into review_slot (round_id, prd_id, reviewer_id) values (%s, %s, %s)",
-               (team["round"], team["prd"], team["ada"].id))
+    db.execute(
+        "insert into review_slot (round_id, prd_id, reviewer_id) values (%s, %s, %s)",
+        (team["round"], team["prd"], team["ada"].id),
+    )
     remove(team, "ada")
     assert slots(db, team)[team["ada"].id] == "pending"

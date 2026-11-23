@@ -10,6 +10,7 @@ import WhoItsFor from './landing/WhoItsFor.jsx';
 import FinalCta from './landing/FinalCta.jsx';
 import SiteFooter from './shared/SiteFooter.jsx';
 import CursorBubbles from './shared/CursorBubbles.jsx';
+import { FoodLayer } from './shared/FishFood.jsx';
 import './nautilus.css';
 
 // the page root: background, text colour and type for everything inside
@@ -80,7 +81,7 @@ export default class LandingPage extends SeaPage {
           for (let i = 0; i < 5; i++) this.spawn(r.left + r.width / 2, r.top + r.height * 0.3, true);
         }
       }
-      if (!this.ringShown && this.ring) {
+      if (!this.ringShown && this.ring && !(this.food && this.food.holding)) {
         this.cx = this.tx;
         this.cy = this.ty;
         this.ring.style.opacity = '1';
@@ -108,6 +109,9 @@ export default class LandingPage extends SeaPage {
     // the sea creatures swim on their own clock
     this.seaStart();
 
+    // fish food: the tin at the top of the hero
+    this.foodListen();
+
     // React integration: fonts, tab title, #anchor from another page
     this.prepareDocument();
   }
@@ -123,6 +127,7 @@ export default class LandingPage extends SeaPage {
     if (this.onPointer) window.removeEventListener('pointermove', this.onPointer);
     if (this.onDown) window.removeEventListener('pointerdown', this.onDown);
     if (this.onLeave) document.documentElement.removeEventListener('mouseleave', this.onLeave);
+    this.foodUnlisten();
     if (this.raf) cancelAnimationFrame(this.raf);
     if (this.seaRaf) cancelAnimationFrame(this.seaRaf);
     this.seaRaf = null;
@@ -230,6 +235,7 @@ export default class LandingPage extends SeaPage {
       t2: tab === 2,
       t3: tab === 3,
       cbPool: this.getCb(),
+      food: this.getFood(),
       ringRef: this.ringRef,
       rootRef: this.rootRef || (this.rootRef = (el) => { this.root = el; }),
       rootClass: (isDark ? 'theme-dark' : 'theme-light') + ((this.state && this.state.motion) ? ' motion' : ' still') + ((this.state && this.state.settled) ? ' settled' : ''),
@@ -286,6 +292,7 @@ export default class LandingPage extends SeaPage {
         <FinalCta />
         <SiteFooter page="landing" />
         <CursorBubbles pool={v.cbPool} ringRef={v.ringRef} />
+        <FoodLayer f={v.food} />
       </div>
     );
   }

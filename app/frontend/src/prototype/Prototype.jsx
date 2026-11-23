@@ -14,6 +14,7 @@ import { chatMessages, updateChatLog } from "../nautilus/app/editor/chatLog";
 import {
   acceptProposal,
   requestAdjustment,
+  requestFeedbackAlternatives,
   requestFeedbackRevision,
   requestRevision,
 } from "../nautilus/app/editor/proposal";
@@ -25,9 +26,12 @@ import { isAnswered } from "../nautilus/app/questions";
 import { createDraftCreator } from "../nautilus/app/flow/draftCreation";
 import GeneratingPage from "../nautilus/app/editor/GeneratingPage";
 import { draftFromAnswers } from "../nautilus/app/editor/draftFromAnswers";
+import { prdPath, usePrdUrl } from "../nautilus/app/prdUrl";
 
 // The editor carries TipTap, so it loads only when a PRD is opened.
 const EditorPage = lazy(() => import("../nautilus/app/editor/EditorPage"));
+// The details page shows saved versions through the editor's schema too.
+const PrdDetailsPage = lazy(() => import("../nautilus/app/details/PrdDetailsPage"));
 
 // App renders this workspace only after Supabase confirms a signed-in user
 // who is in an organization (OrgGate). `userName` and `userId` come from that
@@ -60,6 +64,9 @@ function Prototype({
   const draftCreator = useRef(null);
   const [projectsError, setProjectsError] = useState(null);
   const [prdsError, setPrdsError] = useState(null);
+  // A PRD link that couldn't be opened. Kept apart from prdsError, which the
+  // workspace's reload on every visit clears; the next navigation clears it.
+  const [openError, setOpenError] = useState(null);
   const latestLoad = useRef(0);
   const visits = useRef(0);
   const answersRequested = useRef(new Set());
@@ -84,6 +91,17 @@ function Prototype({
   // no longer open is dropped (editor/chatLog.js).
   const openPrdIdRef = useRef(null);
   const [aiProposal, setAiProposal] = useState(null);
+  // Feature 09: two options addressing review comments ({ prdId, options }).
+  // While it's set, aiProposal is the option that's open.
+  const [aiOptions, setAiOptions] = useState(null);
+  // Where the details screen is: { tab: "overview" | "activity" | "history", versionId?, compare? }.
+  const [detailsView, setDetailsView] = useState({ tab: "overview" });
+  // Where the details screen was opened from: "editor" gives it a "Back to
+  // editor" button; "workspace" (the dashboard's PRD list) needs none.
+  const [detailsFrom, setDetailsFrom] = useState("workspace");
+  // The editor's side panel to open on: closed (null) unless something asked
+  // for a view, like an activity line's "View comment".
+  const [editorRailTab, setEditorRailTab] = useState(null);
 
   const activePrd = prds.find((prd) => prd.id === activePrdId) ?? null;
 
@@ -207,6 +225,7 @@ function Prototype({
     if (prdId !== activePrdId) {
       setChatLog(null);
       setAiProposal(null);
+      setAiOptions(null);
     }
     setActivePrdId(prdId);
     setScreen(nextScreen);
@@ -217,9 +236,11 @@ function Prototype({
   const showHome = useCallback((next) => {
     visits.current += 1;
     setHome({ ...next, visit: visits.current });
+    setOpenError(null);
     setActivePrdId(null);
     setChatLog(null);
     setAiProposal(null);
+    setAiOptions(null);
     setScreen("dashboard");
   }, []);
 
@@ -258,7 +279,8 @@ function Prototype({
     go("interview", row.id);
   }
 
-  function openPrd(prd) {
+  function openPrd(prd, { railTab = null } = {}) {
+    setEditorRailTab(railTab);
     // A PRD opened from search may not be in the list yet.
     setPrds((current) => (current.some((p) => p.id === prd.id) ? current : [prd, ...current]));
     // Back to a generation still running or a draft still waiting, as the
@@ -292,10 +314,26 @@ function Prototype({
       .catch((error) => setPrdsError(error.message));
   }
 
+  // The details page (overview and history) for a PRD from any list.
+  function openDetails(prd, view = { tab: "overview" }, from = "workspace") {
+    setPrds((current) => (current.some((p) => p.id === prd.id) ? current : [prd, ...current]));
+    setDetailsView(view);
+    setDetailsFrom(from);
+    go("details", prd.id);
+  }
+
   // The inbox only knows a PRD's id. Rejects if this person can't open it.
   async function openPrdById(id) {
-    const known = prds.find((prd) => prd.id === id);
-    openPrd(known ?? fromApiPrd(await api.getPrd(id)));
+    openPrd(await prdById(id));
+  }
+
+  // The details page for a PRD URL (prdUrl.js). Rejects the same way.
+  async function openDetailsById(id) {
+    openDetails(await prdById(id));
+  }
+
+  async function prdById(id) {
+    return prds.find((prd) => prd.id === id) ?? fromApiPrd(await api.getPrd(id));
   }
 
   // Renaming uses the same optimistic-concurrency check as saving content;
@@ -466,6 +504,15 @@ function Prototype({
       .then((result) => applyReviewResult(id, result));
   }
 
+  // Swaps or drops an undecided reviewer on the round the page is showing.
+  // Removing the last pending one can approve the round and finalize the PRD,
+  // so the result goes through the same path as a decision.
+  function changeReviewer(id, call) {
+    const approval = prdDetail?.id === id ? prdDetail.approval : null;
+    if (!approval?.round_id) return Promise.reject(new Error("This review is no longer open."));
+    return call(approval.round_id).then((result) => applyReviewResult(id, result));
+  }
+
   // Runs from the latest revision, since nothing is being edited on this path.
   // The answer is dropped if another generation has started since.
   async function startGeneration() {
@@ -569,8 +616,32 @@ function Prototype({
     const prd = prds.find((p) => p.id === id);
     if (!prd) throw new Error("This PRD is no longer in your list.");
     const result = await requestFeedbackRevision(api, id, { revision: prd.revision, feedbackIds: commentIds, instruction });
+    setAiOptions(null);
     openProposal(id, result.proposal);
     return result;
+  }
+
+  // Two options for the same comments (feature 09). The first one opens.
+  async function requestFeedbackOptions(id, commentIds, instruction) {
+    const prd = prds.find((p) => p.id === id);
+    if (!prd) throw new Error("This PRD is no longer in your list.");
+    const result = await requestFeedbackAlternatives(api, id, {
+      revision: prd.revision,
+      feedbackIds: commentIds,
+      instruction,
+    });
+    if (!result.options.length) throw new Error("Nautilus couldn’t write usable options this time. Try again.");
+    if (openPrdIdRef.current !== id) return result;
+    setAiOptions({ prdId: id, options: result.options });
+    openProposal(id, result.options[0]);
+    return result;
+  }
+
+  // Opens another option of the set.
+  function selectOption(id, option) {
+    if (aiOptions?.prdId !== id) return;
+    const chosen = aiOptions.options.find((item) => item.option === option);
+    if (chosen) openProposal(id, chosen);
   }
 
   // Request adjustments to the open proposal: the adjusted one replaces it,
@@ -578,7 +649,11 @@ function Prototype({
   async function adjustAiProposal(id, instruction, sessionMessages) {
     if (aiProposal?.prdId !== id) throw new Error("This proposal is no longer open.");
     const result = await requestAdjustment(api, id, aiProposal, { instruction, sessionMessages });
-    if (result.kind === "proposal") openProposal(id, result.proposal);
+    if (result.kind === "proposal") {
+      // An adjusted option replaces the whole set: none of it can be accepted now.
+      setAiOptions(null);
+      openProposal(id, result.proposal);
+    }
     return result;
   }
 
@@ -590,6 +665,7 @@ function Prototype({
     const saved = await acceptProposal(api, id, aiProposal, { confirmedReviewerIds });
     applyRow(saved);
     setAiProposal(null);
+    setAiOptions(null);
     loadDetail(id);
     setEditorVersion((version) => version + 1);
   }
@@ -617,6 +693,18 @@ function Prototype({
       go("review", id);
     });
   }
+
+  // The details page's and editor's URLs, and the browser's Back and Forward
+  // buttons (prdUrl.js). The workspace is the page they were opened from.
+  const followUrl = usePrdUrl({
+    screen,
+    activePrdId,
+    prdsLoaded,
+    prdsError,
+    open: { editor: openPrdById, details: openDetailsById },
+    showWorkspace: () => showHome(home),
+    onOpenFailed: (error) => setOpenError(`Couldn’t open that PRD. ${error.message}`),
+  });
 
   // These screens include their own top bar; auth remains owned by App.
   if (screen === "create") {
@@ -702,6 +790,27 @@ function Prototype({
       </Suspense>
     );
   }
+  if (screen === "details" && activePrd) {
+    return (
+      <Suspense fallback={null}>
+        <PrdDetailsPage
+          key={activePrd.id}
+          prd={activePrd}
+          view={detailsView}
+          organizationId={organization?.organization_id}
+          userId={userId}
+          onNavigate={(next) => {
+            setDetailsView(next);
+            window.scrollTo(0, 0);
+          }}
+          onOpenEditor={(options) => openPrd(activePrd, options)}
+          onHome={() => showHome({ page: "dashboard" })}
+          onBack={detailsFrom === "editor" ? () => openPrd(activePrd) : undefined}
+        />
+      </Suspense>
+    );
+  }
+
   // `sections` is null until a PRD has saved content; the editor shows its
   // empty state for those, so only the PRD itself has to be loaded.
   if (screen === "editor" && activePrd) {
@@ -710,6 +819,7 @@ function Prototype({
         <EditorPage
           key={`${activePrd.id}:${editorVersion}`}
           prd={activePrd}
+          initialRailTab={editorRailTab}
           detail={prdDetail?.id === activePrd.id ? prdDetail : null}
           onRetryDetail={() => loadDetail(activePrd.id)}
           organizationId={organization?.organization_id}
@@ -724,6 +834,12 @@ function Prototype({
           }
           onSubmitReview={(reviewerIds) => submitReview(activePrd.id, reviewerIds)}
           onDecideReview={(decision) => decideReview(activePrd.id, decision)}
+          onReplaceReviewer={(reviewerId, newId) =>
+            changeReviewer(activePrd.id, (roundId) => api.replaceReviewer(activePrd.id, roundId, reviewerId, newId))
+          }
+          onRemoveReviewer={(reviewerId) =>
+            changeReviewer(activePrd.id, (roundId) => api.removeReviewer(activePrd.id, roundId, reviewerId))
+          }
           chat={chatFor(activePrd.id)}
           setChat={(update) => setChatFor(activePrd.id, update)}
           proposal={aiProposal?.prdId === activePrd.id ? aiProposal : null}
@@ -733,13 +849,26 @@ function Prototype({
           onRequestFeedbackProposal={(commentIds, instruction) =>
             requestFeedbackProposal(activePrd.id, commentIds, instruction)
           }
+          proposalOptions={
+            aiOptions?.prdId === activePrd.id && aiProposal?.prdId === activePrd.id ? aiOptions.options : null
+          }
+          onRequestFeedbackOptions={(commentIds, instruction) =>
+            requestFeedbackOptions(activePrd.id, commentIds, instruction)
+          }
+          onSelectOption={(option) => selectOption(activePrd.id, option)}
           onAcceptProposal={(confirmedReviewerIds) => acceptAiProposal(activePrd.id, confirmedReviewerIds)}
-          onDiscardProposal={() => setAiProposal(null)}
+          onDiscardProposal={() => {
+            setAiProposal(null);
+            setAiOptions(null);
+          }}
           onAdjustProposal={(instruction, sessionMessages) => adjustAiProposal(activePrd.id, instruction, sessionMessages)}
           onReload={() => reloadPrd(activePrd.id)}
           onOpenAnswers={() => openAnswers(activePrd.id)}
+          onOpenDetails={() => openDetails(activePrd, undefined, "editor")}
           onExit={() => showHome({ page: "dashboard" })}
           onHome={() => showHome({ page: "dashboard" })}
+          browserPath={prdPath("editor", activePrd.id)}
+          onBrowserBack={followUrl}
         />
       </Suspense>
     );
@@ -756,7 +885,7 @@ function Prototype({
       userId={userId}
       prds={prds}
       prdsLoaded={prdsLoaded}
-      prdsError={prdsError}
+      prdsError={openError || prdsError}
       projects={projects}
       projectsLoaded={projectsLoaded}
       projectsError={projectsError}
@@ -767,6 +896,7 @@ function Prototype({
       onCreatePrd={startNewPrd}
       onOpenPrd={openPrd}
       onOpenPrdById={openPrdById}
+      onOpenDetails={openDetails}
       onRenamePrd={renamePrd}
       onDeletePrd={deletePrd}
       onCreateProject={createProject}
@@ -778,6 +908,7 @@ function Prototype({
       onDismissError={() => {
         setPrdsError(null);
         setProjectsError(null);
+        setOpenError(null);
       }}
       onSignOut={signOut}
     />

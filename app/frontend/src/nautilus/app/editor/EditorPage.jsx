@@ -7,14 +7,18 @@ import AskAiPanel from "./AskAiPanel";
 import CommentsPanel from "./CommentsPanel";
 import { isDraftOutOfDate } from "./aiDraft";
 import PrdProposalComparison from "./PrdProposalComparison";
+import ProposalOptions from "./ProposalOptions";
 import { describeProposalError, mustAskAgain, needsReapproval, sessionMessagesFrom } from "./proposal";
 import { ReapprovalDialog } from "./ReapprovalDialog";
 import { ApprovalsCard, YourReviewCard } from "./ReviewPanel";
 import { SubmitReviewDialog } from "./SubmitReviewDialog";
+import { AddSectionDialog } from "./AddSectionDialog";
+import { missingSections, withSection } from "./addSection";
 import { approvalProgress, editedWhen, formatDate } from "../format";
-import { IconPencil, IconPeople } from "../icons";
+import { IconClock, IconPencil, IconPeople, IconPlus, IconX } from "../icons";
 import { Alert, MenuButton, Modal, StatusChip } from "../ui";
-import { IconBack, IconChat, IconCheck, IconDownload } from "./editorIcons";
+import { IconBack, IconChat, IconCheck, IconDownload, IconSparkle } from "./editorIcons";
+import { depthOf } from "../prdUrl";
 import { exportMarkdown, exportPdf, exportWord } from "./exporters";
 import { cleanHtml, isEmptyHtml, sectionsToDocument } from "./html";
 import { SectionEditor } from "./SectionEditor";
@@ -43,6 +47,25 @@ const PROPOSAL_REAPPROVAL = "ai-proposal";
 
 // A review is tied to one saved version, so these mean the page is out of date.
 const STALE_REVIEW_CODES = new Set(["stale_revision", "stale_version", "round_not_current"]);
+// A reviewer change refused because the round changed since it was loaded.
+const ROSTER_STALE_CODES = new Set(["round_not_open", "reviewer_already_decided", "already_a_reviewer", "last_reviewer"]);
+
+// The side panel's width, as a share of the page. Remembered in the browser.
+const PANEL_KEY = "nautilus.editor.panelWidth";
+const PANEL_MIN = 25;
+const PANEL_MAX = 60;
+const PANEL_DEFAULT = 38;
+const PANEL_STEP = 3;
+const PANEL_TITLES = { ai: "Ask Nautilus", comments: "Comments", review: "Review" };
+
+function readPanelPct() {
+  try {
+    const value = Number(window.localStorage.getItem(PANEL_KEY));
+    return value >= PANEL_MIN && value <= PANEL_MAX ? value : PANEL_DEFAULT;
+  } catch {
+    return PANEL_DEFAULT;
+  }
+}
 
 // --- the document --------------------------------------------------------
 
@@ -201,6 +224,12 @@ function LeaveDraftDialog({ open, onStay, onDiscard, proposal = false }) {
 // beside it instead of the editor; `onAcceptProposal(confirmedReviewerIds?)`
 // saves it and `onDiscardProposal()` drops it. `onAdjustProposal(instruction,
 // sessionMessages)` asks for changes to it first (Request adjustments).
+//
+// Feature 09: the Comments tab's "2 options" calls
+// `onRequestFeedbackOptions(commentIds, instruction)`. While
+// `proposalOptions` (the set) is set too, the page shows the options instead
+// of the comparison; `proposal` is the open one, and `onSelectOption(n)`
+// opens another. Accepting and adjusting go through the same callbacks.
 function EditorPage({
   prd,
   detail,
@@ -215,17 +244,33 @@ function EditorPage({
   chat,
   setChat,
   proposal = null,
+  proposalOptions = null,
   onRequestProposal,
   onRequestFeedbackProposal,
+  onRequestFeedbackOptions,
+  onSelectOption,
   onAcceptProposal,
   onDiscardProposal,
   onAdjustProposal,
   onSubmitReview,
   onDecideReview,
+  // Owners and org admins: (userId, newUserId) and (userId) on the open round.
+  onReplaceReviewer,
+  onRemoveReviewer,
   onReload,
   onOpenAnswers,
+  // The PRD's details page (overview and version history). Not during an AI preview.
+  onOpenDetails,
+  // The side panel to start with open: "review", "ai" or "comments". Closed
+  // by default, so the document gets the page.
+  initialRailTab = null,
   onExit,
   onHome,
+  // The editor's URL (/prds/<id>/edit), and onBrowserBack() to show what the
+  // URL says once Back or Forward has left it. Without a browserPath, the
+  // browser's buttons are left alone (the AI preview).
+  browserPath = null,
+  onBrowserBack,
 }) {
   const [doc, setDoc] = useState(() => toDoc(prd));
   const [saved, setSaved] = useState(() => toDoc(prd));
@@ -239,6 +284,7 @@ function EditorPage({
   const [reloading, setReloading] = useState(false);
   // The navigation waiting on "Leave without saving?".
   const [leaving, setLeaving] = useState(null);
+  const [addingSection, setAddingSection] = useState(false);
   const [currentId, setCurrentId] = useState(() => prd.sections?.[0]?.id ?? null);
   const editable = useRef(null);
   const docRef = useRef(null);
@@ -252,15 +298,24 @@ function EditorPage({
   const returnFocus = useRef(null);
   const ids = useId();
 
-  const [railTab, setRailTab] = useState("review");
+  // The side panel on the right: "ai" (Ask Nautilus), "comments", "review",
+  // or null when it's closed. Its width (a share of the page) is dragged.
+  const [panel, setPanel] = useState(initialRailTab);
+  // Once opened, the panel stays mounted and is only hidden when closed, so a
+  // comment being typed survives closing it (Comments is one click away from
+  // closing). Until then nothing in it loads.
+  const [panelSeen, setPanelSeen] = useState(Boolean(initialRailTab));
+  if (panel && !panelSeen) setPanelSeen(true);
+  const [panelPct, setPanelPct] = useState(readPanelPct);
+  const bodyRef = useRef(null);
+  const rootRef = useRef(null);
+  const resizing = useRef(false);
   const [accepting, setAccepting] = useState(false);
   const [sharing, setSharing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [reviewChoice, setReviewChoice] = useState(null);
   // The edits an approved PRD refused, waiting on "Your edits need new approval".
   const [reapproving, setReapproving] = useState(null);
-  // Split view: the chat beside the document instead of in the side panel.
-  const [split, setSplit] = useState(false);
   // Conversational editing: asking for a proposal, and what went wrong.
   const [proposing, setProposing] = useState(false);
   const [proposeError, setProposeError] = useState(null);
@@ -282,6 +337,8 @@ function EditorPage({
     !aiDraft &&
     Boolean(onRequestFeedbackProposal) &&
     detail?.capabilities?.can_request_review_suggestions === true;
+  // Two options at once (feature 09): the same rule and flag.
+  const canSuggestOptions = canSuggest && Boolean(onRequestFeedbackOptions);
   // Nothing says "View only" until the API has actually said so.
   const viewOnly = Boolean(detail?.capabilities) && !canEdit;
   const progress = approvalProgress(detail?.approval);
@@ -296,6 +353,7 @@ function EditorPage({
       ),
     [doc.sections],
   );
+  const missing = useMemo(() => missingSections(doc.sections), [doc.sections]);
   const emptyIds = useMemo(
     () => new Set(doc.sections.filter((section) => isEmptyHtml(section.html)).map((section) => section.id)),
     [doc.sections],
@@ -327,6 +385,33 @@ function EditorPage({
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [unsaved]);
+
+  // The browser's Back and Forward buttons leave like the editor's own exits:
+  // with unsaved changes, the step is undone and the same question asked;
+  // leaving then takes the step again, without asking twice. Changes come
+  // after the editor's URL is pushed, so this entry's depth is known here.
+  const confirmedLeave = useRef(false);
+  useEffect(() => {
+    if (!browserPath) return undefined;
+    const ownDepth = depthOf(window.history.state);
+    function onPopState() {
+      if (window.location.pathname === browserPath) return;
+      if (unsaved && !confirmedLeave.current) {
+        const wentBack = depthOf(window.history.state) < ownDepth;
+        if (wentBack) window.history.forward();
+        else window.history.back();
+        setLeaving(() => () => {
+          confirmedLeave.current = true;
+          if (wentBack) window.history.back();
+          else window.history.forward();
+        });
+      } else {
+        onBrowserBack();
+      }
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [browserPath, onBrowserBack, unsaved]);
 
   // The contents list follows the section being read: the last one whose
   // top has passed 30% of the window.
@@ -428,6 +513,14 @@ function EditorPage({
     if (editing && closeEditing() === null) return;
     returnFocus.current = null;
     setEditing(id);
+  }
+
+  // Adds a missing standard section in its place and opens it for writing.
+  // It's saved with Save, like any other edit.
+  function addSection(type) {
+    setDoc((current) => ({ ...current, sections: withSection(current.sections, type) }));
+    setAddingSection(false);
+    startEdit(type);
   }
 
   function startDetails() {
@@ -575,14 +668,90 @@ function EditorPage({
     }
   }
 
+  // The round moved on under the page (closed, or that reviewer decided): the
+  // error is shown and the round is read again so the buttons match it.
+  async function changeReviewer(action) {
+    try {
+      await action();
+    } catch (error) {
+      if (ROSTER_STALE_CODES.has(error?.code) || error?.status === 404) onRetryDetail?.();
+      throw error;
+    }
+  }
+
+  const manageReviewers =
+    detail?.capabilities?.can_assign === true && onReplaceReviewer && onRemoveReviewer
+      ? {
+          organizationId,
+          prdId: prd.id,
+          owners: detail?.owners ?? [],
+          onReplace: (reviewerId, newId) => changeReviewer(() => onReplaceReviewer(reviewerId, newId)),
+          onRemove: (reviewerId) => changeReviewer(() => onRemoveReviewer(reviewerId)),
+        }
+      : null;
+
   function jumpToReview(choice) {
-    // Split view hides the side panel, and the review card lives in it, so
-    // close the chat first or this scrolls to something nobody can see.
-    setSplit(false);
+    // The review card lives in the side panel's Review view.
     setReviewChoice(choice);
-    setRailTab("review");
+    setPanel("review");
     setReviewJump((value) => value + 1);
   }
+
+  // The top bar's Ask Nautilus, Comments and Review open the panel on that
+  // view; pressing the open one again closes it.
+  function togglePanel(name) {
+    setPanel((current) => (current === name ? null : name));
+  }
+
+  function resizePanel(pct) {
+    setPanelPct(Math.max(PANEL_MIN, Math.min(PANEL_MAX, Math.round(pct))));
+  }
+
+  // Dragging the divider: the panel's width is the share of the page to the
+  // right of the pointer.
+  function startResize(event) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    resizing.current = true;
+    document.body.classList.add("ne-resizing");
+  }
+  function moveResize(event) {
+    if (!resizing.current || !bodyRef.current) return;
+    const box = bodyRef.current.getBoundingClientRect();
+    if (box.width) resizePanel(((box.right - event.clientX) / box.width) * 100);
+  }
+  function endResize() {
+    resizing.current = false;
+    document.body.classList.remove("ne-resizing");
+  }
+  function nudgePanel(event) {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+      event.preventDefault();
+      resizePanel(panelPct + (event.key === "ArrowLeft" ? PANEL_STEP : -PANEL_STEP));
+    }
+  }
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(PANEL_KEY, String(panelPct));
+    } catch {
+      // Storage can be off (private windows); the width just isn't remembered.
+    }
+  }, [panelPct]);
+
+  // Never leave the page stuck in "resizing" if the editor goes mid-drag.
+  useEffect(() => () => document.body.classList.remove("ne-resizing"), []);
+
+  // The top bar stays in view, and what sits under it (the toolbar, the
+  // contents, the side panel) needs its height, which changes as it wraps.
+  useEffect(() => {
+    const root = rootRef.current;
+    const bar = root?.querySelector(".ne-bar");
+    if (!bar || typeof ResizeObserver === "undefined") return undefined;
+    const observer = new ResizeObserver(() => root.style.setProperty("--ne-bar-h", `${bar.offsetHeight}px`));
+    observer.observe(bar);
+    return () => observer.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!reviewJump) return;
@@ -671,12 +840,14 @@ function EditorPage({
     }
   }
 
-  // "Ask AI to address" in the Comments tab. The panel shows the error and
-  // keeps the picked comments, so this rejects with a sentence to show.
-  async function requestFeedbackProposal(commentIds, instruction) {
+  // "Ask AI to address" in the Comments tab: one proposal (`ask` is
+  // onRequestFeedbackProposal) or two options (onRequestFeedbackOptions).
+  // The panel shows the error and keeps the picked comments, so this rejects
+  // with a sentence to show.
+  async function requestFeedbackChanges(ask, commentIds, instruction) {
     if (dirty) throw new Error("Save your edits first, then ask for changes.");
     try {
-      await onRequestFeedbackProposal(commentIds, instruction);
+      await ask(commentIds, instruction);
     } catch (error) {
       if (error?.code === "stale_revision") {
         setProblem(CONFLICT);
@@ -687,6 +858,11 @@ function EditorPage({
       throw new Error(describeProposalError(error), { cause: error });
     }
   }
+
+  const requestFeedbackProposal = (commentIds, instruction) =>
+    requestFeedbackChanges(onRequestFeedbackProposal, commentIds, instruction);
+  const requestFeedbackOptions = (commentIds, instruction) =>
+    requestFeedbackChanges(onRequestFeedbackOptions, commentIds, instruction);
 
   async function acceptProposal() {
     setAccepting(true);
@@ -737,6 +913,21 @@ function EditorPage({
     if (reloadAfter) reload();
   }
 
+  // Above the comparison or the options: why accepting or adjusting failed.
+  const proposalNotice = proposalProblem ? (
+    <Alert onDismiss={proposalProblem.askAgain ? undefined : () => setProposalProblem(null)}>
+      {proposalProblem.message}
+      {proposalProblem.askAgain ? (
+        <>
+          {" "}
+          <button type="button" className="ne-alert-action" onClick={() => leaveProposal(true)}>
+            Back to the PRD
+          </button>
+        </>
+      ) : null}
+    </Alert>
+  ) : null;
+
   function reload() {
     setReloading(true);
     Promise.resolve(onReload()).catch((error) => {
@@ -779,22 +970,31 @@ function EditorPage({
     { label: "Word document (.doc)", icon: <IconDownload />, onSelect: () => exportWord(exported) },
     { label: "Markdown (.md)", icon: <IconDownload />, onSelect: () => exportMarkdown(exported) },
   ];
+  // The saved version on screen, so it's clear which one comments and AI
+  // changes refer to ("Version 6 · Saved").
+  const versionNo = detail?.currentVersion?.version_no ?? null;
+  const versionLabel = versionNo ? `Version ${versionNo}` : null;
   let saveState = null;
   if (canEdit) {
     if (saving) saveState = ["is-saving", "Saving…", ""];
-    else if (dirty) saveState = ["is-dirty", "Unsaved changes", `last saved ${editedWhen(prd.updatedAt)}`];
-    else saveState = ["", "Saved", editedWhen(prd.updatedAt)];
+    else if (dirty)
+      saveState = [
+        "is-dirty",
+        "Unsaved changes",
+        `${versionLabel ? `${versionLabel} saved` : "last saved"} ${editedWhen(prd.updatedAt)}`,
+      ];
+    else saveState = ["", versionLabel ? `${versionLabel} · Saved` : "Saved", editedWhen(prd.updatedAt)];
   }
 
   return (
-    <div className="nw-root nw-flow ne-editor">
+    <div className="nw-root nw-flow ne-editor" ref={rootRef}>
       <FlowBar
         className="ne-bar"
         onHome={() => guard(onHome)}
         crumbs={[
           { label: "Dashboard", onClick: () => guard(onHome) },
           { label: doc.title },
-          { label: proposal ? "Proposed changes" : "Editor", current: true },
+          { label: proposalOptions ? "Options" : proposal ? "Proposed changes" : "Editor", current: true },
         ]}
         // Status is shown, not set here: it changes only through the review
         // workflow (Decision 6).
@@ -804,40 +1004,56 @@ function EditorPage({
           // applies to a proposal.
           proposal ? null : (
           <>
-            {saveState ? (
-              <span className={`ne-savestate ${saveState[0]}`} role="status">
-                <span className="ne-savestate-dot" aria-hidden="true" />
-                {saveState[1]}
-                {saveState[2] ? <span className="ne-hide-sm"> · {saveState[2]}</span> : null}
-              </span>
-            ) : viewOnly ? (
-              <span className="ne-viewonly">View only</span>
-            ) : null}
-            {/* Side by side with the chat, as the split-view design. Off by
-                default, so the usual three columns are what you get. Not
-                during an AI preview, which has no chat to put beside it. Not
-                on phones either: the header has no room left for it there, and
-                the chat is a tab away in the side panel. */}
+            {/* The side panel's three views. Anyone who can view the PRD may
+                ask and comment (Decision 5); neither applies to an unsaved AI
+                draft, which only has Review (its assumptions). */}
             {aiDraft ? null : (
               <button
                 type="button"
-                // Hidden on phones, where the header has no room for it --
-                // but never while the pane is open, or there would be no way
-                // to close it after the window narrows.
-                className={`nw-btn nw-btn-secondary ne-btn-38${split ? "" : " ne-hide-sm"}`}
-                aria-pressed={split}
-                onClick={() => setSplit((on) => !on)}
+                className={`nw-btn nw-btn-secondary ne-btn-38${panel === "comments" ? " is-on" : ""}`}
+                aria-pressed={panel === "comments"}
+                onClick={() => togglePanel("comments")}
               >
-                <IconChat />
-                {split ? "Close chat" : "Ask Nautilus"}
+                Comments
               </button>
             )}
+            <button
+              type="button"
+              className={`nw-btn nw-btn-secondary ne-btn-38${panel === "review" ? " is-on" : ""}`}
+              aria-pressed={panel === "review"}
+              onClick={() => togglePanel("review")}
+            >
+              Review
+              {toConfirm.length ? (
+                <span className="ne-rail-tab-count">
+                  {toConfirm.length}
+                  <span className="nw-sr"> to confirm</span>
+                </span>
+              ) : null}
+            </button>
+            {onOpenDetails && !aiDraft ? (
+              <button type="button" className="nw-btn nw-btn-secondary ne-btn-38" onClick={() => guard(onOpenDetails)}>
+                <IconClock size={16} />
+                Details
+              </button>
+            ) : null}
             {canShare ? (
               <button type="button" className="nw-btn nw-btn-secondary ne-btn-38" onClick={() => setSharing(true)}>
                 <IconPeople size={16} />
                 Share
               </button>
             ) : null}
+            {aiDraft ? null : (
+              <button
+                type="button"
+                className={`nw-btn ne-btn-38 ne-btn-ask${panel === "ai" ? " is-on" : ""}`}
+                aria-pressed={panel === "ai"}
+                onClick={() => togglePanel("ai")}
+              >
+                <IconSparkle />
+                Ask Nautilus
+              </button>
+            )}
             {aiDraft ? (
               <>
                 <button
@@ -857,26 +1073,11 @@ function EditorPage({
                   {accepting ? "Accepting…" : "Accept draft"}
                 </button>
               </>
-            ) : (
-              <MenuButton
-                label="Export"
-                className="nw-btn nw-btn-secondary ne-btn-38"
-                heading={dirty ? "Exports the last saved version" : "Download this PRD"}
-                items={exportItems}
-              >
-                <IconDownload />
-                Export
-              </MenuButton>
-            )}
-            {canEdit ? (
-              <button type="button" className="nw-btn nw-btn-primary ne-btn-38" onClick={save} disabled={saving || !dirty}>
-                {saving ? "Saving…" : "Save"}
-              </button>
             ) : null}
             {canSubmitReview ? (
               <button
                 type="button"
-                className="nw-btn nw-btn-secondary ne-btn-38"
+                className="nw-btn nw-btn-primary ne-btn-38"
                 onClick={startSubmit}
                 disabled={saving}
               >
@@ -951,51 +1152,74 @@ function EditorPage({
 
       {proposal ? (
         <div className="ne-compare">
-          <PrdProposalComparison
-            currentDocument={proposal.originalDocument}
-            proposedDocument={proposal.proposedDocument}
-            explanation={proposal.explanation}
-            busy={accepting}
-            onAccept={acceptProposal}
-            onAdjust={onAdjustProposal ? adjustProposal : undefined}
-            adjusting={adjusting}
-            onDiscard={() => leaveProposal()}
-            notice={
-              proposalProblem ? (
-                <Alert onDismiss={proposalProblem.askAgain ? undefined : () => setProposalProblem(null)}>
-                  {proposalProblem.message}
-                  {proposalProblem.askAgain ? (
-                    <>
-                      {" "}
-                      <button type="button" className="ne-alert-action" onClick={() => leaveProposal(true)}>
-                        Back to the PRD
-                      </button>
-                    </>
-                  ) : null}
-                </Alert>
-              ) : null
-            }
-          />
+          {proposalOptions ? (
+            <ProposalOptions
+              options={proposalOptions}
+              selected={proposal.option}
+              onSelect={(option) => {
+                setProposalProblem(null);
+                onSelectOption(option);
+              }}
+              busy={accepting}
+              onAccept={acceptProposal}
+              onAdjust={onAdjustProposal ? adjustProposal : undefined}
+              adjusting={adjusting}
+              onAskAgain={
+                canSuggestOptions
+                  ? () => requestFeedbackOptions(proposal.feedbackIds, proposal.instruction ?? null)
+                  : undefined
+              }
+              onDiscard={() => leaveProposal()}
+              inReview={prd.status === "in_review"}
+              notice={proposalNotice}
+            />
+          ) : (
+            <PrdProposalComparison
+              currentDocument={proposal.originalDocument}
+              proposedDocument={proposal.proposedDocument}
+              explanation={proposal.explanation}
+              busy={accepting}
+              onAccept={acceptProposal}
+              onAdjust={onAdjustProposal ? adjustProposal : undefined}
+              adjusting={adjusting}
+              onDiscard={() => leaveProposal()}
+              notice={proposalNotice}
+            />
+          )}
         </div>
       ) : (
-      <div className={`ne-body${split ? " is-split" : ""}`}>
-        {/* Split view drops the contents list and the review panel, as the
-            design does, so the chat and the document each get real room.
-            Everything they hold is a toggle away. */}
-        {split ? (
-          <section className="ne-pane-chat" aria-label="Ask Nautilus">
-            <AskAiPanel
-              key={prd.id}
-              prd={prd}
-              standalone
-              chat={chat}
-              setChat={setChat}
-              onPropose={canPropose ? requestProposal : undefined}
-              proposing={proposing}
-              proposeError={proposeError}
-            />
-          </section>
-        ) : null}
+      <div className={`ne-body${panel ? " has-panel" : ""}`} ref={bodyRef}>
+        {/* The document is the page: white edge to edge, with its own small
+            toolbar. The side panel, when open, sits to its right. */}
+        <div className="ne-docpane">
+        <div className="ne-doc-toolbar">
+          {saveState ? (
+            <span className={`ne-savestate ${saveState[0]}`} role="status">
+              <span className="ne-savestate-dot" aria-hidden="true" />
+              {saveState[1]}
+              {saveState[2] ? <span className="ne-hide-sm"> · {saveState[2]}</span> : null}
+            </span>
+          ) : viewOnly ? (
+            <span className="ne-viewonly">View only{versionLabel ? ` · ${versionLabel}` : ""}</span>
+          ) : null}
+          {canEdit ? (
+            <button type="button" className="nw-btn nw-btn-primary nw-btn-sm" onClick={save} disabled={saving || !dirty}>
+              {saving ? "Saving…" : "Save"}
+            </button>
+          ) : null}
+          {aiDraft ? null : (
+            <MenuButton
+              label="Export"
+              className="nw-btn nw-btn-secondary nw-btn-sm ne-toolbar-end"
+              heading={dirty ? "Exports the last saved version" : "Download this PRD"}
+              items={exportItems}
+            >
+              <IconDownload />
+              Export
+            </MenuButton>
+          )}
+        </div>
+        <div className="ne-docrow">
         <nav aria-label="PRD sections" className="ne-outline">
           <button type="button" className="ne-outline-link" onClick={() => guard(onExit)}>
             <IconBack />
@@ -1237,86 +1461,98 @@ function EditorPage({
                 </section>
               );
             })}
+
+            {canEdit && missing.length ? (
+              <button type="button" className="ne-add-section" onClick={() => setAddingSection(true)}>
+                <IconPlus size={15} />
+                Add section
+              </button>
+            ) : null}
           </article>
         </main>
+        </div>
+        </div>
 
-        <aside className="ne-rail" aria-label="Review, AI and comments">
-          <div className="ne-rail-tabs" role="tablist" aria-label="Side panel">
-            <button
-              type="button"
-              role="tab"
-              id={`${ids}-tab-review`}
-              aria-selected={railTab === "review"}
-              aria-controls={`${ids}-panel-review`}
-              className={`ne-rail-tab${railTab === "review" ? " is-active" : ""}`}
-              onClick={() => setRailTab("review")}
-            >
-              Review
-              {toConfirm.length ? <span className="ne-rail-tab-count">{toConfirm.length}</span> : null}
-            </button>
-            {/* Anyone who can view the PRD may ask (Decision 5). can_request_ai
-                is for the AI actions that change it. Not on an unsaved draft,
-                since the chat reads the saved PRD. */}
-            {aiDraft || split ? null : (
-              <button
-                type="button"
-                role="tab"
-                id={`${ids}-tab-ai`}
-                aria-selected={railTab === "ai"}
-                aria-controls={`${ids}-panel-ai`}
-                className={`ne-rail-tab${railTab === "ai" ? " is-active" : ""}`}
-                onClick={() => setRailTab("ai")}
-              >
-                Ask AI
-              </button>
+        {panelSeen && (panel || !aiDraft) ? (
+          <aside
+            className="ne-panel"
+            hidden={!panel}
+            style={{ flexBasis: `${panelPct}%` }}
+            aria-label={PANEL_TITLES[panel] ?? "Side panel"}
+          >
+            {/* The divider: drag it, or focus it and use the arrow keys.
+                Double-click puts it back. */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize the side panel"
+              aria-valuemin={PANEL_MIN}
+              aria-valuemax={PANEL_MAX}
+              aria-valuenow={panelPct}
+              tabIndex={0}
+              className="ne-grip"
+              onPointerDown={startResize}
+              onPointerMove={moveResize}
+              onPointerUp={endResize}
+              onPointerCancel={endResize}
+              onKeyDown={nudgePanel}
+              onDoubleClick={() => resizePanel(PANEL_DEFAULT)}
+            />
+            {/* The chat brings its own header; Comments and Review cards carry
+                their own visible titles, so this one is for screen readers. */}
+            {!panel || panel === "ai" ? null : (
+              <div className="ne-panel-head">
+                <h2 id={`${ids}-panel-title`} className="nw-sr">
+                  {PANEL_TITLES[panel]}
+                </h2>
+                <button
+                  type="button"
+                  className="ne-panel-close"
+                  aria-label={`Close ${PANEL_TITLES[panel]}`}
+                  onClick={() => setPanel(null)}
+                >
+                  Close
+                  <IconX size={14} />
+                </button>
+              </div>
             )}
-            {/* Anyone who can view the PRD can read and post comments. Not on
-                an unsaved draft: comments belong to a saved version. */}
-            {aiDraft ? null : (
-              <button
-                type="button"
-                role="tab"
-                id={`${ids}-tab-comments`}
-                aria-selected={railTab === "comments"}
-                aria-controls={`${ids}-panel-comments`}
-                className={`ne-rail-tab${railTab === "comments" ? " is-active" : ""}`}
-                onClick={() => setRailTab("comments")}
-              >
-                Comments
-              </button>
-            )}
-          </div>
-
-          {/* Distinct keys: these panels are siblings, and a shared key keeps a
-              stale chat behind when split view takes it out of the rail. */}
-          {aiDraft || split ? null : (
+            <div className={`ne-panel-body${panel === "ai" ? " is-chat" : ""}`}>
+          {/* can_request_ai is for the AI actions that change the PRD; anyone
+              may ask. Not on an unsaved draft, since the chat reads the saved PRD. */}
+          {panel === "ai" && !aiDraft ? (
             <AskAiPanel
               key={`ai-${prd.id}`}
               prd={prd}
-              id={`${ids}-panel-ai`}
-              labelledBy={`${ids}-tab-ai`}
-              hidden={railTab !== "ai"}
+              standalone
+              onClose={() => setPanel(null)}
               chat={chat}
               setChat={setChat}
               onPropose={canPropose ? requestProposal : undefined}
               proposing={proposing}
               proposeError={proposeError}
             />
-          )}
+          ) : null}
+          {/* Stays mounted, also while the panel is closed, so a draft comment
+              survives a look at another view or closing the panel. Not on an
+              unsaved draft: comments belong to a saved version. */}
           {aiDraft ? null : (
             <CommentsPanel
               key={`comments-${prd.id}`}
               prd={prd}
               currentVersionId={detail?.currentVersion?.id ?? null}
               onSuggest={canSuggest ? requestFeedbackProposal : undefined}
+              onSuggestOptions={canSuggestOptions ? requestFeedbackOptions : undefined}
+              ownerView={prd.myRole === "owner"}
+              currentVersionNo={versionNo}
               onRefresh={onRetryDetail}
+              userId={userId}
               id={`${ids}-panel-comments`}
-              labelledBy={`${ids}-tab-comments`}
-              hidden={railTab !== "comments"}
+              labelledBy={`${ids}-panel-title`}
+              hidden={panel !== "comments"}
             />
           )}
-          {railTab === "ai" || railTab === "comments" ? null : (
-          <div role="tabpanel" id={`${ids}-panel-review`} aria-labelledby={`${ids}-tab-review`}>
+          {panel === "review" ? (
+          <div className="ne-review-panel">
           {canApprove ? (
             <YourReviewCard
               ref={reviewCard}
@@ -1326,7 +1562,7 @@ function EditorPage({
               onDecide={decideReview}
             />
           ) : null}
-          <ApprovalsCard approval={detail?.approval} userId={userId} />
+          <ApprovalsCard approval={detail?.approval} userId={userId} manage={manageReviewers} />
           <section className="ne-card" aria-labelledby={`${ids}-confirm`}>
             <div className="ne-card-head">
               <h2 id={`${ids}-confirm`} ref={confirmHeading} tabIndex={-1} className="ne-card-title">
@@ -1405,8 +1641,26 @@ function EditorPage({
             </section>
           ) : null}
           </div>
-          )}
-        </aside>
+          ) : null}
+            </div>
+          </aside>
+        ) : null}
+        {panel || aiDraft ? null : (
+          // Closed: a slim rail on the right edge opens Nautilus again.
+          <aside className="ne-panel-rail" aria-label="Side panel">
+            <button
+              type="button"
+              className="ne-panel-rail-btn"
+              aria-label="Open Ask Nautilus"
+              onClick={() => setPanel("ai")}
+            >
+              <IconSparkle size={17} />
+            </button>
+            <span className="ne-panel-rail-label" aria-hidden="true">
+              Open Nautilus
+            </span>
+          </aside>
+        )}
       </div>
       )}
 
@@ -1452,6 +1706,13 @@ function EditorPage({
         userId={userId}
         onSubmit={submitReview}
         onClose={() => setSubmitting(false)}
+      />
+
+      <AddSectionDialog
+        open={addingSection}
+        missing={missing}
+        onAdd={addSection}
+        onClose={() => setAddingSection(false)}
       />
 
       <LeaveDialog

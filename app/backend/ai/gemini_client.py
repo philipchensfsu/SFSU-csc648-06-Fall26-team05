@@ -72,12 +72,15 @@ class AIError(HTTPException):
     """
 
     def __init__(self, status_code: int, code: str):
+        """Create the error with the user-facing message for its code."""
         super().__init__(status_code=status_code, detail=MESSAGES[code])
         self.code = code
 
 
 @dataclass(frozen=True)
 class GeminiResult:
+    """A parsed Gemini reply with the model name and token counts."""
+
     data: object  # the parsed JSON reply: usually a dict
     model: str  # for generation_record.model
     prompt_tokens: int | None
@@ -85,11 +88,13 @@ class GeminiResult:
 
 
 def ai_enabled() -> bool:
+    """Return False when AI_ENABLED turns the AI features off."""
     value = os.environ.get("AI_ENABLED", "true").strip().lower()
     return value not in {"false", "0", "off", "no"}
 
 
 def model_name() -> str:
+    """Return the Gemini model to use (GEMINI_MODEL, or the default)."""
     return os.environ.get("GEMINI_MODEL", "").strip() or DEFAULT_MODEL
 
 
@@ -147,10 +152,14 @@ def _call_with_retry(client, model, prompt, config):
     for attempt in range(1, MAX_ATTEMPTS + 1):
         last_attempt = attempt == MAX_ATTEMPTS
         try:
-            return client.models.generate_content(model=model, contents=prompt, config=config)
+            return client.models.generate_content(
+                model=model, contents=prompt, config=config
+            )
         except genai_errors.APIError as exc:
             if exc.code in RETRYABLE_STATUS and not last_attempt:
-                logger.warning("Gemini returned %s on %s; retrying once", exc.code, model)
+                logger.warning(
+                    "Gemini returned %s on %s; retrying once", exc.code, model
+                )
                 _sleep(RETRY_DELAY_SECONDS)
                 continue
             raise _from_api_error(exc, model) from None
@@ -160,7 +169,9 @@ def _call_with_retry(client, model, prompt, config):
             raise AIError(502, "ai_provider_error") from None
         except httpx.TransportError as exc:
             if not last_attempt:
-                logger.warning("Couldn't reach Gemini (%s); retrying once", type(exc).__name__)
+                logger.warning(
+                    "Couldn't reach Gemini (%s); retrying once", type(exc).__name__
+                )
                 _sleep(RETRY_DELAY_SECONDS)
                 continue
             logger.error("Couldn't reach Gemini (%s)", type(exc).__name__)
@@ -169,7 +180,9 @@ def _call_with_retry(client, model, prompt, config):
 
 def _from_api_error(exc: genai_errors.APIError, model: str) -> AIError:
     reason = _error_reason(exc)
-    logger.error("Gemini error %s %s %s on %s", exc.code, exc.status, reason or "", model)
+    logger.error(
+        "Gemini error %s %s %s on %s", exc.code, exc.status, reason or "", model
+    )
     if exc.code == 429:
         return AIError(429, "ai_provider_rate_limited")
     if exc.code == 402:
@@ -205,7 +218,11 @@ def _parse_json(response, model: str):
     if finish == types.FinishReason.MAX_TOKENS:
         logger.warning("Gemini reply hit max_output_tokens on %s", model)
         raise AIError(502, "ai_invalid_output")
-    if finish not in (None, types.FinishReason.STOP, types.FinishReason.FINISH_REASON_UNSPECIFIED):
+    if finish not in (
+        None,
+        types.FinishReason.STOP,
+        types.FinishReason.FINISH_REASON_UNSPECIFIED,
+    ):
         # SAFETY, RECITATION, PROHIBITED_CONTENT and similar.
         logger.warning("Gemini stopped on %s: %s", model, finish)
         raise AIError(422, "ai_output_blocked")

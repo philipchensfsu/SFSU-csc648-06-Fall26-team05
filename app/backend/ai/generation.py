@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 
 from ai.gemini_client import AIError, GeminiResult, generate_json
 from ai.generation_output import validate_generated_document
+from ai.generation_schema import RESPONSE_SCHEMA
 from errors import ApiError
 from prd_document import (
     DocumentError,
@@ -44,13 +45,13 @@ from prd_document import (
 
 # Recorded on generation_record so a reply can be traced to the prompt that
 # produced it. Bump it whenever SYSTEM_INSTRUCTION, the prompt layout or
-# RESPONSE_SCHEMA changes.
+# RESPONSE_SCHEMA (ai/generation_schema.py) changes.
 PROMPT_VERSION = "prd-generate-v2"  # v2: saved context (prd_context) in the data
 
 DOC_SCHEMA_VERSION = 2
 
 # The seven fixed interview questions, in interview order. Must match
-# INTAKE_QUESTION_KEYS in main.py (a test checks this).
+# INTAKE_QUESTION_KEYS in routes/intake.py (a test checks this).
 INTAKE_KEYS = (
     "problem",
     "target_users",
@@ -62,7 +63,7 @@ INTAKE_KEYS = (
 )
 # Generating without these would mean inventing the PRD (A03).
 REQUIRED_INTAKE_KEYS = ("problem", "target_users", "goals")
-MAX_ANSWER_CHARS = 5000  # same as IntakeAnswerIn in main.py
+MAX_ANSWER_CHARS = 5000  # same as IntakeAnswerIn in routes/intake.py
 
 # The saved context (A02 prd_context) sent with each request, with the
 # database's bounds. change_log and source_ids stay out: an audit trail and
@@ -97,10 +98,16 @@ class SavedContext:
             return cls()
         stored = row.get("context_json") or {}
         lists = {key: stored.get(key) or [] for key in CONTEXT_LISTS}
-        if not isinstance(stored, dict) or any(not isinstance(value, list) for value in lists.values()):
-            raise GenerationInputError("The PRD's saved AI context isn't valid.", "invalid_context")
-        return cls(**{key: tuple(value) for key, value in lists.items()},
-                   running_summary=row.get("running_summary") or "")
+        if not isinstance(stored, dict) or any(
+            not isinstance(value, list) for value in lists.values()
+        ):
+            raise GenerationInputError(
+                "The PRD's saved AI context isn't valid.", "invalid_context"
+            )
+        return cls(
+            **{key: tuple(value) for key, value in lists.items()},
+            running_summary=row.get("running_summary") or "",
+        )
 
 
 @dataclass(frozen=True)
@@ -135,12 +142,15 @@ class GenerationInputError(ApiError):
     """The PRD isn't ready to generate from. Raised before any Gemini call."""
 
     def __init__(self, detail: str, code: str):
+        """Create a 422 error with the given message and code."""
         super().__init__(422, detail, code)
 
 
 def _section_list() -> str:
-    return "\n".join(f"{index}. {section_type} ({section_title(section_type)})"
-                     for index, section_type in enumerate(section_types(), start=1))
+    return "\n".join(
+        f"{index}. {section_type} ({section_title(section_type)})"
+        for index, section_type in enumerate(section_types(), start=1)
+    )
 
 
 SYSTEM_INSTRUCTION = f"""\
@@ -177,120 +187,6 @@ answers settle them. Write in the language of the answers.
 """
 
 
-def _text_node() -> dict:
-    return {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["text"]},
-            "text": {"type": "string", "minLength": 1},
-            "marks": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {"type": {"type": "string", "enum": ["bold", "italic"]}},
-                    "required": ["type"],
-                },
-            },
-        },
-        "required": ["type", "text"],
-    }
-
-
-def _paragraph() -> dict:
-    return {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["paragraph"]},
-            "content": {"type": "array", "items": _text_node(), "minItems": 1},
-        },
-        "required": ["type", "content"],
-    }
-
-
-def _heading() -> dict:
-    return {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["heading"]},
-            "attrs": {
-                "type": "object",
-                "properties": {"level": {"type": "integer", "enum": [2, 3]}},
-                "required": ["level"],
-            },
-            "content": {"type": "array", "items": _text_node(), "minItems": 1},
-        },
-        "required": ["type", "attrs", "content"],
-    }
-
-
-def _list(list_type: str) -> dict:
-    item = {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["listItem"]},
-            "content": {"type": "array", "items": _paragraph(), "minItems": 1},
-        },
-        "required": ["type", "content"],
-    }
-    return {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": [list_type]},
-            "content": {"type": "array", "items": item, "minItems": 1},
-        },
-        "required": ["type", "content"],
-    }
-
-
-def _response_schema() -> dict:
-    """What Gemini is asked to return.
-
-    A deliberately small subset of the shared spec (no tables, quotes, links
-    or nested lists) that is enough for a first draft. It only guides the
-    model: every reply is still checked against the full shared rules.
-    Written out without $ref so it doesn't depend on recursive-schema
-    support.
-    """
-    section = {
-        "type": "object",
-        "properties": {
-            "type": {"type": "string", "enum": ["section"]},
-            "attrs": {
-                "type": "object",
-                "properties": {"type": {"type": "string", "enum": section_types()}},
-                "required": ["type"],
-            },
-            "content": {
-                "type": "array",
-                "items": {"anyOf": [_paragraph(), _heading(), _list("bulletList"), _list("orderedList")]},
-                "minItems": 1,
-            },
-        },
-        "required": ["type", "attrs", "content"],
-    }
-    limits = load_spec()["limits"]
-    return {
-        "type": "object",
-        "properties": {
-            "title": {"type": "string", "minLength": 1, "maxLength": limits["max_title_chars"]["value"]},
-            "description": {"type": "string", "maxLength": limits["max_description_chars"]["value"]},
-            "document": {
-                "type": "object",
-                "properties": {
-                    "type": {"type": "string", "enum": ["doc"]},
-                    "content": {"type": "array", "items": section,
-                                "minItems": len(section_types()), "maxItems": len(section_types())},
-                },
-                "required": ["type", "content"],
-            },
-        },
-        "required": ["title", "description", "document"],
-    }
-
-
-RESPONSE_SCHEMA = _response_schema()
-
-
 def build_prompt(inputs: GenerationInput) -> str:
     """The user message: the PRD's inputs as one JSON object.
 
@@ -301,7 +197,9 @@ def build_prompt(inputs: GenerationInput) -> str:
     data = {
         "working_title": inputs.title,
         "description": inputs.description,
-        "interview_answers": {key: (inputs.answers.get(key) or "") for key in INTAKE_KEYS},
+        "interview_answers": {
+            key: (inputs.answers.get(key) or "") for key in INTAKE_KEYS
+        },
         "saved_context": {
             **{key: list(getattr(inputs.context, key)) for key in CONTEXT_LISTS},
             "running_summary": inputs.context.running_summary,
@@ -311,17 +209,33 @@ def build_prompt(inputs: GenerationInput) -> str:
 
 
 def check_inputs(inputs: GenerationInput) -> None:
+    """Check the intake answers and saved context before calling the model.
+
+    Raises:
+        GenerationInputError: If an answer is unknown, not text or too long, the
+            context is invalid, or a required answer is missing.
+    """
     unknown = set(inputs.answers) - set(INTAKE_KEYS)
     if unknown:
-        raise GenerationInputError("The interview answers include an unknown question.", "validation_error")
+        raise GenerationInputError(
+            "The interview answers include an unknown question.", "validation_error"
+        )
     for key in INTAKE_KEYS:
         answer = inputs.answers.get(key) or ""
         if not isinstance(answer, str):
-            raise GenerationInputError(f"The answer to {key} must be text.", "validation_error")
+            raise GenerationInputError(
+                f"The answer to {key} must be text.", "validation_error"
+            )
         if len(answer) > MAX_ANSWER_CHARS:
-            raise GenerationInputError(f"The answer to {key} is too long.", "validation_error")
+            raise GenerationInputError(
+                f"The answer to {key} is too long.", "validation_error"
+            )
     check_context(inputs.context)
-    missing = [key for key in REQUIRED_INTAKE_KEYS if not (inputs.answers.get(key) or "").strip()]
+    missing = [
+        key
+        for key in REQUIRED_INTAKE_KEYS
+        if not (inputs.answers.get(key) or "").strip()
+    ]
     if missing:
         raise GenerationInputError(
             "Answer the problem, target users and goals questions before generating.",
@@ -330,16 +244,27 @@ def check_inputs(inputs: GenerationInput) -> None:
 
 
 def check_context(context: SavedContext) -> None:
+    """Check the PRD's saved AI context is within its limits.
+
+    Raises:
+        GenerationInputError: If the context is malformed.
+    """
     # The database already enforces these bounds; checking again keeps a
     # malformed row from reaching the model.
     for key in CONTEXT_LISTS:
         items = getattr(context, key)
         if len(items) > MAX_CONTEXT_ITEMS or any(
-                not isinstance(item, str) or not 1 <= len(item) <= MAX_CONTEXT_ITEM_CHARS for item in items):
-            raise GenerationInputError("The PRD's saved AI context isn't valid.", "invalid_context")
+            not isinstance(item, str) or not 1 <= len(item) <= MAX_CONTEXT_ITEM_CHARS
+            for item in items
+        ):
+            raise GenerationInputError(
+                "The PRD's saved AI context isn't valid.", "invalid_context"
+            )
     summary = context.running_summary
     if not isinstance(summary, str) or len(summary) > MAX_RUNNING_SUMMARY_CHARS:
-        raise GenerationInputError("The PRD's saved AI context isn't valid.", "invalid_context")
+        raise GenerationInputError(
+            "The PRD's saved AI context isn't valid.", "invalid_context"
+        )
 
 
 def generate_proposal(
@@ -381,9 +306,13 @@ def _checked_reply(result: GeminiResult) -> tuple[str, str, dict]:
     title, description, document = data["title"], data["description"], data["document"]
     errors: list[DocumentError] = list(validate_title(title))
     if not isinstance(description, str):
-        errors.append(DocumentError("invalid_type", "", "The description must be a string."))
+        errors.append(
+            DocumentError("invalid_type", "", "The description must be a string.")
+        )
     elif len(description) > load_spec()["limits"]["max_description_chars"]["value"]:
-        errors.append(DocumentError("description_too_long", "", "The description is too long."))
+        errors.append(
+            DocumentError("description_too_long", "", "The description is too long.")
+        )
     errors.extend(validate_generated_document(document))
     if errors:
         _reject(result.model, sorted({error.code for error in errors}))
@@ -392,7 +321,9 @@ def _checked_reply(result: GeminiResult) -> tuple[str, str, dict]:
 
 def _reject(model: str, codes: list[str]):
     # Codes only: the reply itself can echo the user's answers.
-    logger.warning("Gemini reply on %s failed generation checks: %s", model, ", ".join(codes))
+    logger.warning(
+        "Gemini reply on %s failed generation checks: %s", model, ", ".join(codes)
+    )
     raise AIError(502, "ai_invalid_output")
 
 
@@ -404,11 +335,17 @@ def with_ai_generated_marks(document: dict, generation_record_id: str) -> dict:
     rejects it in replies).
     """
     marked = copy.deepcopy(document)
-    mark = {"type": "ai_generated", "attrs": {"generation_record_id": generation_record_id}}
+    mark = {
+        "type": "ai_generated",
+        "attrs": {"generation_record_id": generation_record_id},
+    }
 
     def walk(node: dict) -> None:
         if node.get("type") == "text":
-            node["marks"] = [*node.get("marks", []), dict(mark, attrs=dict(mark["attrs"]))]
+            node["marks"] = [
+                *node.get("marks", []),
+                dict(mark, attrs=dict(mark["attrs"])),
+            ]
             return
         for child in node.get("content", []):
             walk(child)
