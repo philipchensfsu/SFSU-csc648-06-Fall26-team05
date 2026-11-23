@@ -1,0 +1,235 @@
+--- a/app/frontend/src/App.jsx
++++ b/app/frontend/src/App.jsx
+@@ -20,6 +20,7 @@
+   typeof window !== "undefined" &&
+   window.location.hash.includes("type=recovery");
+ 
++/** Restores the Supabase session and routes users through authentication and the Nautilus workspace. */
+ function App() {
+   const [session, setSession] = useState(null);
+   // Without Supabase there is no session to wait for, so start off resolved.
+--- a/app/frontend/src/nautilus/app/PeoplePage.jsx
++++ b/app/frontend/src/nautilus/app/PeoplePage.jsx
+@@ -33,6 +33,7 @@
+ // their org role, department, manager and title. The directory lists active
+ // members only and no route lists deactivated ones, so someone deactivated
+ // here stays visible until the page is left, and can't be reactivated yet.
++/** Displays the organization directory and opens authorized people-management controls. */
+ function PeoplePage({ organization, userId, recheckOrganization }) {
+   const orgId = organization.organization_id;
+   const [directory, setDirectory] = useState(null);
+--- a/app/frontend/src/nautilus/app/InboxPage.jsx
++++ b/app/frontend/src/nautilus/app/InboxPage.jsx
+@@ -110,6 +110,7 @@
+ 
+ // Assignments, review requests, comments and decisions on PRDs this person is
+ // part of. There's no realtime: the list is read when the page opens.
++/** Displays activity notifications and approval work, reports unread counts, and opens linked PRDs. */
+ function InboxPage({ onUnreadChange, onOpenPrdById }) {
+   const [tab, setTab] = useState("all");
+   const [items, setItems] = useState(null);
+--- a/app/frontend/src/nautilus/app/notifications.js
++++ b/app/frontend/src/nautilus/app/notifications.js
+@@ -23,6 +23,7 @@
+ // One notification as a sentence, in the order it's read:
+ // { actor } { verb } { title } { after }. Without an actor the sentence starts
+ // at the title. `actor_name` is null for system and AI actions.
++/** Builds the text fragments used to display a notification. */
+ export function notificationSentence(item) {
+   const actor = item.actor_name ?? null;
+   const payload = item.payload ?? {};
+@@ -63,6 +64,7 @@
+ }
+ 
+ // The icon and its colors, following the Inbox design.
++/** Selects an icon and visual tone for a notification type. */
+ export function notificationTone(type) {
+   switch (type) {
+     case "changes_requested":
+@@ -81,6 +83,7 @@
+ }
+ 
+ // The small line under the sentence: the section, if it has one, then the time.
++/** Formats the notification section and time metadata. */
+ export function notificationMeta(item) {
+   const section = sectionLabel(item.payload?.section_type);
+   const when = formatDayTime(item.updated_at);
+@@ -88,6 +91,7 @@
+ }
+ 
+ // Today, Yesterday, then Earlier, keeping the API's order inside each group.
++/** Groups notifications by day while preserving their order. */
+ export function groupNotifications(items, now = new Date()) {
+   const groups = [
+     { label: "Today", items: [] },
+@@ -103,6 +107,7 @@
+ }
+ 
+ // What an approval card says about its review round, from the PRD's `approval`.
++/** Summarizes decisions and pending reviewers for an approval round. */
+ export function approvalSummary(approval) {
+   const reviewers = approval?.reviewers ?? [];
+   if (!reviewers.length) return "No reviewers yet.";
+--- a/app/frontend/src/nautilus/app/editor/ShareDialog.jsx
++++ b/app/frontend/src/nautilus/app/editor/ShareDialog.jsx
+@@ -399,6 +399,7 @@
+ 
+ // "Share": owners and org admins manage who's on a PRD and their roles
+ // (Decisions 1, 3 and 4).
++/** Displays PRD access and lets authorized users manage individual and whole-team sharing. */
+ export function ShareDialog({ open, prd, organizationId, userId, onChanged, onClose }) {
+   const [busy, setBusy] = useState(false);
+   return (
+--- a/app/frontend/src/nautilus/app/editor/CommentsPanel.jsx
++++ b/app/frontend/src/nautilus/app/editor/CommentsPanel.jsx
+@@ -114,6 +114,7 @@
+ //   userId            the signed-in person, left out of the @mention list
+ //                     (mentioning yourself notifies no one)
+ //   id, labelledBy, hidden   side panel wiring from EditorPage
++/** Shows versioned PRD comments, posts feedback, and lets owners request AI suggestions for selected comments. */
+ export default function CommentsPanel({
+   prd,
+   currentVersionId,
+--- a/app/frontend/src/nautilus/app/editor/ReviewPanel.jsx
++++ b/app/frontend/src/nautilus/app/editor/ReviewPanel.jsx
+@@ -14,6 +14,7 @@
+ 
+ // A reviewer decides once per round. `choice` is "approved",
+ // "changes_requested" or null; the header's buttons can set it too.
++/** Displays the current reviewer’s actions and accepts a decision through the supplied callbacks. */
+ export const YourReviewCard = forwardRef(function YourReviewCard({ choice, blocked, onChoose, onDecide }, ref) {
+   const [explanation, setExplanation] = useState("");
+   const [busy, setBusy] = useState(false);
+@@ -212,6 +213,7 @@
+ // With `manage` ({ organizationId, prdId, owners, onReplace(userId, newId),
+ // onRemove(userId) }), owners and org admins can replace or remove a reviewer
+ // who hasn't decided yet while the round is open.
++/** Displays reviewer decisions and pending assignments, with management actions when provided. */
+ export function ApprovalsCard({ approval, userId, manage = null }) {
+   const ids = useId();
+   // The reviewer whose replace or remove is out; one at a time.
+--- a/app/frontend/src/nautilus/app/editor/SubmitReviewDialog.jsx
++++ b/app/frontend/src/nautilus/app/editor/SubmitReviewDialog.jsx
+@@ -5,6 +5,7 @@
+ 
+ // Checkboxes for choosing reviewers. `selected` is a Set of user ids. With
+ // `single`, radio buttons for picking exactly one (a replacement reviewer).
++/** Displays reviewer candidates and reports selection changes in single- or multiple-selection mode. */
+ export function ReviewerPicker({ candidates, selected, userId, disabled, single = false, onChange }) {
+   const group = useId();
+   function toggle(id) {
+@@ -141,6 +142,7 @@
+ 
+ // "Submit for review": owners and org admins send the saved version to the
+ // reviewers they pick.
++/** Loads eligible reviewers and submits the selected reviewers for an open PRD. */
+ export function SubmitReviewDialog({ open, prd, organizationId, owners, userId, onSubmit, onClose }) {
+   const [busy, setBusy] = useState(false);
+   return (
+--- a/app/frontend/src/nautilus/app/details/details.js
++++ b/app/frontend/src/nautilus/app/details/details.js
+@@ -6,11 +6,13 @@
+ const SECTION_LABELS = Object.fromEntries(PRD_SECTIONS.map((section) => [section.id, section.label]));
+ 
+ // "Goals, Success metrics" style labels for a version's changed_sections.
++/** Returns the display label for a PRD section type. */
+ export function sectionLabel(type) {
+   return SECTION_LABELS[type] ?? type;
+ }
+ 
+ // The tag a version shows next to who saved it. A plain edit shows none.
++/** Returns the display label for a saved version’s origin. */
+ export function originLabel(origin) {
+   if (origin === "ai_generated") return "AI suggestion accepted";
+   if (origin === "checkpoint") return "Saved before history";
+@@ -19,6 +21,7 @@
+ 
+ // Who saved a version. The actor is null for the checkpoint that kept
+ // content saved before history existed, and when the account was deleted.
++/** Returns the display name for a saved version’s author. */
+ export function versionAuthor(version) {
+   if (version?.actor?.name) return version.actor.name;
+   if (version?.origin === "checkpoint") return "Nautilus";
+@@ -27,6 +30,7 @@
+ 
+ // Everyone who saved one of the loaded versions, most saves first, then by
+ // name. People without an account any more aren't listed.
++/** Collects contributors from the supplied version records. */
+ export function contributors(versions) {
+   const byId = new Map();
+   for (const version of versions ?? []) {
+@@ -52,10 +56,12 @@
+   done: ["in_progress"],
+ };
+ 
++/** Checks whether a work-status transition is allowed. */
+ export function canMoveWorkStatus(from, to) {
+   return (NEXT_WORK_STATUS[from ?? "not_started"] ?? []).includes(to);
+ }
+ 
++/** Returns the display label for the current work status. */
+ export function workStatusLabel(status) {
+   return WORK_STATUSES.find((item) => item.id === status)?.label ?? "Not started";
+ }
+@@ -67,12 +73,14 @@
+   { id: "low", label: "Low" },
+ ];
+ 
++/** Returns the display label for a PRD priority. */
+ export function priorityLabel(priority) {
+   return PRIORITIES.find((item) => item.id === priority)?.label ?? "Not set";
+ }
+ 
+ // Teams a PRD can belong to: the org's active teams, by name. An archived
+ // team that's still set on the PRD stays in the list so it shows.
++/** Builds team choices while keeping the current team available. */
+ export function teamOptions(teams, currentId) {
+   return (teams ?? [])
+     .filter((team) => !team.archived || team.id === currentId)
+@@ -80,6 +88,7 @@
+     .sort((a, b) => a.label.localeCompare(b.label));
+ }
+ 
++/** Resolves a team identifier to its display name. */
+ export function teamName(teams, id) {
+   if (!id) return "No team";
+   return (teams ?? []).find((team) => team.id === id)?.name ?? "A team you can’t see";
+@@ -88,11 +97,13 @@
+ const ROLE_ORDER = { owner: 0, editor: 1, viewer: 2 };
+ const ROLE_LABEL = { owner: "Owner", editor: "Editor", viewer: "Viewer" };
+ 
++/** Returns the display label for a membership role. */
+ export function roleLabel(role) {
+   return ROLE_LABEL[role] ?? role;
+ }
+ 
+ // Owners first, then editors, then viewers, each by name.
++/** Returns a copy of the member list sorted by role and name. */
+ export function sortMembers(members) {
+   return [...(members ?? [])].sort(
+     (a, b) =>
+@@ -121,12 +132,14 @@
+ 
+ // Which chip an event belongs to, for its icon. Types we don't know yet get
+ // "other" and still show with their summary.
++/** Maps an event type to an activity category. */
+ export function activityKind(type) {
+   return ACTIVITY_FILTERS.find((filter) => filter.id !== "all" && filter.types.includes(type))?.id ?? "other";
+ }
+ 
+ // Where an event can take you: a saved version opens in History, a comment
+ // opens the editor's Comments tab. null when there's nothing to open.
++/** Returns a navigation target for an event with an associated comment or version. */
+ export function activityLink(event) {
+   if (event?.version_id && (event.type === "version_saved" || event.type === "ai_applied")) {
+     return { kind: "version", versionId: event.version_id, label: "View version" };
+--- a/app/frontend/src/nautilus/app/details/PrdDetailsPage.jsx
++++ b/app/frontend/src/nautilus/app/details/PrdDetailsPage.jsx
+@@ -56,6 +56,7 @@
+ //   onHome()        back to the dashboard
+ //   onBack()        when opened from the editor: a "Back to editor" button at the top, in place of
+ //                   the bar's "Open editor", which would repeat it
++/** Shows PRD metadata, membership, review progress, activity, and revision history. */
+ export default function PrdDetailsPage({ prd, view, organizationId, userId, onNavigate, onOpenEditor, onHome, onBack }) {
+   const prdId = prd.id;
+   const [detail, setDetail] = useState(null);
